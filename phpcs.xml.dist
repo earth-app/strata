@@ -1,0 +1,84 @@
+<?xml version="1.0" ?>
+<ruleset name="earth-app-strata">
+	<description>
+		Drupal coding standards, minus every sniff that fights this repo's layout.
+	</description>
+
+	<file>src</file>
+	<file>modules</file>
+	<file>tests</file>
+	<arg name="extensions" value="php,module,install,inc" />
+	<arg value="sp" />
+	<arg name="colors" />
+
+	<rule ref="Drupal">
+		<!-- comment house style: lowercase, no trailing period -->
+		<exclude name="Drupal.Commenting.InlineComment.NotCapital" />
+		<exclude name="Drupal.Commenting.InlineComment.InvalidEndChar" />
+
+		<!-- layout sniffs lose to the house style: tabs at 4, 100 cols, brace on its own line -->
+		<exclude name="Generic.PHP.UpperCaseConstant.Found" />
+		<exclude name="Generic.WhiteSpace.DisallowTabIndent" />
+		<exclude name="Drupal.WhiteSpace.ScopeIndent" />
+		<exclude name="Drupal.WhiteSpace.ObjectOperatorIndent" />
+		<exclude name="Drupal.WhiteSpace.ScopeClosingBrace" />
+		<exclude name="Drupal.Arrays.Array.ArrayIndentation" />
+		<exclude name="Drupal.Classes.ClassDeclaration.BraceOnNewLine" />
+		<exclude name="Drupal.Classes.ClassDeclaration.CloseBraceAfterBody" />
+		<exclude name="Drupal.Functions.MultiLineFunctionDeclaration.BraceOnNewLine" />
+		<exclude name="Drupal.Functions.MultiLineFunctionDeclaration.Indent" />
+		<exclude name="Drupal.ControlStructures.ControlSignature.NewlineAfterCloseBrace" />
+		<exclude name="Squiz.WhiteSpace.FunctionSpacing.AfterLast" />
+		<exclude name="Squiz.WhiteSpace.FunctionSpacing.BeforeFirst" />
+		<exclude name="Drupal.Classes.UseGlobalClass.RedundantUseStatement" />
+
+		<!--
+			demands a leading-backslash FQN in @param/@return/@throws. this repo imports every class
+			with `use` and refers to the short name everywhere including docblocks, so the sniff can
+			never pass without reversing that rule.
+		-->
+		<exclude name="Drupal.Commenting.DataTypeNamespace" />
+
+		<!-- #region / #endregion folding markers read as perl comments to this sniff -->
+		<exclude name="Drupal.Commenting.InlineComment.WrongStyle" />
+
+		<!--
+			fires on a class imported only so a docblock can name it by its short form. the house
+			rule requires that import, so "unused" here means "used exactly as intended".
+		-->
+		<exclude name="Drupal.Classes.UnusedUseStatement" />
+	</rule>
+
+	<rule ref="DrupalPractice" />
+
+	<rule ref="Drupal.Files.LineLength">
+		<properties>
+			<property name="lineLimit" value="100" />
+		</properties>
+	</rule>
+
+	<!--
+		a test's intent is its #[TestDox] string, which phpcs cannot see. requiring a docblock on
+		every test method as well duplicates it and goes stale independently.
+	-->
+	<rule ref="Drupal.Commenting.FunctionComment.Missing">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Drupal.Commenting.ClassComment.Missing">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Drupal.Commenting.DocComment.MissingShort">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Drupal.Commenting.FunctionComment.MissingReturnComment">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<!--
+		with no docblock on a test method the closest comment is the #region marker above it, which
+		this sniff reads as a malformed function comment. src/ methods all carry a real docblock, so
+		the sniff still has something to check there.
+	-->
+	<rule ref="Drupal.Commenting.FunctionComment.WrongStyle">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+</ruleset>
