@@ -1,0 +1,646 @@
+<?php
+
+/**
+ * @file
+ * Install, schema and requirements hooks for Strata.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\strata\Codec\CodecCatalog;
+use Drupal\strata\Codec\CodecProfile;
+use Drupal\strata\Codec\CodecRegistry;
+
+/**
+ * Implements hook_schema().
+ *
+ * Every table here is derived state. The commit log, the trees, the frames and the segments all
+ * live in the object store; these tables are an index over them so a page load does not have to
+ * list a bucket. `drush strata:reindex` rebuilds all of it from the store, which is what makes it
+ * safe for an uninstall to drop them.
+ *
+ * Two tables are the exception and are exported by hook_uninstall() before the drop, because
+ * nothing in the bucket can reproduce them: strata_restore_log records who restored what, and
+ * strata_health records what went wrong and when.
+ */
+function strata_schema(): array
+{
+	$schema = [];
+
+	$schema['strata_journal'] = [
+		'description' => 'Captured operations waiting to be flushed into a segment.',
+		'fields' => [
+			'sequence' => [
+				'type' => 'serial',
+				'not null' => true,
+				'description' => 'Monotonic capture order.',
+			],
+			'microtime' => [
+				'type' => 'int',
+				'size' => 'big',
+				'not null' => true,
+				'description' => 'Unix microseconds the operation was captured at.',
+			],
+			'realm' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'Realm value from the Realm enum.',
+			],
+			'subject' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'description' => 'What changed, such as node:42 or system.site.',
+			],
+			'verb' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'Verb value from the Verb enum.',
+			],
+			'actor' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => false,
+				'description' => 'Drupal user id responsible, or NULL for unattended work.',
+			],
+			'request_id' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Groups operations captured in one request.',
+			],
+			'payload_hash' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Content address of the captured value.',
+			],
+			'parent_hash' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Content address of the value this one replaces.',
+			],
+			'payload_length' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Decoded length of the captured value.',
+			],
+			'label' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'default' => '',
+				'description' => 'Human summary shown in the timeline.',
+			],
+			'fields' => [
+				'type' => 'text',
+				'size' => 'normal',
+				'not null' => false,
+				'description' => 'JSON list of changed top-level field names.',
+			],
+			'payload' => [
+				'type' => 'blob',
+				'size' => 'big',
+				'not null' => false,
+				'description' => 'The captured value, held until the flush stores it.',
+			],
+		],
+		'primary key' => ['sequence'],
+		'indexes' => [
+			'microtime' => ['microtime'],
+			'realm_subject' => ['realm', 'subject'],
+			'request' => ['request_id'],
+		],
+	];
+
+	$schema['strata_commit'] = [
+		'description' => 'Index over the commits in the object store.',
+		'fields' => [
+			'id' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Commit content address.',
+			],
+			'parent' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Parent commit, or NULL for the root of history.',
+			],
+			'tree' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Root tree node address.',
+			],
+			'microtime' => [
+				'type' => 'int',
+				'size' => 'big',
+				'not null' => true,
+				'description' => 'Unix microseconds the commit was sealed at.',
+			],
+			'label' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'default' => '',
+				'description' => 'Human summary of what the commit covers.',
+			],
+			'actor' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => false,
+				'description' => 'Drupal user id responsible, or NULL.',
+			],
+			'operations' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Operations the commit covers.',
+			],
+			'raw_bytes' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Decoded bytes the operations describe.',
+			],
+			'stored_bytes' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Bytes written after dedup, compression and sealing.',
+			],
+			'level' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Compaction level.',
+			],
+			'is_base' => [
+				'type' => 'int',
+				'size' => 'tiny',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Whether a replay can stop at this commit.',
+			],
+			'segment_key' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => false,
+				'description' => 'Object key of the segment this commit sealed.',
+			],
+		],
+		'primary key' => ['id'],
+		'indexes' => [
+			'microtime' => ['microtime'],
+			'parent' => ['parent'],
+			'level_microtime' => ['level', 'microtime'],
+			'base' => ['is_base', 'microtime'],
+		],
+	];
+
+	$schema['strata_frame'] = [
+		'description' => 'Deduplication and reference index over stored frames.',
+		'fields' => [
+			'hash' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Content address of the decoded frame.',
+			],
+			'raw_size' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Decoded size in bytes.',
+			],
+			'stored_size' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Encoded size after compression and sealing.',
+			],
+			'codec' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'Codec id the frame was compressed with.',
+			],
+			'cipher' => [
+				'type' => 'varchar',
+				'length' => 32,
+				'not null' => true,
+				'description' => 'Cipher id the frame was sealed with.',
+			],
+			'dictionary' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Dictionary id the codec needs, or NULL.',
+			],
+			'pack' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Pack the frame lives inside, or NULL when standalone.',
+			],
+			'offset' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Byte offset within the pack.',
+			],
+			'refs' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'How many segments, trees or file maps point at this frame.',
+			],
+			'created' => [
+				'type' => 'int',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix timestamp the frame was first stored.',
+			],
+		],
+		'primary key' => ['hash'],
+		'indexes' => [
+			'pack' => ['pack'],
+			'orphans' => ['refs'],
+			'dictionary' => ['dictionary'],
+		],
+	];
+
+	$schema['strata_lock'] = [
+		'description' => 'Leases that keep two flushes or compactions from overlapping.',
+		'fields' => [
+			'name' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Lease name.',
+			],
+			'holder' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Opaque token identifying the holder.',
+			],
+			'expires' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp the lease expires at.',
+			],
+		],
+		'primary key' => ['name'],
+		'indexes' => ['expires' => ['expires']],
+	];
+
+	$schema['strata_restore_log'] = [
+		'description' => 'Audit of every restore. Exported before an uninstall drops it.',
+		'fields' => [
+			'id' => ['type' => 'serial', 'not null' => true, 'description' => 'Row id.'],
+			'started' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp the restore began.',
+			],
+			'finished' => [
+				'type' => 'int',
+				'not null' => false,
+				'description' => 'Unix timestamp it ended, or NULL while running.',
+			],
+			'actor' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => false,
+				'description' => 'Drupal user id who ran it.',
+			],
+			'target' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Commit the restore targeted.',
+			],
+			'pre_snapshot' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Commit taken before the restore, so it can be undone.',
+			],
+			'scope' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'description' => 'What the restore was scoped to.',
+			],
+			'mode' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'Either logical or physical.',
+			],
+			'outcome' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'One of pending, succeeded, failed or refused.',
+			],
+			'restored' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects restored.',
+			],
+			'skipped' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects left alone because they were degraded.',
+			],
+			'detail' => [
+				'type' => 'text',
+				'size' => 'big',
+				'not null' => false,
+				'description' => 'JSON manifest of what changed.',
+			],
+		],
+		'primary key' => ['id'],
+		'indexes' => [
+			'started' => ['started'],
+			'target' => ['target'],
+			'outcome' => ['outcome'],
+		],
+	];
+
+	$schema['strata_health'] = [
+		'description' => 'Findings the tripwires raised. Exported before an uninstall drops it.',
+		'fields' => [
+			'id' => ['type' => 'serial', 'not null' => true, 'description' => 'Row id.'],
+			'code' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Stable dotted finding code.',
+			],
+			'severity' => [
+				'type' => 'int',
+				'size' => 'tiny',
+				'not null' => true,
+				'description' => 'Finding severity ordinal.',
+			],
+			'scope' => [
+				'type' => 'varchar',
+				'length' => 128,
+				'not null' => true,
+				'default' => '',
+				'description' => 'What the finding was about.',
+			],
+			'context' => [
+				'type' => 'varchar',
+				'length' => 400,
+				'not null' => true,
+				'default' => '',
+				'description' => 'Short human detail, truncated on write.',
+			],
+			'rung' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'default' => 'observe',
+				'description' => 'Current repair rung for this code.',
+			],
+			'created' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp the finding was recorded.',
+			],
+			'resolved' => [
+				'type' => 'int',
+				'not null' => false,
+				'description' => 'Unix timestamp it was resolved, or NULL while open.',
+			],
+		],
+		'primary key' => ['id'],
+		'indexes' => [
+			'code_created' => ['code', 'created'],
+			'open' => ['resolved', 'severity'],
+		],
+	];
+
+	$schema['strata_watermark'] = [
+		'description' => 'Per-table watermarks the reconciler compares against to detect drift.',
+		'fields' => [
+			'table_name' => [
+				'type' => 'varchar',
+				'length' => 128,
+				'not null' => true,
+				'description' => 'The table being watched.',
+			],
+			'row_count' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Row count at the last check.',
+			],
+			'max_key' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Highest primary key seen.',
+			],
+			'max_changed' => [
+				'type' => 'int',
+				'not null' => false,
+				'description' => 'Highest changed timestamp seen.',
+			],
+			'digest' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Sampled digest of the table contents.',
+			],
+			'checked' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp of the last check.',
+			],
+		],
+		'primary key' => ['table_name'],
+		'indexes' => ['checked' => ['checked']],
+	];
+
+	$schema['strata_classification'] = [
+		'description' => 'How each discovered ephemeral namespace is classified.',
+		'fields' => [
+			'pattern' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'description' => 'Glob matching the keys this rule covers.',
+			],
+			'classification' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'One of authoritative, derivable or unclassified.',
+			],
+			'source' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'Either heuristic or human.',
+			],
+			'keys_seen' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Keys observed under this pattern.',
+			],
+			'bytes_seen' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Bytes observed under this pattern.',
+			],
+			'decided' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp the classification was set.',
+			],
+		],
+		'primary key' => ['pattern'],
+		'indexes' => ['classification' => ['classification']],
+	];
+
+	return $schema;
+}
+
+/**
+ * Implements hook_requirements().
+ *
+ * Reports what the compression and encryption layers can actually do on this host, so a site
+ * discovers a missing extension on the status report rather than at the first flush.
+ */
+function strata_requirements(string $phase): array
+{
+	$requirements = [];
+
+	if ($phase !== 'runtime') {
+		return $requirements;
+	}
+
+	$registry = CodecRegistry::withShippedCodecs();
+	$profiles = CodecCatalog::profiles($registry);
+
+	$usable = array_filter($profiles, static fn(CodecProfile $p): bool => $p->perFrame);
+	$missing = array_filter($profiles, static fn(CodecProfile $p): bool => !$p->perFrame);
+
+	$hasDictionary = $registry->dictionaryWriter() !== null;
+	$usableIds = implode(', ', array_map(static fn(CodecProfile $p): string => $p->id, $usable));
+	$missingIds = implode(', ', array_map(static fn(CodecProfile $p): string => $p->id, $missing));
+
+	$requirements['strata_codecs'] = [
+		'title' => new TranslatableMarkup('Strata compression'),
+		'value' => new TranslatableMarkup('@codec on the flush path; usable: @usable', [
+			'@codec' => $registry->writer()->id(),
+			'@usable' => $usableIds ?: 'none',
+		]),
+		'severity' => $hasDictionary ? REQUIREMENT_OK : REQUIREMENT_WARNING,
+		'description' => $hasDictionary
+			? new TranslatableMarkup('Delta coding is available.')
+			: new TranslatableMarkup(
+				'No dictionary-capable codec is available, so delta coding is off. Missing: @missing.',
+				['@missing' => $missingIds ?: 'none'],
+			),
+	];
+
+	$requirements['strata_sodium'] = [
+		'title' => new TranslatableMarkup('Strata encryption'),
+		'value' => extension_loaded('sodium')
+			? new TranslatableMarkup('Available')
+			: new TranslatableMarkup('Unavailable'),
+		'severity' => extension_loaded('sodium') ? REQUIREMENT_OK : REQUIREMENT_ERROR,
+		'description' => extension_loaded('sodium')
+			? new TranslatableMarkup('XChaCha20-Poly1305 is available through ext-sodium.')
+			: new TranslatableMarkup('ext-sodium is not loaded, so frames cannot be encrypted.'),
+	];
+
+	return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Runs before hook_schema()'s tables are dropped, so the two tables nothing in the bucket can
+ * reproduce are written to the file system first. The object store itself is never touched: an
+ * uninstall removes the local index, not the backups.
+ */
+function strata_uninstall(): void
+{
+	$directory = 'public://strata-uninstall-' . date('Ymd-His');
+	$filesystem = Drupal::service('file_system');
+	$database = Drupal::database();
+	$logger = Drupal::logger('strata');
+
+	try {
+		$filesystem->prepareDirectory(
+			$directory,
+			$filesystem::CREATE_DIRECTORY | $filesystem::MODIFY_PERMISSIONS,
+		);
+	} catch (Throwable $e) {
+		$logger->error('Cannot create %dir to export the Strata audit tables: %message', [
+			'%dir' => $directory,
+			'%message' => $e->getMessage(),
+		]);
+
+		return;
+	}
+
+	foreach (['strata_restore_log', 'strata_health'] as $table) {
+		try {
+			$rows = $database
+				->select($table, 't')
+				->fields('t')
+				->execute()
+				?->fetchAll(PDO::FETCH_ASSOC);
+			$path = $directory . '/' . $table . '.json';
+
+			file_put_contents($path, (string) json_encode($rows ?? [], JSON_PRETTY_PRINT));
+			$logger->notice('Exported %count rows of %table to %path before uninstall.', [
+				'%count' => count($rows ?? []),
+				'%table' => $table,
+				'%path' => $path,
+			]);
+		} catch (Throwable $e) {
+			$logger->error('Cannot export %table before uninstall: %message', [
+				'%table' => $table,
+				'%message' => $e->getMessage(),
+			]);
+		}
+	}
+}
