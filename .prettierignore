@@ -1,0 +1,8 @@
+node_modules/
+vendor/
+coverage/
+bun.lock
+LICENSE
+.husky/
+.phpdoc/
+docs/
