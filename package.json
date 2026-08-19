@@ -1,0 +1,37 @@
+{
+	"name": "@earth-app/strata",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Tooling only. The published artifact is the composer package earth-app/strata.",
+	"scripts": {
+		"prettier": "prettier --write .",
+		"prettier:check": "prettier --check .",
+		"docs": "./vendor/bin/phpdoc -d src -t docs --title=\"earth-app/strata\" --template=\"clean\" && cp .phpdoc/template/favicon.png docs/favicon.png && cp .phpdoc/template/favicon.ico docs/favicon.ico && bash phpdoc-favicon.sh",
+		"test": "./vendor/bin/phpunit",
+		"test:unit": "./vendor/bin/phpunit --testsuite Unit",
+		"test:kernel": "./vendor/bin/phpunit --testsuite Kernel",
+		"test:functional": "./vendor/bin/phpunit --testsuite Functional",
+		"test:coverage:unit": "./vendor/bin/phpunit --testsuite Unit --coverage-clover coverage/unit.clover.xml --coverage-text=coverage/unit.coverage.txt --log-junit coverage/unit.junit.xml",
+		"test:coverage:kernel": "./vendor/bin/phpunit --testsuite Kernel --coverage-clover coverage/kernel.clover.xml --coverage-text=coverage/kernel.coverage.txt --log-junit coverage/kernel.junit.xml",
+		"test:coverage:functional": "./vendor/bin/phpunit --testsuite Functional --coverage-clover coverage/functional.clover.xml --coverage-text=coverage/functional.coverage.txt --log-junit coverage/functional.junit.xml",
+		"analyze": "./vendor/bin/phpstan analyse --memory-limit=1G",
+		"lint:php": "./vendor/bin/phpcs",
+		"lint:php:fix": "./vendor/bin/phpcbf",
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@prettier/plugin-php": "^0.25.0",
+		"@prettier/plugin-xml": "^3.4.2",
+		"husky": "^9.1.7",
+		"lint-staged": "^17.3.0",
+		"prettier": "^3.9.6",
+		"prettier-plugin-sh": "^0.19.0"
+	},
+	"lint-staged": {
+		"*.{md,json,yml}": "prettier --write",
+		"*.{php,module,install,inc}": [
+			"./vendor/bin/phpcs --",
+			"prettier --write"
+		]
+	}
+}
