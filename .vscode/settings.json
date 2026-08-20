@@ -9,5 +9,21 @@
 	"files.eol": "\n",
 	"npm.packageManager": "bun",
 	"phpcs.standard": "phpcs.xml.dist",
-	"phpstan.configFile": "phpstan.neon"
+	"phpstan.configFile": "phpstan.neon",
+	"php.version": "8.3",
+	"intelephense.environment.phpVersion": "8.3.0",
+	"intelephense.environment.includePaths": ["stubs", "vendor/drupal/core/tests"],
+	"intelephense.files.associations": [
+		"*.php",
+		"*.module",
+		"*.install",
+		"*.inc",
+		"*.theme",
+		"*.profile",
+		"*.engine"
+	],
+	"intelephense.diagnostics.undefinedFunctions": true,
+	"intelephense.diagnostics.undefinedConstants": true,
+	"intelephense.diagnostics.unusedSymbols": false,
+	"intelephense.diagnostics.undefinedTypes": true
 }
