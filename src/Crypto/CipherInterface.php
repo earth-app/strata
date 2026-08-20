@@ -85,9 +85,11 @@ interface CipherInterface
 	 * @return string
 	 *   The original bytes.
 	 *
+	 * @throws AuthenticationFailure
+	 *   When the value is present but the tag does not verify or the associated data does not
+	 *   match. Distinguished from the rest because refetching the same bytes cannot fix it.
 	 * @throws RuntimeException
-	 *   When the cipher is unavailable, the input is malformed, the tag does not verify, or the
-	 *   associated data does not match.
+	 *   When the cipher is unavailable or the input is malformed.
 	 */
 	public function open(string $sealed, string $associated = ''): string;
 }
