@@ -16,6 +16,7 @@ use Drupal\strata\Health\HealthLedgerInterface;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Restore\ReplayResult;
 use Drupal\strata\Restore\Replayer;
+use Drupal\strata\Tree\CommitLog;
 use Drupal\strata\Tree\RefStore;
 use Drupal\strata\Tree\SubjectIndex;
 use Psr\Log\LoggerInterface;
@@ -69,6 +70,8 @@ final class DrillRunner
 	 *   Names the subjects and when each was last captured.
 	 * @param RefStore $refs
 	 *   Supplies the commit to replay against when none is given.
+	 * @param CommitLog $commits
+	 *   Reads when the replayed commit was sealed, which is what the moved-on check compares against.
 	 * @param EntityTypeManagerInterface $entityTypeManager
 	 *   Loads the live entities.
 	 * @param ConfigFactoryInterface $configFactory
@@ -90,6 +93,7 @@ final class DrillRunner
 		private readonly Replayer $replayer,
 		private readonly SubjectIndex $subjects,
 		private readonly RefStore $refs,
+		private readonly CommitLog $commits,
 		private readonly EntityTypeManagerInterface $entityTypeManager,
 		private readonly ConfigFactoryInterface $configFactory,
 		private readonly StateInterface $state,
@@ -134,8 +138,10 @@ final class DrillRunner
 			DrillReport::UNREADABLE => [],
 		];
 
+		$sealedAt = $this->sealedAt($commit);
+
 		foreach ($chosen as $subject) {
-			[$status, $detail] = $this->examine($subject, $commit);
+			[$status, $detail] = $this->examine($subject, $commit, $sealedAt);
 			$buckets[$status][$subject] = $detail;
 		}
 
@@ -164,12 +170,26 @@ final class DrillRunner
 	 *   Subject path, in the form `<realm>/<name>`.
 	 * @param string $commit
 	 *   Commit to replay against.
+	 * @param int $at
+	 *   Unix microseconds the commit was sealed at, or 0 to read it from the commit. Passed in by a
+	 *   whole-drill run, which resolves it once rather than per subject.
 	 *
 	 * @return array{string, string}
 	 *   The verdict constant and a note.
 	 */
-	public function examine(string $subject, string $commit): array
+	public function examine(string $subject, string $commit, int $at = 0): array
 	{
+		// a subject the site changed after the replayed commit cannot be judged either way
+		$sealed = $at > 0 ? $at : $this->sealedAt($commit);
+		$changed = $this->subjects->changedAt($subject);
+
+		if ($sealed > 0 && $changed !== null && $changed > $sealed) {
+			return [
+				DrillReport::SKIPPED,
+				'the site changed this subject after the commit that was replayed',
+			];
+		}
+
 		try {
 			$result = $this->replayer->materialize($subject, $commit);
 		} catch (Throwable $e) {
@@ -196,6 +216,27 @@ final class DrillRunner
 		}
 
 		return $this->compare($result, $live);
+	}
+
+	/**
+	 * When a commit was sealed.
+	 *
+	 * Read from the commit itself rather than from the local index, so a drill still knows the moment
+	 * on a store whose index has been dropped and not yet rebuilt.
+	 *
+	 * @param string $commit
+	 *   The commit id.
+	 *
+	 * @return int
+	 *   Unix microseconds, or 0 when the commit cannot be read.
+	 */
+	private function sealedAt(string $commit): int
+	{
+		try {
+			return $this->commits->read($commit)->microtime;
+		} catch (Throwable) {
+			return 0;
+		}
 	}
 
 	#region Comparison
@@ -280,14 +321,15 @@ final class DrillRunner
 	 * The live field map of an entity named by a subject path.
 	 *
 	 * @param string $name
-	 *   The part after the realm, in the form `<entity type>/<id>`.
+	 *   The part after the realm, in the form `<entity type>:<id>` - a colon, because that is what
+	 *   `EntityCapture` writes and the slash only separates the realm from the rest.
 	 *
 	 * @return array<string, mixed>|false|null
 	 *   The field map, FALSE when the entity is gone, or NULL when the path is not readable.
 	 */
 	private function liveEntity(string $name): array|false|null
 	{
-		$parts = explode('/', $name);
+		$parts = explode(':', $name);
 
 		if (count($parts) < 2) {
 			return null;

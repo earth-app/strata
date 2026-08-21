@@ -405,7 +405,8 @@ final class DiffBuilder
 			return '';
 		}
 
-		$parts = explode('/', substr($subject, strlen(Realm::ENTITY->value) + 1));
+		// a colon, because that is what EntityCapture writes; the slash separates only the realm
+		$parts = explode(':', substr($subject, strlen(Realm::ENTITY->value) + 1));
 
 		if (count($parts) < 2) {
 			return '';
