@@ -47,13 +47,22 @@ final class SegmentBuilder
 	 *   Where payloads are stored.
 	 * @param int $level
 	 *   Compaction level to stamp on the manifest.
+	 * @param callable|null $previous
+	 *   Given a subject path, returns the frame map of that subject's previous version as a
+	 *   `list<string>`, or an empty array when there is none. Supplied rather than looked up here so
+	 *   this class keeps knowing nothing about where history lives. Without it every payload is stored
+	 *   standalone, which costs the delta-coding gain and nothing else.
 	 */
 	public function __construct(
 		private readonly ObjectStore $store,
 		private readonly int $level = 0,
+		private readonly mixed $previous = null,
 	) {
 		if ($level < 0) {
 			throw new InvalidArgumentException('A compaction level cannot be negative');
+		}
+		if ($previous !== null && !is_callable($previous)) {
+			throw new InvalidArgumentException('A previous-version lookup must be callable');
 		}
 	}
 
@@ -80,6 +89,37 @@ final class SegmentBuilder
 		}
 
 		return $this;
+	}
+
+	/**
+	 * The frame map of one subject's previous version.
+	 *
+	 * @param JournalOp $operation
+	 *   The operation being stored.
+	 *
+	 * @return list<string>
+	 *   Frame addresses, empty when there is no previous version or no lookup was supplied.
+	 */
+	private function previousMap(JournalOp $operation): array
+	{
+		if ($this->previous === null) {
+			return [];
+		}
+
+		/** @var mixed $map */
+		$map = ($this->previous)($operation->realm->value . '/' . $operation->subject);
+
+		if (!is_array($map)) {
+			return [];
+		}
+
+		$frames = [];
+
+		foreach ($map as $frame) {
+			$frames[] = (string) $frame;
+		}
+
+		return $frames;
 	}
 
 	/**
@@ -135,7 +175,7 @@ final class SegmentBuilder
 				continue;
 			}
 
-			$maps[$key] = $this->store->write($payload);
+			$maps[$key] = $this->store->write($payload, $this->previousMap($operation));
 			$rawBytes += strlen($payload);
 		}
 
