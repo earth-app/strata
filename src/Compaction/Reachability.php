@@ -9,7 +9,7 @@ use Drupal\strata\Cas\FrameRecord;
 use Drupal\strata\Cas\Hash;
 use Drupal\strata\Tree\CommitLog;
 use Drupal\strata\Tree\RefStore;
-use Drupal\strata\Tree\TreeBuilder;
+use Drupal\strata\Tree\BaseReader;
 use Throwable;
 
 /**
@@ -82,7 +82,7 @@ final class Reachability
 	private ?array $liveCommits = null;
 
 	/**
-	 * Tree nodes reachable from a ref, keyed by address; NULL until the walk has run.
+	 * Base anchors reachable from a ref, keyed by address; NULL until the walk has run.
 	 *
 	 * @var array<string, true>|null
 	 */
@@ -104,14 +104,14 @@ final class Reachability
 	 *   Walks history from each ref.
 	 * @param RefStore $refs
 	 *   Lists the refs history is reachable from.
-	 * @param TreeBuilder $treeBuilder
-	 *   Loads tree nodes so leaf frames can be collected.
+	 * @param BaseReader $bases
+	 *   Reads the anchor chain so the frames its entries name can be collected.
 	 */
 	public function __construct(
 		private readonly FrameIndexInterface $index,
 		private readonly CommitLog $commitLog,
 		private readonly RefStore $refs,
-		private readonly TreeBuilder $treeBuilder,
+		private readonly BaseReader $bases,
 	) {}
 
 	#region The Walk
@@ -211,7 +211,7 @@ final class Reachability
 			}
 
 			$this->liveCommits[$id] = true;
-			$this->walkTree($commit->tree);
+			$this->walkAnchor($commit->index);
 
 			if ($commit->parent === null) {
 				return;
@@ -222,41 +222,38 @@ final class Reachability
 	}
 
 	/**
-	 * Walks a tree, marking its nodes and leaf frames live.
+	 * Walks an anchor chain, marking every anchor and the frames its entries name live.
+	 *
+	 * The whole chain rather than the resolved index: an entry a later anchor replaced is still what
+	 * the anchor that named it restores from, and every anchor is a restore target.
 	 *
 	 * @param string $address
-	 *   Node address.
+	 *   Anchor address.
 	 */
-	private function walkTree(string $address): void
+	private function walkAnchor(string $address): void
 	{
-		if (isset($this->liveTrees[$address])) {
-			return;
-		}
+		$at = $address;
 
-		$this->liveTrees[$address] = true;
+		while ($at !== null && !isset($this->liveTrees[$at])) {
+			$this->liveTrees[$at] = true;
 
-		try {
-			$node = $this->treeBuilder->load($address);
-		} catch (Throwable $error) {
-			$this->unreadable[] = sprintf(
-				'tree %s: %s',
-				Hash::abbreviate($address),
-				$error->getMessage(),
-			);
+			try {
+				$manifest = $this->bases->read($at);
+			} catch (Throwable $error) {
+				$this->unreadable[] = sprintf(
+					'anchor %s: %s',
+					Hash::abbreviate($at),
+					$error->getMessage(),
+				);
 
-			return;
-		}
+				return;
+			}
 
-		if ($node->isLeaf()) {
-			foreach ($node->frames as $frame) {
+			foreach ($manifest->frames() as $frame) {
 				$this->markFrame($frame);
 			}
 
-			return;
-		}
-
-		foreach ($node->children as $child) {
-			$this->walkTree($child);
+			$at = $manifest->full ? null : $manifest->parent;
 		}
 	}
 

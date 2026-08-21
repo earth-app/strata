@@ -12,6 +12,8 @@ use Drupal\strata\Cas\PackIndex;
 use Drupal\strata\Delta\Reanchorer;
 use Drupal\strata\Flush\Lease;
 use Drupal\strata\Storage\StorageProviderInterface;
+use Drupal\strata\Tier\PlacementIndexInterface;
+use Drupal\strata\Tier\TierMigrator;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -40,6 +42,9 @@ use Throwable;
  * - A pack the index no longer points at is deleted only when every frame in it is provably filed
  *   somewhere else. A recompressed pack leaves its predecessor with no index row naming it, which
  *   is indistinguishable from a stale index unless each frame is found at its new home first.
+ * - A prune whose deletion the store refuses part way returns a refusal rather than trimming the
+ *   index anyway. On a store spread across buckets that is what a bucket being down looks like, and
+ *   the index rows are the only thing that still names the objects left behind.
  *
  * @see Reachability
  * @see PruneReceipt
@@ -71,6 +76,14 @@ final class Compactor
 	 * @param Rollup|null $rollup
 	 *   Folds each level's segments into the level above, or NULL to leave the ladder alone. Runs
 	 *   before the recompression so the coarse segments it writes are the ones densified.
+	 * @param TierMigrator|null $migrator
+	 *   Moves aged objects into the tier they belong in, or NULL on a store with one destination.
+	 *   Runs after the recompression, because a pack is densified once and the dense form is the one
+	 *   worth copying into a bucket nobody is going to rewrite again.
+	 * @param PlacementIndexInterface|null $placement
+	 *   Where each object lives, or NULL when there is only one place it could be. Used to keep the
+	 *   recompression on the nearest tier: a cold pack was densified on its way out, and reading it
+	 *   again every pass would spend class-B requests in the bucket the tiering exists to keep quiet.
 	 */
 	public function __construct(
 		private readonly StorageProviderInterface $provider,
@@ -82,6 +95,8 @@ final class Compactor
 		private readonly LoggerInterface $logger,
 		private readonly ?Reanchorer $reanchorer = null,
 		private readonly ?Rollup $rollup = null,
+		private readonly ?TierMigrator $migrator = null,
+		private readonly ?PlacementIndexInterface $placement = null,
 	) {}
 
 	#region Passes
@@ -123,12 +138,17 @@ final class Compactor
 		try {
 			$anchored = $this->reanchorer?->run();
 			$folded = $this->rollup?->run(time());
-			$dense = $this->recompressor->recompressPacks($this->packKeys(), $budget);
+			$dense = $this->recompressor->recompressPacks($this->nearPackKeys(), $budget);
+			$migration = $this->migrator?->run($budget);
 
 			foreach ([$anchored, $folded] as $stage) {
 				if ($stage !== null && $stage['problems'] !== []) {
 					$dense['problems'] = [...$dense['problems'], ...$stage['problems']];
 				}
+			}
+
+			if ($migration !== null && $migration->problems !== []) {
+				$dense['problems'] = [...$dense['problems'], ...$migration->problems];
 			}
 
 			// the walk runs after the rewrite, since a rewrite moves every frame it touches
@@ -284,7 +304,20 @@ final class Compactor
 		}
 
 		if ($apply && $keys !== []) {
-			$this->provider->delete($keys);
+			try {
+				$this->provider->delete($keys);
+			} catch (Throwable $error) {
+				// a store that refused half the deletion has told us it cannot finish; forgetting the
+				// index rows anyway would leave objects nothing names, which is what a receipt prevents
+				return PruneReceipt::refuse(
+					sprintf(
+						'the store would not remove what was selected: %s',
+						$error->getMessage(),
+					),
+					$kept,
+				);
+			}
+
 			$this->index->forget($removed);
 		}
 
@@ -392,6 +425,35 @@ final class Compactor
 		}
 
 		return $superseded;
+	}
+
+	/**
+	 * Pack keys the recompressor should look at.
+	 *
+	 * Everything, on a store with one destination. On a tiered store, only the packs the placement
+	 * index files in the nearest tier: a pack that has already been promoted was densified before it
+	 * went, and reading it back every pass to find out that it will not shrink further is a class-B
+	 * request in exactly the bucket the tiering exists to keep quiet. A pack with no placement row is
+	 * included, because unknown must not read as cold.
+	 *
+	 * @return list<string>
+	 *   Object keys.
+	 */
+	private function nearPackKeys(): array
+	{
+		$keys = $this->packKeys();
+
+		if ($this->placement === null) {
+			return $keys;
+		}
+
+		return array_values(
+			array_filter($keys, function (string $key): bool {
+				$nearest = $this->placement?->get($key)?->nearest();
+
+				return $nearest === null || $nearest === 0;
+			}),
+		);
 	}
 
 	/**
