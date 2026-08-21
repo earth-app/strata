@@ -109,6 +109,10 @@ final class StrataCommands extends DrushCommands
 				'stored-bytes' => 'Stored Bytes',
 				'ratio' => 'Ratio',
 				'orphans' => 'Collectable Frames',
+				'requests-a' => 'Class A Requests, 30d',
+				'requests-b' => 'Class B Requests, 30d',
+				'request-failures' => 'Failed Requests, 30d',
+				'transferred' => 'Transferred, 30d',
 				'findings' => 'Open Findings',
 			],
 		),
@@ -119,6 +123,7 @@ final class StrataCommands extends DrushCommands
 		$settings = $this->configFactory->get('strata.settings');
 		$head = $this->commits->newest();
 		$statistics = $this->frames->statistics();
+		$traffic = $this->engine->providerStatStore()->total(time() - 2_592_000);
 
 		return new PropertyList([
 			'enabled' => self::yesNo((bool) $settings->get('enabled')),
@@ -138,6 +143,10 @@ final class StrataCommands extends DrushCommands
 			'stored-bytes' => self::bytes($statistics['storedBytes']),
 			'ratio' => sprintf('%.2fx', $statistics['ratio']),
 			'orphans' => $statistics['orphans'],
+			'requests-a' => $traffic['classA'],
+			'requests-b' => $traffic['classB'],
+			'request-failures' => $traffic['failures'],
+			'transferred' => self::bytes($traffic['bytes']),
 			'findings' => count($this->ledger->open()),
 		]);
 	}

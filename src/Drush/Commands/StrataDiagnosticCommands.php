@@ -20,6 +20,7 @@ use Drupal\strata\Health\Finding;
 use Drupal\strata\Health\HealthLedgerInterface;
 use Drupal\strata\Health\RepairLadder;
 use Drupal\strata\Restore\RestoreAudit;
+use Drupal\strata\Tier\Tier;
 use Drupal\strata\Tree\RefStore;
 use Drush\Attributes as CLI;
 use Drush\Commands\AutowireTrait;
@@ -340,6 +341,143 @@ final class StrataDiagnosticCommands extends DrushCommands
 		$this->moveTo($code, $next);
 
 		return new RowsOfFields($this->ladder());
+	}
+
+	#endregion
+
+	#region Tiering
+
+	/**
+	 * Reports what each storage tier holds, whether it answers, and what a restore would need.
+	 *
+	 * Two questions an operator cannot answer from anywhere else. The first is where history actually
+	 * is, which matters because a bucket that is meant to be cold and is holding nothing means the
+	 * migration has never run. The second is which buckets a rollback needs, and the point of asking
+	 * it here is to find out before starting rather than halfway through.
+	 *
+	 * An object with no recorded tier is counted as unplaced rather than assumed to be nearby. While
+	 * there is one, every tier is reported as possibly needed, because that is the true answer.
+	 *
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return RowsOfFields
+	 *   One row per tier, empty when the site writes to a single bucket.
+	 */
+	#[CLI\Command(name: 'strata:tiers', aliases: ['strata-tiers'])]
+	#[
+		CLI\Option(
+			name: 'restore',
+			description: 'Report which tiers a restore to this commit would read.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:tiers',
+			description: 'Show every bucket, what it holds and whether it answers.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:tiers --restore=8f2c1a',
+			description: 'Say which buckets have to be up before that rollback is started.',
+		),
+	]
+	#[
+		CLI\FieldLabels(
+			labels: [
+				'tier' => 'Tier',
+				'provider' => 'Provider',
+				'location' => 'Location',
+				'from-age' => 'From Age',
+				'mode' => 'Mode',
+				'objects' => 'Objects',
+				'bytes' => 'Bytes',
+				'needed' => 'Needed',
+				'reachable' => 'Reachable',
+			],
+		),
+	]
+	#[CLI\FilterDefaultField(field: 'tier')]
+	public function tiers(array $options = ['restore' => self::REQ]): RowsOfFields
+	{
+		$router = $this->engine->tiers();
+
+		if ($router === null) {
+			$this->io()->writeln('This site writes to one bucket, so there are no tiers.');
+
+			return new RowsOfFields([]);
+		}
+
+		$held = $this->engine->placementIndex()->byTier();
+		$status = $router->tierStatus();
+		$needed = $this->tierRequirements($options);
+		$rows = [];
+
+		foreach ($router->tiers()->all() as $tier) {
+			$rows[$tier->name()] = [
+				'tier' => $tier->name(),
+				'provider' => $tier->target->provider,
+				'location' => $tier->target->location === '' ? '-' : $tier->target->location,
+				'from-age' => $tier->fromAge,
+				'mode' => $this->tierMode($tier),
+				'objects' => $held[$tier->index]['objects'] ?? 0,
+				'bytes' => $held[$tier->index]['bytes'] ?? 0,
+				'needed' => $needed === null ? '-' : self::yesNo(isset($needed[$tier->index])),
+				'reachable' =>
+					($status[$tier->index] ?? null) === null
+						? 'yes'
+						: (string) $status[$tier->index],
+			];
+		}
+
+		return new RowsOfFields($rows);
+	}
+
+	/**
+	 * Which tiers a named restore would read.
+	 *
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return array<int, array<string, mixed>>|null
+	 *   Tier rows keyed by index, or NULL when no commit was named.
+	 */
+	private function tierRequirements(array $options): ?array
+	{
+		$target = trim((string) self::value($options, 'restore'));
+		$pass = $this->engine->tierRequirements();
+
+		if ($target === '' || $pass === null) {
+			return null;
+		}
+
+		$report = $pass->require($target);
+		$this->io()->writeln($report->summary());
+
+		if (!$report->isSatisfiable()) {
+			$this->io()->warning('That restore cannot run right now.');
+		}
+
+		return $report->tiers;
+	}
+
+	/**
+	 * Whether a tier keeps the copy below it.
+	 *
+	 * @param Tier $tier
+	 *   The tier.
+	 *
+	 * @return string
+	 *   A short word for the column.
+	 */
+	private function tierMode(Tier $tier): string
+	{
+		if ($tier->isNearest()) {
+			return 'hot';
+		}
+
+		return $tier->retainBelow ? 'replica' : 'destination';
 	}
 
 	#endregion

@@ -8,6 +8,7 @@ use Consolidation\OutputFormatters\StructuredData\PropertyList;
 use Consolidation\OutputFormatters\StructuredData\RowsOfFields;
 use Drupal\strata\Compaction\Compactor;
 use Drupal\strata\Compaction\PruneReceipt;
+use Drupal\strata\Crypto\KeyRotation;
 use Drupal\strata\Engine;
 use Drupal\strata\Tree\RefStore;
 use Drush\Attributes as CLI;
@@ -218,6 +219,145 @@ final class StrataMaintenanceCommands extends DrushCommands
 	}
 
 	/**
+	 * Re-seals frames that still open under a retired key.
+	 *
+	 * A rotation is a state the store is in, not an event: a new key seals everything written from
+	 * the moment it is configured, and everything written before it stays readable only while the
+	 * key that sealed it is still on the ring. This is the pass that ends that state. It is bounded,
+	 * safe to interrupt and safe to repeat, and it moves nothing: a frame is addressed by its decoded
+	 * bytes, so re-sealing rewrites one object and nothing that references it.
+	 *
+	 * Removing a retired key before `complete` says yes makes every frame still sealed under it
+	 * unreadable, and nothing afterwards can tell that apart from corruption.
+	 *
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return PropertyList
+	 *   What the pass did, or what a measurement found.
+	 */
+	#[CLI\Command(name: 'strata:rotate-key', aliases: ['strata-rotate-key'])]
+	#[
+		CLI\Option(
+			name: 'budget',
+			description: 'Most frames to re-seal; 0 for the built-in default.',
+		),
+	]
+	#[
+		CLI\Option(
+			name: 'dry-run',
+			description: 'Sample the store and report what still needs a retired key.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:rotate-key --dry-run',
+			description: 'Report how much of the store still opens under a retired key.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:rotate-key --budget=2000',
+			description: 'Re-seal up to 2000 frames under the active key.',
+		),
+	]
+	#[
+		CLI\FieldLabels(
+			labels: [
+				'applied' => 'Applied',
+				'rotating' => 'Rotating',
+				'keys' => 'Keys on the Ring',
+				'examined' => 'Frames Examined',
+				'resealed' => 'Frames Re-sealed',
+				'stale' => 'Frames Sampled Stale',
+				'unreadable' => 'Frames Unreadable',
+				'complete' => 'Safe to Remove Retired Keys',
+				'problems' => 'Problems',
+			],
+		),
+	]
+	#[CLI\Format(listDelimiter: ':', tableStyle: 'compact')]
+	public function rotateKey(array $options = ['budget' => 0, 'dry-run' => false]): PropertyList
+	{
+		$rotation = $this->engine->keyRotation();
+		$measured = $rotation->measure();
+
+		if (!$measured['rotating']) {
+			$this->prose()->text('One key is configured, so there is nothing to re-seal.');
+
+			return new PropertyList([
+				'applied' => self::yesNo(false),
+				'rotating' => self::yesNo(false),
+				'keys' => $measured['keys'],
+				'examined' => 0,
+				'resealed' => 0,
+				'stale' => 0,
+				'unreadable' => 0,
+				'complete' => self::yesNo(true),
+				'problems' => 0,
+			]);
+		}
+
+		if (self::flag($options, 'dry-run')) {
+			$this->prose()->text(
+				sprintf(
+					'%d of %d sampled frames still open under a retired key',
+					$measured['stale'],
+					$measured['sampled'],
+				),
+			);
+
+			return new PropertyList([
+				'applied' => self::yesNo(false),
+				'rotating' => self::yesNo(true),
+				'keys' => $measured['keys'],
+				'examined' => $measured['sampled'],
+				'resealed' => 0,
+				'stale' => $measured['stale'],
+				'unreadable' => $measured['unreadable'],
+				'complete' => self::yesNo($measured['complete']),
+				'problems' => 0,
+			]);
+		}
+
+		$budget = max(0, self::number($options, 'budget', 0));
+		$result = $rotation->run($budget > 0 ? $budget : KeyRotation::DEFAULT_BUDGET);
+		$after = $rotation->measure();
+
+		$this->announce(
+			$result['problems'] === [],
+			sprintf(
+				're-sealed %d of %d frames examined; %d were already current',
+				$result['resealed'],
+				$result['examined'],
+				$result['skipped'],
+			),
+		);
+
+		if (!$after['complete']) {
+			$this->prose()->warning(
+				'Keep every retired key configured until this reports complete.',
+			);
+		}
+
+		foreach ($result['problems'] as $problem) {
+			$this->prose()->warning($problem);
+		}
+
+		return new PropertyList([
+			'applied' => self::yesNo(true),
+			'rotating' => self::yesNo(true),
+			'keys' => $after['keys'],
+			'examined' => $result['examined'],
+			'resealed' => $result['resealed'],
+			'stale' => $after['stale'],
+			'unreadable' => $result['unreadable'],
+			'complete' => self::yesNo($after['complete']),
+			'problems' => count($result['problems']),
+		]);
+	}
+
+	/**
 	 * Trains a compression dictionary per realm from what the store already holds.
 	 *
 	 * A dictionary is what makes small payloads compress at all: a 200-byte field delta has almost
@@ -311,6 +451,12 @@ final class StrataMaintenanceCommands extends DrushCommands
 		),
 	]
 	#[
+		CLI\Option(
+			name: 'adopt-ref',
+			description: 'When no ref survives, point it at the newest commit the rebuild recovered.',
+		),
+	]
+	#[
 		CLI\Usage(
 			name: 'drush strata:reindex',
 			description: 'Rebuild both local indexes from the bucket.',
@@ -323,6 +469,12 @@ final class StrataMaintenanceCommands extends DrushCommands
 		),
 	]
 	#[
+		CLI\Usage(
+			name: 'drush strata:reindex --adopt-ref',
+			description: 'Recover a history whose ref was deleted, naming the head it adopts.',
+		),
+	]
+	#[
 		CLI\FieldLabels(
 			labels: [
 				'commits' => 'Commit Rows',
@@ -331,12 +483,13 @@ final class StrataMaintenanceCommands extends DrushCommands
 				'segments' => 'Segments Read',
 				'references' => 'References Attributed',
 				'skipped' => 'Objects Skipped',
+				'adopted' => 'Ref Adopted',
 				'seconds' => 'Took',
 			],
 		),
 	]
 	#[CLI\Format(listDelimiter: ':', tableStyle: 'compact')]
-	public function reindex(array $options = ['keep' => false]): PropertyList
+	public function reindex(array $options = ['keep' => false, 'adopt-ref' => false]): PropertyList
 	{
 		$report = $this->engine->reindexer()->reindex(!self::flag($options, 'keep'));
 
@@ -353,8 +506,58 @@ final class StrataMaintenanceCommands extends DrushCommands
 			'segments' => $report->segments,
 			'references' => $report->references,
 			'skipped' => $report->skipped,
+			'adopted' => self::digest($this->adoptRef(self::flag($options, 'adopt-ref'))),
 			'seconds' => self::duration($report->seconds),
 		]);
+	}
+
+	/**
+	 * Points a lost ref at the newest commit a rebuild recovered.
+	 *
+	 * A rebuild reads objects; it does not decide what history is current, and a ref is a restore
+	 * target rather than derived state. So this is asked for explicitly and never happens on its own.
+	 * Without it a store whose ref was deleted can have every object recovered and still have no
+	 * head, which leaves a verify pass with nothing to walk and a restore with nothing to plan
+	 * against - recoverable in principle and unrecoverable in practice.
+	 *
+	 * @param bool $asked
+	 *   TRUE when `--adopt-ref` was passed.
+	 *
+	 * @return string|null
+	 *   The commit adopted, or NULL when nothing was asked for, a ref already exists, or the rebuild
+	 *   recovered no commit to adopt.
+	 */
+	private function adoptRef(bool $asked): ?string
+	{
+		if (!$asked) {
+			return null;
+		}
+
+		if ($this->engine->refStore()->read() !== null) {
+			$this->prose()->text('A ref is already present, so none was adopted.');
+
+			return null;
+		}
+
+		$newest = $this->engine->commitIndex()->newest();
+
+		if ($newest === null) {
+			$this->prose()->warning('No commit was recovered, so there is nothing to adopt.');
+
+			return null;
+		}
+
+		$commit = (string) $newest['id'];
+		$this->engine->refStore()->write($commit);
+
+		$this->prose()->success(
+			sprintf(
+				'Adopted %s as the head, which is the newest commit the bucket still holds.',
+				$commit,
+			),
+		);
+
+		return $commit;
 	}
 
 	#endregion
