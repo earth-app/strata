@@ -1,0 +1,59 @@
+strata.settings.storage:
+  path: '/admin/config/system/strata/storage'
+  defaults:
+    _form: Drupal\strata\Form\StorageSettingsForm
+    _title: 'Strata Storage'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+  options:
+    _admin_route: TRUE
+
+strata.settings.capture:
+  path: '/admin/config/system/strata/capture'
+  defaults:
+    _form: Drupal\strata\Form\CaptureSettingsForm
+    _title: 'Strata Capture'
+  requirements:
+    _permission: 'administer strata'
+  options:
+    _admin_route: TRUE
+
+strata.settings.tiers:
+  path: '/admin/config/system/strata/tiers'
+  defaults:
+    _form: Drupal\strata\Form\TierSettingsForm
+    _title: 'Strata Tiers'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+  options:
+    _admin_route: TRUE
+
+strata.settings.retention:
+  path: '/admin/config/system/strata/retention'
+  defaults:
+    _form: Drupal\strata\Form\RetentionSettingsForm
+    _title: 'Strata Retention'
+  requirements:
+    _permission: 'administer strata'
+  options:
+    _admin_route: TRUE
+
+strata.settings.webhooks:
+  path: '/admin/config/system/strata/webhooks'
+  defaults:
+    _form: Drupal\strata\Form\WebhookSettingsForm
+    _title: 'Strata Webhooks'
+  requirements:
+    _permission: 'administer strata'
+  options:
+    _admin_route: TRUE
+
+strata.settings.telemetry:
+  path: '/admin/config/system/strata/telemetry'
+  defaults:
+    _form: Drupal\strata\Form\TelemetrySettingsForm
+    _title: 'Strata Telemetry'
+  requirements:
+    _permission: 'administer strata'
+  options:
+    _admin_route: TRUE
