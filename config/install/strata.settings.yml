@@ -14,6 +14,29 @@ s3:
   send_checksums: false
   storage_class: ''
   multipart_threshold: 0
+azure:
+  account: ''
+  container: ''
+  account_key: ''
+  sas_token: ''
+  endpoint_suffix: core.windows.net
+  service_url: ''
+  access_tier: ''
+  block_threshold: 0
+gcs:
+  bucket: ''
+  service_account: ''
+  access_token: ''
+  api_url: ''
+  storage_class: ''
+  resumable_threshold: 0
+b2:
+  bucket_id: ''
+  bucket_name: ''
+  key_id: ''
+  application_key: ''
+  api_url: ''
+  large_file_threshold: 0
 capture:
   entity: true
   config: true
@@ -81,6 +104,9 @@ budget:
   action: warn
 restore:
   two_person_approval: false
+merge:
+  base_ceiling: 10000
+  walk_limit: 5000
 health:
   auto_repair: true
   circuit_threshold: 3

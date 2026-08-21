@@ -54,6 +54,78 @@ strata.settings:
         multipart_threshold:
           type: integer
           label: 'Bytes above which an upload is split, or 0 for the endpoint maximum'
+    azure:
+      type: mapping
+      label: 'Azure Blob Storage endpoint'
+      mapping:
+        account:
+          type: string
+          label: 'Storage account name'
+        container:
+          type: string
+          label: 'Container name'
+        account_key:
+          type: string
+          label: 'Account key, base64, or empty to use a sas token'
+        sas_token:
+          type: string
+          label: 'Shared access signature, or empty to use the account key'
+        endpoint_suffix:
+          type: string
+          label: 'Dns suffix the blob service answers on'
+        service_url:
+          type: string
+          label: 'Full service url, which overrides the suffix'
+        access_tier:
+          type: string
+          label: 'Access tier, or empty for the container default'
+        block_threshold:
+          type: integer
+          label: 'Bytes above which a blob is staged as blocks, or 0 for the endpoint maximum'
+    gcs:
+      type: mapping
+      label: 'Google Cloud Storage endpoint'
+      mapping:
+        bucket:
+          type: string
+          label: 'Bucket name'
+        service_account:
+          type: string
+          label: 'Service account key json, or empty to use an access token'
+        access_token:
+          type: string
+          label: 'Pre-issued oauth2 access token'
+        api_url:
+          type: string
+          label: 'Api base url, or empty for the public one'
+        storage_class:
+          type: string
+          label: 'Storage class, or empty for the bucket default'
+        resumable_threshold:
+          type: integer
+          label: 'Bytes above which an upload is resumable, or 0 for the endpoint maximum'
+    b2:
+      type: mapping
+      label: 'Backblaze B2 endpoint'
+      mapping:
+        bucket_id:
+          type: string
+          label: 'Bucket id, which every write names'
+        bucket_name:
+          type: string
+          label: 'Bucket name, which every read names'
+        key_id:
+          type: string
+          label: 'Key id, master or application'
+        application_key:
+          type: string
+          label: 'Application key'
+        api_url:
+          type: string
+          label: 'Where an authorization is asked for, or empty for Backblaze'
+        large_file_threshold:
+          type: integer
+          label: 'Bytes above which a file is uploaded in parts, or 0 for the endpoint maximum'
     capture:
       type: mapping
       label: 'Which realms are captured'
@@ -272,6 +344,16 @@ strata.settings:
         two_person_approval:
           type: boolean
           label: 'A destructive restore needs a second account to approve it'
+    merge:
+      type: mapping
+      label: 'Merging a configuration branch'
+      mapping:
+        base_ceiling:
+          type: integer
+          label: 'Commits either ancestor walk reads before a merge base gives up'
+        walk_limit:
+          type: integer
+          label: 'Commits either side is read for to find what it touched'
     health:
       type: mapping
       label: 'Self-healing'

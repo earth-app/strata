@@ -46,6 +46,7 @@
 	"suggest": {
 		"ext-zstd": "Zstandard compression. Measured 6.20x with a trained dictionary at 8 KiB frames, against 3.52x for gzip.",
 		"ext-brotli": "Brotli compression. Higher ratio than gzip at much lower throughput.",
+		"ext-openssl": "Required by strata_gcs to sign a service account assertion.",
 		"ext-redis": "Backs the write journal with a Redis stream instead of a database table.",
 		"drupal/redis": "Required by strata_redis to capture authoritative ephemeral state.",
 		"phpseclib/phpseclib": "Required by strata_sftp for SFTP storage."
