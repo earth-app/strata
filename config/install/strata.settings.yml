@@ -1,0 +1,97 @@
+enabled: false
+site_id: ''
+provider: local
+local_path: 'private://strata'
+key: ''
+retired_keys: {}
+s3:
+  endpoint: ''
+  bucket: ''
+  region: us-east-1
+  access_key_id: ''
+  secret_access_key: ''
+  path_style: false
+  send_checksums: false
+  storage_class: ''
+  multipart_threshold: 0
+capture:
+  entity: true
+  config: true
+  state: true
+  keyvalue: true
+  table: true
+  schema: true
+  file: false
+  ephemeral: false
+  code: true
+  statements: true
+  access_churn: event
+  sample_rows: 200
+code:
+  root: ''
+  vendor_sample: 400
+  max_files: 20000
+file:
+  block_size: 65536
+  shift_threshold: 0.3
+  tier_blocks: true
+  storage_class: STANDARD_IA
+journal:
+  backend: database
+  redis_stream: 'strata:journal'
+flush:
+  max_age: 15
+  max_bytes: 4194304
+  max_ops: 5000
+frame:
+  size: 16384
+  pack_target: 1048576
+codec:
+  id: ''
+  flush_level: null
+  compaction_level: null
+  dictionary: true
+cipher:
+  id: xchacha20poly1305
+delta:
+  enabled: true
+  max_depth: 32
+tiers:
+  enabled: false
+  verify_copies: true
+  levels: {}
+retention:
+  base_interval: 14400
+  base_full_every: 24
+  levels:
+    - window: 15
+      keep: 3600
+    - window: 60
+      keep: 86400
+    - window: 3600
+      keep: 604800
+    - window: 86400
+      keep: 7776000
+    - window: 2592000
+      keep: 0
+  auto_prune: true
+budget:
+  bytes_per_month: 0
+  dollars_per_month: 0
+  action: warn
+restore:
+  two_person_approval: false
+health:
+  auto_repair: true
+  circuit_threshold: 3
+  circuit_cooldown: 300
+anomaly:
+  enabled: true
+  warn_sigma: 4.0
+drill:
+  enabled: false
+  interval: 86400
+  sample: 50
+telemetry:
+  endpoint: ''
+  headers: {}

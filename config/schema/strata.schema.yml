@@ -1,0 +1,356 @@
+strata.settings:
+  type: config_object
+  label: 'Strata settings'
+  mapping:
+    enabled:
+      type: boolean
+      label: 'Capture enabled'
+    site_id:
+      type: string
+      label: 'Site identifier used as the store prefix'
+    provider:
+      type: string
+      label: 'Active storage provider id'
+    local_path:
+      type: string
+      label: 'Directory the local provider writes to'
+    key:
+      type: string
+      label: 'Key entity holding the encryption key'
+    retired_keys:
+      type: sequence
+      label: 'Keys that still open frames sealed before a rotation'
+      sequence:
+        type: string
+        label: 'One key entity machine name'
+    s3:
+      type: mapping
+      label: 'S3, S3-compatible and R2 endpoint'
+      mapping:
+        endpoint:
+          type: string
+          label: 'Endpoint URL, or empty for AWS'
+        bucket:
+          type: string
+          label: 'Bucket name'
+        region:
+          type: string
+          label: 'Region the endpoint is addressed in'
+        access_key_id:
+          type: string
+          label: 'Access key id, or empty to use the credential chain'
+        secret_access_key:
+          type: string
+          label: 'Secret access key'
+        path_style:
+          type: boolean
+          label: 'Address the bucket in the path rather than the host'
+        send_checksums:
+          type: boolean
+          label: 'Send the x-amz-checksum family'
+        storage_class:
+          type: string
+          label: 'Storage class, or empty for the endpoint default'
+        multipart_threshold:
+          type: integer
+          label: 'Bytes above which an upload is split, or 0 for the endpoint maximum'
+    capture:
+      type: mapping
+      label: 'Which realms are captured'
+      mapping:
+        entity:
+          type: boolean
+          label: 'Entities'
+        config:
+          type: boolean
+          label: 'Configuration'
+        state:
+          type: boolean
+          label: 'State'
+        keyvalue:
+          type: boolean
+          label: 'Key-value store'
+        table:
+          type: boolean
+          label: 'Custom tables'
+        schema:
+          type: boolean
+          label: 'Schema changes'
+        file:
+          type: boolean
+          label: 'Files'
+        ephemeral:
+          type: boolean
+          label: 'Ephemeral state'
+        code:
+          type: boolean
+          label: 'Module code and lockfiles'
+        statements:
+          type: boolean
+          label: 'Raw SQL statements'
+        access_churn:
+          type: string
+          label: 'How user access timestamps are captured'
+        sample_rows:
+          type: integer
+          label: 'Rows the reconciler samples per table'
+    code:
+      type: mapping
+      label: 'What the code realm walks'
+      mapping:
+        root:
+          type: string
+          label: 'Project root, or empty to derive it'
+        vendor_sample:
+          type: integer
+          label: 'Files the vendor fingerprint covers'
+        max_files:
+          type: integer
+          label: 'Files one code walk may capture'
+    file:
+      type: mapping
+      label: 'How files are split and tiered'
+      mapping:
+        block_size:
+          type: integer
+          label: 'Block size in bytes'
+        shift_threshold:
+          type: float
+          label: 'Moved-block share that counts as shifted content'
+        tier_blocks:
+          type: boolean
+          label: 'Write blocks to an infrequent-access class'
+        storage_class:
+          type: string
+          label: 'Storage class blocks are written to'
+    journal:
+      type: mapping
+      label: 'Where captured operations wait for a flush'
+      mapping:
+        backend:
+          type: string
+          label: 'Journal backend id'
+        redis_stream:
+          type: string
+          label: 'Stream key the Redis journal appends to'
+    flush:
+      type: mapping
+      label: 'When a window is flushed'
+      mapping:
+        max_age:
+          type: integer
+          label: 'Seconds before a flush'
+        max_bytes:
+          type: integer
+          label: 'Buffered bytes before a flush'
+        max_ops:
+          type: integer
+          label: 'Buffered operations before a flush'
+    frame:
+      type: mapping
+      label: 'Framing and packing'
+      mapping:
+        size:
+          type: integer
+          label: 'Frame size in bytes'
+        pack_target:
+          type: integer
+          label: 'Pack target size in bytes'
+    codec:
+      type: mapping
+      label: 'Compression'
+      mapping:
+        id:
+          type: string
+          label: 'Codec id, or empty to choose the best available'
+        flush_level:
+          type: integer
+          label: 'Compression level on the flush path'
+          nullable: true
+        compaction_level:
+          type: integer
+          label: 'Compression level during compaction'
+          nullable: true
+        dictionary:
+          type: boolean
+          label: 'Train and use per-realm dictionaries'
+    cipher:
+      type: mapping
+      label: 'Encryption'
+      mapping:
+        id:
+          type: string
+          label: 'Cipher id'
+    delta:
+      type: mapping
+      label: 'Delta coding'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Encode a rewritten value against its previous version'
+        max_depth:
+          type: integer
+          label: 'Links between anchors'
+    tiers:
+      type: mapping
+      label: 'Tiered storage across several buckets'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Spread history across the configured tiers'
+        verify_copies:
+          type: boolean
+          label: 'Read every copy back and hash it before dropping the nearer one'
+        levels:
+          type: sequence
+          label: 'Tiers, nearest first'
+          sequence:
+            type: mapping
+            label: 'One tier'
+            mapping:
+              name:
+                type: string
+                label: 'Short unique name, also the per-tier request counter key'
+              provider:
+                type: string
+                label: 'Storage provider id this tier is built from'
+              location:
+                type: string
+                label: 'Bucket or directory, or empty for the provider default'
+              storage_class:
+                type: string
+                label: 'Storage class objects here are written with'
+              from_age:
+                type: integer
+                label: 'Seconds untouched before an object belongs here'
+              retain_below:
+                type: boolean
+                label: 'Keep the copy in the tier below, making this a replica'
+    retention:
+      type: mapping
+      label: 'Retention ladder'
+      mapping:
+        base_interval:
+          type: integer
+          label: 'Seconds between base anchors'
+        base_full_every:
+          type: integer
+          label: 'Delta anchors before a full one'
+        levels:
+          type: sequence
+          label: 'Compaction levels'
+          sequence:
+            type: mapping
+            label: 'One level'
+            mapping:
+              window:
+                type: integer
+                label: 'Rollup window in seconds'
+              keep:
+                type: integer
+                label: 'Seconds to retain, or 0 to keep forever'
+        auto_prune:
+          type: boolean
+          label: 'Prune on cron'
+    budget:
+      type: mapping
+      label: 'Spend ceiling'
+      mapping:
+        bytes_per_month:
+          type: integer
+          label: 'Stored bytes per month, or 0 for no ceiling'
+        dollars_per_month:
+          type: integer
+          label: 'Dollars per month, or 0 for no ceiling'
+        action:
+          type: string
+          label: 'What to do when the ceiling is reached'
+    restore:
+      type: mapping
+      label: 'How a restore is authorised'
+      mapping:
+        two_person_approval:
+          type: boolean
+          label: 'A destructive restore needs a second account to approve it'
+    health:
+      type: mapping
+      label: 'Self-healing'
+      mapping:
+        auto_repair:
+          type: boolean
+          label: 'Run the safe repair rungs on cron'
+        circuit_threshold:
+          type: integer
+          label: 'Consecutive failures before a circuit opens'
+        circuit_cooldown:
+          type: integer
+          label: 'Seconds a circuit stays open'
+    anomaly:
+      type: mapping
+      label: 'Anomaly detection'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Score each reading against the site own history'
+        warn_sigma:
+          type: float
+          label: 'Deviations from the median before a finding is raised'
+    drill:
+      type: mapping
+      label: 'Restore drills'
+      mapping:
+        enabled:
+          type: boolean
+          label: 'Prove the store reproduces the site, on a schedule'
+        interval:
+          type: integer
+          label: 'Seconds between drills'
+        sample:
+          type: integer
+          label: 'Subjects one drill examines'
+    telemetry:
+      type: mapping
+      label: 'OpenTelemetry export'
+      mapping:
+        endpoint:
+          type: string
+          label: 'Collector base URL, or empty to export nothing'
+        headers:
+          type: sequence
+          label: 'Headers every export carries, keyed by header name'
+          sequence:
+            type: string
+            label: 'One header value'
+
+strata.webhooks:
+  type: config_object
+  label: 'Strata webhook subscriptions'
+  mapping:
+    subscriptions:
+      type: sequence
+      label: 'Endpoints notified when something happens'
+      sequence:
+        type: mapping
+        label: 'One subscription'
+        mapping:
+          url:
+            type: uri
+            label: 'Where the payload is posted'
+          secret:
+            type: string
+            label: 'Signing secret, or empty to send unsigned'
+          events:
+            type: sequence
+            label: 'Event names wanted, or empty for every event'
+            sequence:
+              type: string
+              label: 'One event name'
+          enabled:
+            type: boolean
+            label: 'Attempt deliveries'
+          timeout:
+            type: integer
+            label: 'Seconds one attempt may take'
+          attempts:
+            type: integer
+            label: 'Attempts before the delivery is abandoned'
