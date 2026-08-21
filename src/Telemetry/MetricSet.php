@@ -30,9 +30,9 @@ final class MetricSet implements JsonSerializable
 	public const COUNTER = 'counter';
 
 	/**
-	 * The metrics, keyed by name.
+	 * The metrics, keyed by name and dimensions.
 	 *
-	 * @var array<string, array{value: float, kind: string, unit: string, attributes: array<string, string>}>
+	 * @var array<string, array{name: string, value: float, kind: string, unit: string, attributes: array<string, string>}>
 	 */
 	private array $metrics = [];
 
@@ -85,10 +85,10 @@ final class MetricSet implements JsonSerializable
 	}
 
 	/**
-	 * Every metric recorded.
+	 * Every reading recorded.
 	 *
-	 * @return array<string, array{value: float, kind: string, unit: string, attributes: array<string, string>}>
-	 *   Name keyed to the reading.
+	 * @return array<string, array{name: string, value: float, kind: string, unit: string, attributes: array<string, string>}>
+	 *   A key of the name and its dimensions, each holding the reading and the plain metric name.
 	 */
 	public function all(): array
 	{
@@ -96,17 +96,19 @@ final class MetricSet implements JsonSerializable
 	}
 
 	/**
-	 * One metric's value.
+	 * One reading's value.
 	 *
 	 * @param string $name
 	 *   The metric name.
+	 * @param array<string, string> $attributes
+	 *   The dimensions that reading was recorded with.
 	 *
 	 * @return float|null
 	 *   The value, or NULL when it was not recorded.
 	 */
-	public function get(string $name): ?float
+	public function get(string $name, array $attributes = []): ?float
 	{
-		return $this->metrics[$name]['value'] ?? null;
+		return $this->metrics[self::key($name, $attributes)]['value'] ?? null;
 	}
 
 	/**
@@ -142,8 +144,14 @@ final class MetricSet implements JsonSerializable
 	/**
 	 * Records one metric.
 	 *
-	 * A name recorded twice keeps the later value, because the second reading is the more recent one
-	 * and a set is a snapshot rather than a log.
+	 * **The key is the name AND its attributes.** One name carries several series when it is
+	 * dimensioned - open findings per severity, request counts per class - and keying on the name
+	 * alone would have each dimension overwrite the last, leaving one arbitrary series exported and
+	 * the rest silently gone. The stored `name` stays the plain metric name, so the wire shape is
+	 * unaffected.
+	 *
+	 * The same name with the same attributes recorded twice keeps the later value, because the second
+	 * reading is the more recent one and a set is a snapshot rather than a log.
 	 *
 	 * @param string $name
 	 *   The metric name.
@@ -166,7 +174,8 @@ final class MetricSet implements JsonSerializable
 		string $unit,
 		array $attributes,
 	): self {
-		$this->metrics[$name] = [
+		$this->metrics[self::key($name, $attributes)] = [
+			'name' => $name,
 			'value' => $value,
 			'kind' => $kind,
 			'unit' => $unit,
@@ -174,5 +183,36 @@ final class MetricSet implements JsonSerializable
 		];
 
 		return $this;
+	}
+
+	/**
+	 * The key one dimensioned reading is stored under.
+	 *
+	 * Attributes are sorted so the same dimensions in a different order resolve to one series rather
+	 * than two.
+	 *
+	 * @param string $name
+	 *   The metric name.
+	 * @param array<string, string> $attributes
+	 *   Dimensions.
+	 *
+	 * @return string
+	 *   The key.
+	 */
+	private static function key(string $name, array $attributes): string
+	{
+		if ($attributes === []) {
+			return $name;
+		}
+
+		ksort($attributes);
+
+		$parts = [];
+
+		foreach ($attributes as $attribute => $value) {
+			$parts[] = $attribute . '=' . $value;
+		}
+
+		return $name . '{' . implode(',', $parts) . '}';
 	}
 }

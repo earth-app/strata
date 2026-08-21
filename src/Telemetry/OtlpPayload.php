@@ -116,7 +116,8 @@ final class OtlpPayload
 	{
 		$rendered = [];
 
-		foreach ($metrics->all() as $name => $metric) {
+		// the array key carries the dimensions too, so the wire name comes from the entry itself
+		foreach ($metrics->all() as $metric) {
 			$point = [
 				'timeUnixNano' => (string) $nanos,
 				'asDouble' => $metric['value'],
@@ -124,7 +125,7 @@ final class OtlpPayload
 			];
 
 			$rendered[] = [
-				'name' => $name,
+				'name' => $metric['name'],
 				'unit' => $metric['unit'],
 				$metric['kind'] === MetricSet::COUNTER ? 'sum' : 'gauge' =>
 					$metric['kind'] === MetricSet::COUNTER
