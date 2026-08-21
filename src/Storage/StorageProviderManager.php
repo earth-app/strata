@@ -38,6 +38,17 @@ final class StorageProviderManager
 	private array $deferred = [];
 
 	/**
+	 * Factories a submodule contributed, keyed by id.
+	 *
+	 * Held alongside the deferred closure rather than swallowed by it, because a tiered store has to
+	 * ask a factory for a second provider at a different location. A closure can only be called; a
+	 * factory can be asked what it is capable of.
+	 *
+	 * @var array<string, StorageProviderFactoryInterface>
+	 */
+	private array $factories = [];
+
+	/**
 	 * Id of the provider flushes are written to.
 	 */
 	private ?string $active = null;
@@ -127,10 +138,32 @@ final class StorageProviderManager
 	 */
 	public function registerProviderFactory(StorageProviderFactoryInterface $factory): self
 	{
-		return $this->registerFactory(
+		$this->registerFactory(
 			$factory->id(),
 			static fn(): StorageProviderInterface => $factory->create(),
 		);
+
+		$this->factories[$factory->id()] = $factory;
+
+		return $this;
+	}
+
+	/**
+	 * The factory a provider id was contributed by.
+	 *
+	 * What a tiered store needs: the same endpoint pointed at a second bucket can only be built by
+	 * the thing that knows how to build the first one.
+	 *
+	 * @param string $id
+	 *   A provider id.
+	 *
+	 * @return StorageProviderFactoryInterface|null
+	 *   The factory, or NULL when the provider was registered as an instance or a bare closure rather
+	 *   than through a factory.
+	 */
+	public function factory(string $id): ?StorageProviderFactoryInterface
+	{
+		return $this->factories[$id] ?? null;
 	}
 
 	/**
