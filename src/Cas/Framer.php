@@ -11,16 +11,15 @@ use RuntimeException;
 /**
  * Splits a byte stream into fixed-size frames.
  *
- * Strata deliberately does NOT use content-defined chunking here. Measured on the reference host,
- * a pure-PHP FastCDC runs at 4.29 MB/s per-byte and 5.63 MB/s over unpacked 64 KiB windows, against
- * 683 MB/s for this splitter plus a BLAKE2b per frame - 120 to 160 times slower, and `unpack('C*')`
- * on an 8 MB buffer exhausts a 128 MB memory limit because an int array costs roughly 16x the
- * string. CDC exists to survive INSERTIONS, which shift every following boundary. An append-only
- * op log has no insertions, so the only thing CDC would buy here is its own cost.
+ * Frames are a fixed size rather than content-defined. A pure-PHP FastCDC runs at 4.29 MB/s
+ * per-byte and 5.63 MB/s over unpacked 64 KiB windows, against 683 MB/s for this splitter plus a
+ * BLAKE2b per frame; `unpack('C*')` on an 8 MB buffer also exhausts a 128 MB memory limit, since
+ * an int array costs roughly 16x the string. Content-defined chunking exists to survive
+ * insertions, which shift every following boundary, and an append-only op log has none.
  *
- * What replaces it is DeltaCodec, which compresses a rewritten value against its previous version
- * and measured 63.7x on that class of change. Files, where an insertion genuinely can happen, are
- * handled by BlockSplitter, which detects the shift rather than paying to absorb it.
+ * DeltaCodec covers the case content-defined chunking would have: it compresses a rewritten value
+ * against its previous version, measured at 63.7x on that class of change. Files, where an
+ * insertion can happen, are handled by BlockSplitter, which detects the shift.
  *
  * Frame size trades compression against granularity: with a trained zstd dictionary the measured
  * ratio is 6.20x at 8 KiB, 6.39x at 16 KiB, 6.54x at 32 KiB and 6.72x at 64 KiB, while the
