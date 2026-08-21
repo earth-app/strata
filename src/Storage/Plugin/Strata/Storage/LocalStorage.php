@@ -80,6 +80,36 @@ final class LocalStorage implements StorageProviderInterface
 		return $this->root;
 	}
 
+	/**
+	 * Why the root's stream wrapper cannot be used, if it cannot.
+	 *
+	 * A root may be a plain path or a stream URI, and `private://` is the one a Drupal site is most
+	 * likely to be pointed at. That scheme only exists once `file_private_path` is set, and every
+	 * filesystem call against an unregistered scheme emits a PHP warning and answers FALSE - which
+	 * reads as "the directory is missing" and sends an operator looking for the wrong thing.
+	 *
+	 * @return string|null
+	 *   The reason, or NULL when the root is usable as far as its scheme goes.
+	 */
+	private function missingWrapper(): ?string
+	{
+		$scheme = parse_url($this->root, PHP_URL_SCHEME);
+
+		if (!is_string($scheme) || $scheme === '') {
+			return null;
+		}
+
+		if (in_array($scheme, stream_get_wrappers(), true)) {
+			return null;
+		}
+
+		return sprintf(
+			'the "%s://" stream wrapper is not registered on this host, so %s cannot be reached',
+			$scheme,
+			$this->root,
+		);
+	}
+
 	#region Identity
 
 	/**
@@ -119,6 +149,12 @@ final class LocalStorage implements StorageProviderInterface
 	 */
 	public function unreachableReason(): ?string
 	{
+		$missing = $this->missingWrapper();
+
+		if ($missing !== null) {
+			return $missing;
+		}
+
 		if (is_dir($this->root)) {
 			return is_writable($this->root) ? null : sprintf('%s is not writable', $this->root);
 		}
@@ -229,7 +265,7 @@ final class LocalStorage implements StorageProviderInterface
 	 */
 	public function head(string $key): ?ObjectMeta
 	{
-		if ($this->isReserved($key)) {
+		if ($this->isReserved($key) || $this->missingWrapper() !== null) {
 			return null;
 		}
 
@@ -432,8 +468,13 @@ final class LocalStorage implements StorageProviderInterface
 	/**
 	 * Turns a key into an absolute path, refusing anything that escapes the root.
 	 *
-	 * A key arrives from a manifest, and a manifest can be tampered with, so `..` and absolute
-	 * paths are rejected by name rather than normalised away.
+	 * A key arrives from a manifest, and a manifest can be tampered with, so a `.` or `..` segment is
+	 * rejected by name rather than normalised away: normalising one would silently address a
+	 * different object than the manifest named.
+	 *
+	 * A leading or trailing slash is the one thing that IS normalised, because it names the same
+	 * object either way and an endpoint that keeps it produces a key with an empty first segment.
+	 * `/frames/aa` therefore resolves inside the root rather than at the filesystem root.
 	 *
 	 * @param string $key
 	 *   Object key relative to the store root.
@@ -442,7 +483,8 @@ final class LocalStorage implements StorageProviderInterface
 	 *   Absolute path inside the root.
 	 *
 	 * @throws InvalidArgumentException
-	 *   When the key is empty, absolute, or contains a traversal segment or a null byte.
+	 *   When the key is empty, has an empty inner segment, contains a `.` or `..` segment or a null
+	 *   byte, or ends in the reserved in-progress suffix.
 	 */
 	private function resolve(string $key): string
 	{
@@ -558,7 +600,7 @@ final class LocalStorage implements StorageProviderInterface
 	 */
 	private function walk(string $directory, string $prefix): array
 	{
-		if (!is_dir($directory)) {
+		if ($this->missingWrapper() !== null || !is_dir($directory)) {
 			return [];
 		}
 
