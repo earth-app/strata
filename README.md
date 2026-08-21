@@ -18,27 +18,28 @@ drush en strata strata_s3 strata_ui -y
 drush strata:calibrate
 ```
 
-## Contents
+## 📖 Contents
 
-- [How It Works](#how-it-works)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Submodules](#submodules)
-- [Configuration](#configuration)
-- [Commands](#commands)
-- [Reports](#reports)
-- [Measurements](#measurements)
-- [Cost](#cost)
-- [Tiered Buckets](#tiered-buckets)
-- [Self-Healing](#self-healing)
-- [Permissions](#permissions)
-- [Events and Webhooks](#events-and-webhooks)
-- [Out of Scope](#out-of-scope)
-- [FAQ](#faq)
-- [Development](#development)
-- [License](#license)
+- [How It Works](#-how-it-works)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Submodules](#-submodules)
+- [Configuration](#-configuration)
+- [Commands](#-commands)
+- [Reports](#-reports)
+- [Measurements](#-measurements)
+- [Cost](#-cost)
+- [Tiered Buckets](#-tiered-buckets)
+- [Self-Healing](#-self-healing)
+- [Permissions](#-permissions)
+- [Events and Webhooks](#-events-and-webhooks)
+- [Out of Scope](#-out-of-scope)
+- [FAQ](#-faq)
+- [Development](#-development)
+- [License](#-license)
+- [Credits](#-credits)
 
-## How It Works
+## 🏗️ How It Works
 
 ```text
 mutation -> hook and event capture (~6-7 us, field-level delta)
@@ -74,7 +75,7 @@ Module code takes a third path: the site's own modules and themes as bytes, `set
 and `composer.lock` as the reference for everything in `vendor/`. The whole code realm costs about
 9 MiB a year across 150 deploys.
 
-## Requirements
+## 📦 Requirements
 
 | Requirement  | Version                                                      |
 | ------------ | ------------------------------------------------------------ |
@@ -90,7 +91,7 @@ and `composer.lock` as the reference for everything in `vendor/`. The whole code
 Without `ext-zstd`, Strata uses the `zstd` binary through one long-lived pipe when it is on `PATH`,
 and gzip otherwise. gzip at 8 KiB frames costs 76% more stored bytes than zstd with a dictionary.
 
-## Installation
+## 🚀 Installation
 
 ```bash
 composer require earth-app/strata
@@ -108,7 +109,7 @@ drush strata:calibrate
 `strata:calibrate` measures compression ratios, dictionary gain, delta-coding gain and capture
 overhead on the host that will run them, rather than relying on the figures in this document.
 
-## Submodules
+## 🧩 Submodules
 
 | Module          | Provides                                                                    |
 | --------------- | --------------------------------------------------------------------------- |
@@ -122,7 +123,7 @@ overhead on the host that will run them, rather than relying on the figures in t
 The top-level module is the engine. Each submodule is optional, and uninstalling one leaves stored
 history untouched.
 
-## Configuration
+## ⚙️ Configuration
 
 Settings live at `/admin/config/system/strata/`, one page per concern: Storage, Capture, Retention,
 Webhooks, Telemetry, Notifications. Everything is in `strata.settings` and exports with the rest of
@@ -145,7 +146,7 @@ records more changed subjects, so the two effects largely cancel and stored byte
 it does control is restore latency: at four hours and a 15 second flush, a replay to an arbitrary
 moment walks up to 960 segments.
 
-## Commands
+## 🧰 Commands
 
 ```bash
 drush strata:status           # provider, key, budget headroom, open findings
@@ -169,7 +170,7 @@ drush strata:tiers               # which bucket holds what, and what a restore n
 Twenty-five commands in total; `drush list --filter=strata` shows them all. Every destructive
 command supports `--dry-run` and prints its manifest before asking.
 
-## Reports
+## 📊 Reports
 
 `strata_ui` adds five pages under `/admin/reports/strata/` and `/admin/config/system/strata/`.
 
@@ -194,7 +195,7 @@ The pages need no JavaScript. Wheel-zoom and drag-pan are added when scripting i
 navigation is also a link. Charts follow the reader's colour scheme, honour
 `prefers-reduced-motion` and `prefers-contrast`, and encode state in shape as well as colour.
 
-## Measurements
+## 🔬 Measurements
 
 Every figure Strata acts on was measured through its own code path. These were taken on PHP 8.5.7,
 Darwin arm64, over a 6,357,223-byte corpus of entity JSON and custom-table rows including
@@ -249,7 +250,7 @@ Fixed blocks cannot follow an insertion. A changed-block ratio above 30% is the 
 content and raises `file.shift_detected`, which offers whole-object storage or the opt-in chunker per
 file type. Media re-encodes, metadata rewrites and in-place patches never reach it.
 
-## Cost
+## 💰 Cost
 
 Stored per year with zstd, dictionaries and delta coding, at a 15 second flush and a 4 hour base
 interval:
@@ -280,7 +281,7 @@ On AWS S3, request cost is a floor a small site cannot escape: a 1,000-user site
 month entirely in PUTs at a 15 second interval. The install wizard recommends 15 seconds on R2 and
 60 seconds on S3 for sites under about 10,000 users.
 
-## Tiered Buckets
+## 🗂️ Tiered Buckets
 
 One bucket is the default and needs no configuration. A site that wants more can put history on a
 ladder of buckets, nearest first, with an age threshold on each:
@@ -314,7 +315,7 @@ Three refusals hold the whole thing together:
 `drush strata:tiers` reports what each bucket holds, whether it answers, and what a restore of a
 given commit would need.
 
-## Self-Healing
+## 🩹 Self-Healing
 
 A **tripwire** asserts a symptom, is O(1) or explicitly bounded, and never repairs anything.
 Detection and repair are separate so repair can be gated, rate-limited and escalated independently.
@@ -346,7 +347,7 @@ Restore drills close the loop: on a schedule, Strata replays a sample of subject
 against what the site holds, then publishes a pass, fail or inconclusive verdict. A drill that could
 judge nothing reports `inconclusive` rather than `pass`.
 
-## Permissions
+## 🔐 Permissions
 
 Rollback is not one permission. Restoring one node and replacing every table have different blast
 radii, so the check is per realm and a plan spanning three realms needs all three.
@@ -373,7 +374,7 @@ is also generated for each realm, and a per-provider permission for each configu
 Optional two-person approval requires that the account approving a destructive restore is not the
 account that requested it.
 
-## Events and Webhooks
+## 🔔 Events and Webhooks
 
 Six events are dispatched: `strata.commit.sealed`, `strata.restore.finished`,
 `strata.health.finding`, `strata.budget.breached`, `strata.prune.applied` and
@@ -396,7 +397,7 @@ Spans and metrics can be exported to any OpenTelemetry collector. The metric wor
 `strata.rpo_lag_seconds`, the age of the newest sealed commit, which is how much captured work would
 be lost if the host died now.
 
-## Out of Scope
+## 🚧 Out of Scope
 
 - **Cloudflare Workers as a runtime.** Strata targets a VPS or comparable host. R2 is supported as
   storage.
@@ -414,7 +415,7 @@ be lost if the host died now.
   the hard part: a fatal from a bad deploy is rollback-shaped, a failing upstream API is not, and
   rolling the database back to fix a code bug destroys real user data.
 
-## FAQ
+## ❓ FAQ
 
 ### At a 15-second interval, does a quiet site keep writing duplicates?
 
@@ -519,7 +520,7 @@ at 683 MB/s, and an append-only operation log has no shifted content for chunkin
 chunking was meant to buy - not re-storing a value because part of it moved - is bought instead by
 `zstd -D` against the previous version, at 63.70x on the rewrite class and at zstd speed.
 
-## Development
+## 🧪 Development
 
 ```bash
 composer install && bun install
@@ -562,6 +563,20 @@ That site can then be driven, measured and broken by hand:
 
 Code style is tabs at four columns, 100 columns, LF. Prettier is the authority on formatting.
 
-## License
+## 📄 License
 
 MIT. See [LICENSE](LICENSE).
+
+## 🤝 Credits
+
+- **Compression**: [zstd](https://facebook.github.io/zstd/) and [Brotli](https://github.com/google/brotli)
+- **Hashing and sealing**: [libsodium](https://doc.libsodium.org/) BLAKE2b and XChaCha20-Poly1305
+- **Storage**: [Cloudflare R2](https://developers.cloudflare.com/r2/),
+  [AWS S3](https://aws.amazon.com/s3/), and any S3-compatible endpoint
+- **Key management**: [`drupal/key`](https://www.drupal.org/project/key)
+- **Developed by**: [Gregory Mitchell](https://github.com/gmitch215)
+
+---
+
+**For questions or support**, open an issue on
+[GitHub](https://github.com/earth-app/strata) or contact the development team.
