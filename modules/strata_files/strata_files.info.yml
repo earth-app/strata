@@ -1,0 +1,9 @@
+name: 'Strata Files'
+description: 'Captures managed and unmanaged files as fixed 64 KiB blocks, so a change costs the blocks it touched.'
+type: module
+package: Strata
+core_version_requirement: ^11.2
+
+dependencies:
+  - drupal:file
+  - strata:strata

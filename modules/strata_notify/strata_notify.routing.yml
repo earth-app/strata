@@ -1,0 +1,9 @@
+strata_notify.settings:
+  path: '/admin/config/system/strata/notify'
+  defaults:
+    _form: Drupal\strata_notify\Form\NotifySettingsForm
+    _title: 'Strata Notifications'
+  requirements:
+    _permission: 'administer strata'
+  options:
+    _admin_route: TRUE

@@ -1,0 +1,42 @@
+services:
+  strata_redis.clients:
+    class: Drupal\strata_redis\RedisClientFactory
+    arguments: ['@logger.channel.strata']
+
+  Drupal\strata_redis\RedisClientFactory:
+    alias: strata_redis.clients
+
+  strata_redis.keyspace_source:
+    class: Drupal\strata_redis\RedisKeyspaceSource
+    arguments: ['@strata_redis.clients']
+    tags:
+      - { name: strata.keyspace_source }
+
+  Drupal\strata_redis\RedisKeyspaceSource:
+    alias: strata_redis.keyspace_source
+
+  strata_redis.ephemeral_scope:
+    class: Drupal\strata\Capture\Classifier\EphemeralScope
+    arguments: ['@strata.capture_scope', '@strata.classifications']
+
+  Drupal\strata\Capture\Classifier\EphemeralScope:
+    alias: strata_redis.ephemeral_scope
+
+  strata_redis.capture:
+    class: Drupal\strata_redis\RedisCapture
+    arguments:
+      - '@strata_redis.keyspace_source'
+      - '@strata_redis.clients'
+      - '@strata_redis.ephemeral_scope'
+      - '@strata.key_recorder'
+      - '@logger.channel.strata'
+
+  Drupal\strata_redis\RedisCapture:
+    alias: strata_redis.capture
+
+  Drupal\strata_redis\Hook\CronCapture:
+    class: Drupal\strata_redis\Hook\CronCapture
+    arguments:
+      - '@strata_redis.capture'
+      - '@state'
+      - '@logger.channel.strata'

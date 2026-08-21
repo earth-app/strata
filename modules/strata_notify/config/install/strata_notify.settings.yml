@@ -1,0 +1,10 @@
+recipients: ''
+severity: 2
+events:
+  restore: true
+  budget: true
+  health: true
+  drill: true
+  prune: false
+  commit: false
+digest: true
