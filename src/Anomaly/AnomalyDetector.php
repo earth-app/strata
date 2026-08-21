@@ -85,6 +85,28 @@ final class AnomalyDetector
 	{
 		$this->sampler->sample();
 
+		$anomalies = $this->current();
+
+		if ($record) {
+			foreach ($anomalies as $anomaly) {
+				$this->report($anomaly);
+			}
+		}
+
+		return $anomalies;
+	}
+
+	/**
+	 * Scores the window as it stands, without taking a reading or writing anything.
+	 *
+	 * What a dashboard calls. `run()` samples first, so rendering a page through it would append a
+	 * reading on every page load and move the baseline every time somebody looked at it.
+	 *
+	 * @return list<Anomaly>
+	 *   What departed, worst first.
+	 */
+	public function current(): array
+	{
 		$anomalies = [];
 
 		foreach (array_keys(MetricSampler::METRICS) as $metric) {
@@ -99,12 +121,6 @@ final class AnomalyDetector
 			$anomalies,
 			static fn(Anomaly $a, Anomaly $b): int => abs($b->deviations) <=> abs($a->deviations),
 		);
-
-		if ($record) {
-			foreach ($anomalies as $anomaly) {
-				$this->report($anomaly);
-			}
-		}
 
 		return $anomalies;
 	}
