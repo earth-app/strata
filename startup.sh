@@ -52,6 +52,15 @@ Drive it. Each command needs the site to exist already.
   scenario    all of the above in order, so the whole story is one command
               --scale=small|medium|large            passed to the traffic act
 
+Run the browser test lane. This is independent of the ddev site above and can run beside it.
+
+  serve       start the server the Functional suite installs into, or reuse a live one
+              --port=<n>                            defaults to 8087
+              --stop                                stop the server this started
+
+  functional  bring that server up if it is down, then run the Functional suite
+              --port=<n>                            defaults to 8087
+
 Nothing here is reversible and none of it belongs anywhere near a real site.
 USAGE
 }
@@ -60,6 +69,8 @@ DB="mariadb"
 FRESH=0
 USE_S3=1
 COMMAND="build"
+SERVE_PORT="8087"
+STOP=0
 SCALE="small"
 REWRITES="2"
 KIND=""
@@ -69,7 +80,7 @@ APPLY=0
 
 if [ "$#" -gt 0 ]; then
 	case "$1" in
-		traffic | measure | rollback | meltdown | heal | attack | scenario)
+		traffic | measure | rollback | meltdown | heal | attack | scenario | serve | functional)
 			COMMAND="$1"
 			shift
 			;;
@@ -86,6 +97,8 @@ for arg in "$@"; do
 		--kind=*) KIND="${arg#*=}" ;;
 		--share=*) SHARE="${arg#*=}" ;;
 		--to=*) TARGET="${arg#*=}" ;;
+		--port=*) SERVE_PORT="${arg#*=}" ;;
+		--stop) STOP=1 ;;
 		--apply) APPLY=1 ;;
 		-h | --help)
 			usage
@@ -115,6 +128,93 @@ need() {
 		exit 1
 	}
 }
+
+#region Browser Harness
+
+# the Functional suite installs a real site into vendor/drupal and drives it over http, which is a
+# different thing from the ddev playground and deliberately shares nothing with it
+SERVE_ROOT="$SRC_PATH/vendor/drupal"
+SERVE_PID_FILE="/tmp/strata-functional-$SERVE_PORT.pid"
+SERVE_LOG="/tmp/strata-functional-$SERVE_PORT.log"
+
+serve_is_up() {
+	curl -sf -o /dev/null "http://localhost:$SERVE_PORT/core/install.php" 2> /dev/null
+}
+
+serve_stop() {
+	if [ -f "$SERVE_PID_FILE" ]; then
+		kill "$(cat "$SERVE_PID_FILE")" 2> /dev/null || true
+		rm -f "$SERVE_PID_FILE"
+		echo ">>> Stopped the server on port $SERVE_PORT"
+		return 0
+	fi
+
+	echo ">>> No server was started by this script on port $SERVE_PORT"
+}
+
+# reuse a live server, or roll a fresh one; setsid detaches it so it outlives the shell that ran this
+serve_start() {
+	need php
+
+	if serve_is_up; then
+		echo ">>> Reusing the server already answering on port $SERVE_PORT"
+		return 0
+	fi
+
+	# a stale pidfile means the last one died; take the port back before binding it again
+	if [ -f "$SERVE_PID_FILE" ]; then
+		kill "$(cat "$SERVE_PID_FILE")" 2> /dev/null || true
+		rm -f "$SERVE_PID_FILE"
+	fi
+
+	php "$SRC_PATH/tests/drupal-root.php" > /dev/null
+
+	if command -v setsid > /dev/null 2>&1; then
+		setsid php -S "localhost:$SERVE_PORT" -t "$SERVE_ROOT" "$SERVE_ROOT/.ht.router.php" \
+			> "$SERVE_LOG" 2>&1 &
+	else
+		nohup php -S "localhost:$SERVE_PORT" -t "$SERVE_ROOT" "$SERVE_ROOT/.ht.router.php" \
+			> "$SERVE_LOG" 2>&1 &
+	fi
+
+	echo $! > "$SERVE_PID_FILE"
+
+	for _ in $(seq 1 30); do
+		if serve_is_up; then
+			echo ">>> Serving $SERVE_ROOT on http://localhost:$SERVE_PORT (log: $SERVE_LOG)"
+			return 0
+		fi
+
+		sleep 1
+	done
+
+	echo ">>> The server did not come up; see $SERVE_LOG"
+	cat "$SERVE_LOG"
+	exit 1
+}
+
+case "$COMMAND" in
+	serve)
+		if [ "$STOP" = "1" ]; then
+			serve_stop
+			exit 0
+		fi
+
+		serve_start
+		exit 0
+		;;
+	functional)
+		serve_start
+
+		cd "$SRC_PATH"
+		SIMPLETEST_BASE_URL="http://localhost:$SERVE_PORT" \
+			SIMPLETEST_DB="sqlite://localhost/sites/default/files/.ht.functional.sqlite" \
+			./vendor/bin/phpunit --testsuite Functional
+		exit $?
+		;;
+esac
+
+#endregion
 
 need ddev
 
@@ -199,7 +299,10 @@ if [ "$USE_S3" = "1" ]; then
 		exit 1
 	fi
 
-	docker compose -f "$COMPOSE_FILE" up -d --wait
+	# only the long-running service is waited on; the one-shot is run to completion below
+	docker compose -f "$COMPOSE_FILE" up -d --wait minio
+	docker compose -f "$COMPOSE_FILE" run --rm minio-init > /dev/null
+
 	echo ">>> minio ready: $S3_ENDPOINT_HOST (console http://127.0.0.1:9001, strata / stratatest)"
 fi
 
