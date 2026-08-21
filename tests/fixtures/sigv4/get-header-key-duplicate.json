@@ -1,0 +1,23 @@
+{
+	"name": "get-header-key-duplicate",
+	"description": "one header name given three times collapses to one comma-joined line",
+	"region": "us-east-1",
+	"service": "service",
+	"timestamp": "20150830T123600Z",
+	"accessKeyId": "AKIDEXAMPLE",
+	"secretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+	"sessionToken": null,
+	"method": "GET",
+	"url": "https://example.amazonaws.com/",
+	"headers": {
+		"Host": "example.amazonaws.com",
+		"My-Header1": ["value1", "value2", "value2"],
+		"X-Amz-Date": "20150830T123600Z"
+	},
+	"body": null,
+	"payloadHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	"signedHeaders": "host;my-header1;x-amz-date",
+	"canonicalRequest": "GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value1,value2,value2\nx-amz-date:20150830T123600Z\n\nhost;my-header1;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	"stringToSign": "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/service/aws4_request\nb8ca49cc99da2daaa5c74607e9931ed6734020e63e99cab45d9a4a55c87e542c",
+	"authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;my-header1;x-amz-date, Signature=107ff1b2c0aab7025b84dfcc265aeac149f010a80fb2e796558a82930d144322"
+}

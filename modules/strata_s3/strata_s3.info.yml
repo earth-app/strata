@@ -1,0 +1,7 @@
+name: 'Strata S3'
+type: module
+package: Strata
+core_version_requirement: ^11.2
+
+dependencies:
+  - strata:strata

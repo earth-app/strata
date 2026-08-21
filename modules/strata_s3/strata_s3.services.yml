@@ -1,0 +1,6 @@
+services:
+  strata_s3.factory:
+    class: Drupal\strata_s3\S3ProviderFactory
+    arguments: ['@config.factory', '@http_client']
+    tags:
+      - { name: strata.storage_provider_factory }

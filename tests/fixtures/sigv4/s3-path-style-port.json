@@ -1,0 +1,22 @@
+{
+	"name": "s3-path-style-port",
+	"description": "a path-style endpoint on a non-default port derives host from the url",
+	"region": "us-east-1",
+	"service": "s3",
+	"timestamp": "20150830T123600Z",
+	"accessKeyId": "AKIDEXAMPLE",
+	"secretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+	"sessionToken": null,
+	"method": "GET",
+	"url": "http://minio.internal:9000/strata-backups/_strata/site-1/frames/ab/cd/object",
+	"headers": {
+		"x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"x-amz-date": "20150830T123600Z"
+	},
+	"body": null,
+	"payloadHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	"signedHeaders": "host;x-amz-content-sha256;x-amz-date",
+	"canonicalRequest": "GET\n/strata-backups/_strata/site-1/frames/ab/cd/object\n\nhost:minio.internal:9000\nx-amz-content-sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nx-amz-date:20150830T123600Z\n\nhost;x-amz-content-sha256;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	"stringToSign": "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/s3/aws4_request\n349ea9bb5885c5fd57bfe8561ef1519546274493334ad1ab2cc486a11ab59dc6",
+	"authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=12fb7a120221f1f9a47070f82b65824a35389ff30433e34a14bf55b2d0ee1c89"
+}
