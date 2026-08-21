@@ -6,8 +6,10 @@ namespace Drupal\strata\Restore;
 
 use Drupal\strata\Health\Finding;
 use Drupal\strata\Health\HealthLedgerInterface;
+use Drupal\strata\Journal\JournalOp;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Tree\CommitLog;
+use Drupal\strata\Tree\SubjectIndex;
 use Throwable;
 
 /**
@@ -44,11 +46,15 @@ final class Preflight
 	 *   Resolves the target and reports the replay depth.
 	 * @param HealthLedgerInterface $ledger
 	 *   Where a partial plan is recorded.
+	 * @param SubjectIndex|null $subjects
+	 *   Consulted for when each subject was last written, which is what makes a conflict detectable.
+	 *   NULL plans without conflict detection, which is what a store with no local index can do.
 	 */
 	public function __construct(
 		private readonly Replayer $replayer,
 		private readonly CommitLog $commits,
 		private readonly HealthLedgerInterface $ledger,
+		private readonly ?SubjectIndex $subjects = null,
 	) {}
 
 	/**
@@ -60,6 +66,8 @@ final class Preflight
 	 *   TRUE to write partial reconstructions as well. Off unless a human asked.
 	 * @param int|null $limit
 	 *   Most subjects to plan, or NULL for all of them.
+	 * @param bool $acceptConflicts
+	 *   TRUE to write a subject somebody changed while the plan was waiting. Off unless a human asked.
 	 *
 	 * @return RestorePlan
 	 *   The plan.
@@ -68,6 +76,7 @@ final class Preflight
 		string $target,
 		bool $fillDegraded = false,
 		?int $limit = null,
+		bool $acceptConflicts = false,
 	): RestorePlan {
 		$started = microtime(true);
 		$problems = [];
@@ -91,7 +100,14 @@ final class Preflight
 			$subjects = array_slice($subjects, 0, max(0, $limit));
 		}
 
-		return $this->planFor($target, $subjects, $fillDegraded, $problems, $started);
+		return $this->planFor(
+			$target,
+			$subjects,
+			$fillDegraded,
+			$problems,
+			$started,
+			$acceptConflicts,
+		);
 	}
 
 	/**
@@ -107,6 +123,8 @@ final class Preflight
 	 *   Subject paths, such as "entity/node:42".
 	 * @param bool $fillDegraded
 	 *   TRUE to write partial reconstructions as well.
+	 * @param bool $acceptConflicts
+	 *   TRUE to write a subject somebody changed while the plan was waiting. Off unless a human asked.
 	 *
 	 * @return RestorePlan
 	 *   The plan.
@@ -115,6 +133,7 @@ final class Preflight
 		string $target,
 		array $subjects,
 		bool $fillDegraded = false,
+		bool $acceptConflicts = false,
 	): RestorePlan {
 		$started = microtime(true);
 		$problems = [];
@@ -130,7 +149,58 @@ final class Preflight
 			$problems[] = sprintf('%s is in a realm a restore does not write back', $subject);
 		}
 
-		return $this->planFor($target, $scoped, $fillDegraded, $problems, $started);
+		return $this->planFor(
+			$target,
+			$scoped,
+			$fillDegraded,
+			$problems,
+			$started,
+			$acceptConflicts,
+		);
+	}
+
+	/**
+	 * The subjects a plan covers that somebody has changed since it was built.
+	 *
+	 * Called at apply time rather than at plan time, because at plan time nothing can have changed
+	 * yet. A plan applied straight away finds nothing here; one that waited for a second approval may
+	 * find several, and those are the writes nobody reviewing the plan saw.
+	 *
+	 * Read from the local subject index, which records when each subject was last written, so this is
+	 * one query and no object reads. A store with no local index detects nothing and says so by
+	 * returning an empty set rather than by claiming there are none.
+	 *
+	 * @param RestorePlan $plan
+	 *   The plan being applied.
+	 *
+	 * @return array<string, Conflict>
+	 *   Subject path keyed to the conflict, empty when the plan carries no build time to compare
+	 *   against.
+	 */
+	public function concurrentChanges(RestorePlan $plan): array
+	{
+		if ($this->subjects === null || $plan->plannedAt < 1) {
+			return [];
+		}
+
+		$conflicts = [];
+		$changed = $this->subjects->changedSince($plan->plannedAt);
+
+		foreach (array_keys($plan->writable()) as $subject) {
+			$path = (string) $subject;
+
+			if (!array_key_exists($path, $changed)) {
+				continue;
+			}
+
+			$conflicts[$path] = new Conflict(
+				$path,
+				$this->subjects->changedAt($path) ?? $plan->plannedAt,
+				$plan->plannedAt,
+			);
+		}
+
+		return $conflicts;
 	}
 
 	/**
@@ -171,6 +241,8 @@ final class Preflight
 	 *   Problems collected so far.
 	 * @param float $started
 	 *   When planning began.
+	 * @param bool $acceptConflicts
+	 *   Whether subjects changed since the restore point are written anyway.
 	 *
 	 * @return RestorePlan
 	 *   The plan.
@@ -181,6 +253,7 @@ final class Preflight
 		bool $fillDegraded,
 		array $problems,
 		float $started,
+		bool $acceptConflicts = false,
 	): RestorePlan {
 		$results = [];
 		$depth = 0;
@@ -201,6 +274,8 @@ final class Preflight
 			$problems,
 			$fillDegraded,
 			microtime(true) - $started,
+			(int) round($started * JournalOp::MICROSECONDS_PER_SECOND),
+			$acceptConflicts,
 		);
 
 		$this->record($plan);
