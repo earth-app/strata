@@ -532,16 +532,17 @@ bun run test:unit # fully offline, including the SigV4 vectors
 bun run test:kernel
 ```
 
-The browser lane installs a real site into a synthesised root, so it needs a server:
+The browser lane installs a real site into a synthesised root and drives it over HTTP, so it needs a
+server. One command brings the server up, or reuses one already listening, and runs the suite:
 
 ```bash
-php tests/drupal-root.php
-php -S localhost:8087 -t "$PWD/vendor/drupal" "$PWD/vendor/drupal/.ht.router.php" &
-
-SIMPLETEST_BASE_URL=http://localhost:8087 \
-	SIMPLETEST_DB="sqlite://localhost/sites/default/files/.ht.functional.sqlite" \
-	bun run test:functional
+./startup.sh functional        # start or reuse the server, then run the lane
+./startup.sh serve --port=8090 # just the server, on a port of your choosing
+./startup.sh serve --stop      # stop the one this started
 ```
+
+The server is detached from the shell that started it and is independent of the DDEV site below, so
+the two run side by side.
 
 `./startup.sh` builds a throwaway DDEV Drupal 11 site at `/tmp/drupal-strata` on port 8788 with a
 local MinIO container, and takes `--db=mariadb|postgres|sqlite` because the physical-restore
