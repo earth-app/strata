@@ -7,6 +7,7 @@
 	<file>src</file>
 	<file>modules</file>
 	<file>tests</file>
+	<file>stubs</file>
 	<arg name="extensions" value="php,module,install,inc" />
 	<arg value="sp" />
 	<arg name="colors" />
@@ -43,24 +44,57 @@
 		<exclude name="Drupal.Commenting.InlineComment.WrongStyle" />
 
 		<!--
-			fires on a class imported only so a docblock can name it by its short form. the house
-			rule requires that import, so "unused" here means "used exactly as intended".
+			requires PascalCase enum cases as drupal core uses. this repo uses SCREAMING_SNAKE_CASE to
+			match the enums in mantle2, which is the style reference for the family.
+		-->
+		<exclude name="Drupal.NamingConventions.ValidEnumCase" />
+
+		<!--
+			fires on a class imported only so a docblock can name it by its short form. the house rule
+			requires that import, so "unused" here means "used exactly as intended".
 		-->
 		<exclude name="Drupal.Classes.UnusedUseStatement" />
+
+		<!--
+			wants `foreach ($x as $y)` on one line. prettier breaks a long foreach across lines and
+			puts `as $y` on its own, and prettier is what formats this repo's php.
+		-->
+		<exclude name="Squiz.ControlStructures.ForEachLoopDeclaration.SpacingBeforeAs" />
+
+		<!--
+			wants `new class () {}`. prettier removes the empty argument list from an anonymous class
+			declaration, so the two rules cannot both be satisfied.
+		-->
+		<exclude name="Drupal.Classes.ClassCreateInstance.ParenthesisMissing" />
 	</rule>
 
 	<rule ref="DrupalPractice" />
 
+	<!--
+		the house limit is 100 and prettier enforces it. prettier measures a docblock line the way a
+		reader sees it and accounts for the leading ` * `; this sniff counts raw characters, so it
+		reports lines prettier has already decided are correct. 10 characters of headroom is the
+		difference between the two measurements: anything past 110 is a line prettier would have
+		wrapped, so it is still reported
+	-->
 	<rule ref="Drupal.Files.LineLength">
 		<properties>
-			<property name="lineLimit" value="100" />
+			<property name="lineLimit" value="110" />
 		</properties>
 	</rule>
 
 	<!--
-		a test's intent is its #[TestDox] string, which phpcs cannot see. requiring a docblock on
-		every test method as well duplicates it and goes stale independently.
+		a stub declares a class that belongs to a php extension, so its name is fixed by that
+		extension and can neither carry this project's prefix nor be renamed to match a filename that
+		sits alongside the function-only stubs.
 	-->
+	<rule ref="Drupal.Classes.ClassFileName.NoMatch">
+		<exclude-pattern>stubs/*</exclude-pattern>
+	</rule>
+	<rule ref="DrupalPractice.General.ClassName.ClassPrefix">
+		<exclude-pattern>stubs/*</exclude-pattern>
+	</rule>
+
 	<rule ref="Drupal.Commenting.FunctionComment.Missing">
 		<exclude-pattern>tests/*</exclude-pattern>
 	</rule>
@@ -79,6 +113,14 @@
 		the sniff still has something to check there.
 	-->
 	<rule ref="Drupal.Commenting.FunctionComment.WrongStyle">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<!--
+		reads a one-letter word inside a camelCase name as two consecutive capitals, so a correct
+		name such as onlyUnclassifiedNeedsADecision is reported. test method names come from the
+		#[TestDox] sentence; src/ keeps the sniff.
+	-->
+	<rule ref="Drupal.NamingConventions.ValidFunctionName.ScopeNotCamelCaps">
 		<exclude-pattern>tests/*</exclude-pattern>
 	</rule>
 </ruleset>
