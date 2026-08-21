@@ -51,6 +51,9 @@ class SettingsFormTest extends StrataFunctionalTestBase
 		'strata',
 		'strata_ui',
 		'strata_s3',
+		'strata_azure',
+		'strata_gcs',
+		'strata_b2',
 		'strata_notify',
 	];
 
@@ -374,6 +377,227 @@ class SettingsFormTest extends StrataFunctionalTestBase
 		]);
 
 		$this->assertSame('', $this->settings()->get('s3.secret_access_key'));
+	}
+
+	#endregion
+
+	#region Azure
+
+	#[Test]
+	#[TestDox('the azure form saves the account, the container and the tier and hands them back')]
+	#[Group('strata/functional')]
+	public function azureFormRoundTripsTheContainer(): void
+	{
+		$this->save('/admin/config/system/strata/azure', [
+			'account' => 'strataaccount',
+			'container' => 'strata-functional',
+			'access_tier' => 'Cool',
+			'block_threshold' => 4194304,
+		]);
+
+		$this->assertSame('strataaccount', $this->settings()->get('azure.account'));
+		$this->assertSame('strata-functional', $this->settings()->get('azure.container'));
+		$this->assertSame('Cool', $this->settings()->get('azure.access_tier'));
+		$this->assertSame(4194304, $this->settings()->get('azure.block_threshold'));
+
+		$this->drupalGet('/admin/config/system/strata/azure');
+		$this->assertSession()->fieldValueEquals('account', 'strataaccount');
+		$this->assertSession()->fieldValueEquals('container', 'strata-functional');
+	}
+
+	#[Test]
+	#[TestDox('the azure form refuses an account name azure would not accept')]
+	#[Group('strata/functional')]
+	public function azureFormRefusesAnInvalidAccountName(): void
+	{
+		$this->drupalGet('/admin/config/system/strata/azure');
+		$this->submitForm(['account' => 'Not An Account'], self::SAVE);
+
+		$this->assertSession()->pageTextContains(
+			'An account name is 3 to 24 lowercase letters and digits.',
+		);
+		$this->assertSession()->pageTextNotContains(self::SAVED);
+	}
+
+	#[Test]
+	#[TestDox('a stored azure account key is never rendered back into the page')]
+	#[Group('strata/functional')]
+	public function storedAzureKeyIsNeverRendered(): void
+	{
+		$key = 'c3RyYXRhLWZ1bmN0aW9uYWwtYWNjb3VudC1rZXk=';
+
+		$this->save('/admin/config/system/strata/azure', [
+			'account' => 'strataaccount',
+			'container' => 'strata-functional',
+			'account_key' => $key,
+		]);
+
+		$this->assertSame($key, $this->settings()->get('azure.account_key'));
+
+		$this->drupalGet('/admin/config/system/strata/azure');
+
+		$this->assertSession()->responseNotContains($key);
+		$this->assertSession()->pageTextContains('A key is stored. Leave empty to keep it.');
+
+		$this->save('/admin/config/system/strata/azure', [
+			'account' => 'strataaccount',
+			'container' => 'strata-functional',
+			'clear_account_key' => true,
+		]);
+
+		$this->assertSame('', $this->settings()->get('azure.account_key'));
+	}
+
+	#endregion
+
+	#region Gcs
+
+	#[Test]
+	#[TestDox('the gcs form saves the bucket and the storage class and hands them back')]
+	#[Group('strata/functional')]
+	public function gcsFormRoundTripsTheBucket(): void
+	{
+		$this->save('/admin/config/system/strata/gcs', [
+			'bucket' => 'strata-functional',
+			'storage_class' => 'NEARLINE',
+			'resumable_threshold' => 16777216,
+		]);
+
+		$this->assertSame('strata-functional', $this->settings()->get('gcs.bucket'));
+		$this->assertSame('NEARLINE', $this->settings()->get('gcs.storage_class'));
+		$this->assertSame(16777216, $this->settings()->get('gcs.resumable_threshold'));
+
+		$this->drupalGet('/admin/config/system/strata/gcs');
+		$this->assertSession()->fieldValueEquals('bucket', 'strata-functional');
+	}
+
+	#[Test]
+	#[TestDox('the gcs form refuses a service account key that is not one')]
+	#[Group('strata/functional')]
+	public function gcsFormRefusesAKeyThatIsNotOne(): void
+	{
+		$this->drupalGet('/admin/config/system/strata/gcs');
+		$this->submitForm(['service_account' => '{"type":"service_account"}'], self::SAVE);
+
+		$this->assertSession()->pageTextContains(
+			'A service account key is json carrying client_email and private_key.',
+		);
+		$this->assertSession()->pageTextNotContains(self::SAVED);
+	}
+
+	#[Test]
+	#[TestDox('a stored gcs service account key is never rendered back into the page')]
+	#[Group('strata/functional')]
+	public function storedGcsKeyIsNeverRendered(): void
+	{
+		$key = (string) json_encode([
+			'type' => 'service_account',
+			'client_email' => 'strata@example-project.iam.gserviceaccount.com',
+			'private_key' =>
+				"-----BEGIN PRIVATE KEY-----\nZnVuY3Rpb25hbA==\n-----END PRIVATE KEY-----",
+		]);
+
+		$this->save('/admin/config/system/strata/gcs', [
+			'bucket' => 'strata-functional',
+			'service_account' => $key,
+		]);
+
+		$this->assertSame($key, $this->settings()->get('gcs.service_account'));
+
+		$this->drupalGet('/admin/config/system/strata/gcs');
+
+		$this->assertSession()->responseNotContains('BEGIN PRIVATE KEY');
+		$this->assertSession()->pageTextContains('A key is stored. Leave empty to keep it.');
+
+		$this->save('/admin/config/system/strata/gcs', [
+			'bucket' => 'strata-functional',
+			'clear_key' => true,
+		]);
+
+		$this->assertSame('', $this->settings()->get('gcs.service_account'));
+	}
+
+	#endregion
+
+	#region B2
+
+	#[Test]
+	#[TestDox('the b2 form saves the bucket under both of the names b2 needs')]
+	#[Group('strata/functional')]
+	public function b2FormRoundTripsBothBucketNames(): void
+	{
+		$this->save('/admin/config/system/strata/b2', [
+			'bucket_name' => 'strata-functional',
+			'bucket_id' => 'bucket-id-functional',
+			'key_id' => '0022functional',
+			'application_key' => 'K002Functional',
+			'large_file_threshold' => 8388608,
+		]);
+
+		$this->assertSame('strata-functional', $this->settings()->get('b2.bucket_name'));
+		$this->assertSame('bucket-id-functional', $this->settings()->get('b2.bucket_id'));
+		$this->assertSame('0022functional', $this->settings()->get('b2.key_id'));
+		$this->assertSame(8388608, $this->settings()->get('b2.large_file_threshold'));
+
+		$this->drupalGet('/admin/config/system/strata/b2');
+		$this->assertSession()->fieldValueEquals('bucket_name', 'strata-functional');
+		$this->assertSession()->fieldValueEquals('bucket_id', 'bucket-id-functional');
+	}
+
+	#[Test]
+	#[TestDox('the b2 form refuses a bucket name b2 would not accept')]
+	#[Group('strata/functional')]
+	public function b2FormRefusesAnInvalidBucketName(): void
+	{
+		$this->drupalGet('/admin/config/system/strata/b2');
+		$this->submitForm(['bucket_name' => 'Not A Bucket'], self::SAVE);
+
+		$this->assertSession()->pageTextContains(
+			'A bucket name is 6 to 50 lowercase characters, digits or dashes.',
+		);
+		$this->assertSession()->pageTextNotContains(self::SAVED);
+	}
+
+	#[Test]
+	#[TestDox('the b2 form refuses a key id with no application key, since b2 has no fallback')]
+	#[Group('strata/functional')]
+	public function b2FormRefusesHalfAKey(): void
+	{
+		$this->drupalGet('/admin/config/system/strata/b2');
+		$this->submitForm(['key_id' => '0022functional'], self::SAVE);
+
+		$this->assertSession()->pageTextContains('A key id needs its application key.');
+		$this->assertSession()->pageTextNotContains(self::SAVED);
+	}
+
+	#[Test]
+	#[TestDox('a stored b2 application key is never rendered back into the page')]
+	#[Group('strata/functional')]
+	public function storedB2KeyIsNeverRendered(): void
+	{
+		$key = 'K002FunctionalApplicationKey';
+
+		$this->save('/admin/config/system/strata/b2', [
+			'bucket_name' => 'strata-functional',
+			'bucket_id' => 'bucket-id-functional',
+			'key_id' => '0022functional',
+			'application_key' => $key,
+		]);
+
+		$this->assertSame($key, $this->settings()->get('b2.application_key'));
+
+		$this->drupalGet('/admin/config/system/strata/b2');
+
+		$this->assertSession()->responseNotContains($key);
+		$this->assertSession()->pageTextContains('A key is stored. Leave empty to keep it.');
+
+		$this->save('/admin/config/system/strata/b2', [
+			'bucket_name' => 'strata-functional',
+			'bucket_id' => 'bucket-id-functional',
+			'clear_key' => true,
+		]);
+
+		$this->assertSame('', $this->settings()->get('b2.application_key'));
 	}
 
 	#endregion

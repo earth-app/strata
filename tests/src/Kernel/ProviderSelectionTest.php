@@ -24,7 +24,21 @@ class ProviderSelectionTest extends StrataKernelTestBase
 	 *
 	 * @var list<string>
 	 */
-	protected static $modules = ['system', 'user', 'key', 'strata', 'strata_s3'];
+	protected static $modules = [
+		'system',
+		'user',
+		'key',
+		'strata',
+		'strata_s3',
+		'strata_azure',
+		'strata_gcs',
+		'strata_b2',
+	];
+
+	/**
+	 * An account key that is valid base64, which is all Azure credentials need of one.
+	 */
+	private const AZURE_KEY = 'c3RyYXRhLXNoYXJlZC1rZXktZm9yLXRlc3Rpbmc=';
 
 	private function engine(): Engine
 	{
@@ -130,5 +144,152 @@ class ProviderSelectionTest extends StrataKernelTestBase
 		$this->engine()->reset();
 
 		$this->assertSame('local', $this->engine()->provider()->id());
+	}
+
+	#[Test]
+	#[TestDox('every installed provider submodule is registered under its own id')]
+	#[Group('strata/storage')]
+	public function everySubmoduleRegistersItsOwnId(): void
+	{
+		$ids = $this->engine()->providerIds();
+
+		foreach (['s3', 'azure', 'gcs', 'b2'] as $id) {
+			$this->assertContains($id, $ids);
+		}
+
+		$this->assertSame($ids, array_unique($ids), 'two submodules cannot share an id');
+	}
+
+	#[Test]
+	#[TestDox('the azure provider is selected when configuration names it')]
+	#[Group('strata/storage')]
+	public function azureProviderIsSelectedFromConfiguration(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'azure')
+			->set('site_id', 'earth-app')
+			->set('azure.account', 'strataaccount')
+			->set('azure.container', 'backups')
+			->set('azure.account_key', self::AZURE_KEY)
+			->set('azure.access_tier', 'Cool')
+			->set('azure.block_threshold', 4 * 1024 * 1024)
+			->save();
+
+		$this->engine()->reset();
+
+		$provider = $this->engine()->provider();
+		$built = $this->container->get('strata_azure.factory')->create();
+
+		$this->assertSame('azure', $provider->id());
+		$this->assertSame('_strata/earth-app/', $built->endpoint()->keys->prefix);
+		$this->assertSame('Cool', $built->endpoint()->accessTier);
+		$this->assertSame(4 * 1024 * 1024, $built->endpoint()->blockThreshold);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'selecting azure with no credential is refused rather than authenticating with nothing',
+		),
+	]
+	#[Group('strata/storage')]
+	public function azureWithoutCredentialIsRefused(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'azure')
+			->set('azure.account', 'strataaccount')
+			->set('azure.container', 'backups')
+			->save();
+
+		$this->engine()->reset();
+
+		$this->expectException(RuntimeException::class);
+		$this->expectExceptionMessage('neither an account key nor a sas token');
+
+		$this->container->get('strata_azure.factory')->create();
+	}
+
+	#[Test]
+	#[TestDox('the gcs provider is selected when configuration names it')]
+	#[Group('strata/storage')]
+	public function gcsProviderIsSelectedFromConfiguration(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'gcs')
+			->set('site_id', 'earth-app')
+			->set('gcs.bucket', 'strata-backups')
+			->set('gcs.access_token', 'ya29.kernel-test')
+			->set('gcs.storage_class', 'NEARLINE')
+			->set('gcs.resumable_threshold', 16 * 1024 * 1024)
+			->save();
+
+		$this->engine()->reset();
+
+		$provider = $this->engine()->provider();
+		$built = $this->container->get('strata_gcs.factory')->create();
+
+		$this->assertSame('gcs', $provider->id());
+		$this->assertSame('_strata/earth-app/', $built->endpoint()->keys->prefix);
+		$this->assertSame('NEARLINE', $built->endpoint()->storageClass);
+		$this->assertSame(16 * 1024 * 1024, $built->endpoint()->resumableThreshold);
+	}
+
+	#[Test]
+	#[TestDox('selecting gcs with no bucket is refused rather than addressing nothing')]
+	#[Group('strata/storage')]
+	public function gcsWithoutBucketIsRefused(): void
+	{
+		$this->config('strata.settings')->set('provider', 'gcs')->set('gcs.bucket', '')->save();
+		$this->engine()->reset();
+
+		$this->expectException(RuntimeException::class);
+		$this->expectExceptionMessage('no bucket is configured');
+
+		$this->container->get('strata_gcs.factory')->create();
+	}
+
+	#[Test]
+	#[TestDox('the b2 provider is selected when configuration names it')]
+	#[Group('strata/storage')]
+	public function b2ProviderIsSelectedFromConfiguration(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'b2')
+			->set('site_id', 'earth-app')
+			->set('b2.bucket_id', 'bucket-id-1')
+			->set('b2.bucket_name', 'strata-backups')
+			->set('b2.key_id', '0022deadbeef')
+			->set('b2.application_key', 'K002Example')
+			->set('b2.large_file_threshold', 8 * 1024 * 1024)
+			->save();
+
+		$this->engine()->reset();
+
+		$provider = $this->engine()->provider();
+		$built = $this->container->get('strata_b2.factory')->create();
+
+		$this->assertSame('b2', $provider->id());
+		$this->assertSame('_strata/earth-app/', $built->endpoint()->keys->prefix);
+		$this->assertSame('bucket-id-1', $built->endpoint()->bucketId);
+		$this->assertSame(8 * 1024 * 1024, $built->endpoint()->largeFileThreshold);
+	}
+
+	#[Test]
+	#[TestDox('selecting b2 with the bucket named only one way is refused')]
+	#[Group('strata/storage')]
+	public function b2WithoutBothNamesIsRefused(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'b2')
+			->set('b2.bucket_id', 'bucket-id-1')
+			->set('b2.bucket_name', '')
+			->save();
+
+		$this->engine()->reset();
+
+		$this->expectException(RuntimeException::class);
+		$this->expectExceptionMessage('not named by both id and name');
+
+		$this->container->get('strata_b2.factory')->create();
 	}
 }
