@@ -73,4 +73,19 @@ enum Verb: string
 			self::CREATE, self::UPDATE, self::RENAME => false,
 		};
 	}
+
+	/**
+	 * Whether the mutation took the subject out of existence.
+	 *
+	 * Narrower than a destructive verb, and the difference matters to what a commit covers. A
+	 * truncated table still exists with nothing in it and is still a restore target; a deleted node
+	 * is gone and listing it would offer a restore of nothing.
+	 *
+	 * @return bool
+	 *   TRUE for DELETE only.
+	 */
+	public function removesSubject(): bool
+	{
+		return $this === self::DELETE;
+	}
 }
