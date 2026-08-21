@@ -8,6 +8,7 @@
 	<file>modules</file>
 	<file>tests</file>
 	<file>stubs</file>
+	<file>scripts</file>
 	<arg name="extensions" value="php,module,install,inc" />
 	<arg value="sp" />
 	<arg name="colors" />
