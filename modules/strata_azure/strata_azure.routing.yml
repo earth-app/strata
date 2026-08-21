@@ -1,0 +1,9 @@
+strata_azure.settings:
+  path: '/admin/config/system/strata/azure'
+  defaults:
+    _form: Drupal\strata_azure\Form\AzureSettingsForm
+    _title: 'Strata Azure'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+  options:
+    _admin_route: TRUE
