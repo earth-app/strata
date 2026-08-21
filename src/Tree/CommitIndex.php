@@ -58,7 +58,9 @@ final class CommitIndex
 			->key('id', $id)
 			->fields([
 				'parent' => $commit->parent,
-				'tree' => $commit->tree,
+				'index_ref' => $commit->index,
+				'chain' => $commit->chain,
+				'anchored_at' => $commit->anchoredAt,
 				'microtime' => $commit->microtime,
 				'label' => mb_substr($commit->label, 0, 255),
 				'actor' => $commit->actor,

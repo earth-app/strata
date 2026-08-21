@@ -18,16 +18,25 @@ use JsonSerializable;
  * than a graph; nothing in Strata merges two lines of history, and a restore rewrites the ref
  * rather than creating a branch.
  *
+ * **A commit does not carry an index of the site.** It names the anchor its history resolves against,
+ * and only the commit that wrote that anchor is marked as one. Writing a per-commit index was
+ * measured at 3,989,289 bytes to record a 201-byte change across 50,000 subjects, because the cost
+ * scaled with how many subjects the site had rather than with how many changed. So the index belongs
+ * to an anchor on its own interval, and the commits between two anchors inherit its address, its
+ * chain length and its time - which keeps a flush at four objects whatever the site's size.
+ *
  * @see CommitLog
- * @see MerkleNode
+ * @see BaseManifest
+ * @see BasePolicy
  */
 final class Commit implements JsonSerializable
 {
 	/**
 	 * Constructs a commit.
 	 *
-	 * @param string $tree
-	 *   Address of the root tree node describing the site at this instant.
+	 * @param string $index
+	 *   Address of the base anchor this commit's history resolves against. Its own when this commit
+	 *   is an anchor, otherwise the one it inherited from its parent.
 	 * @param string|null $parent
 	 *   Address of the previous commit, or NULL for the root of history.
 	 * @param int $microtime
@@ -45,7 +54,14 @@ final class Commit implements JsonSerializable
 	 * @param int $level
 	 *   Compaction level; 0 for a freshly flushed commit, higher after a rollup.
 	 * @param bool $base
-	 *   Whether this commit is a base anchor, so a replay can stop here.
+	 *   Whether this commit wrote the anchor it names, so a replay can stop here.
+	 * @param int $chain
+	 *   How many anchors stand between the one this commit names and the full anchor behind it,
+	 *   counting the full one. Carried on the commit so a flush can apply the full-anchor policy
+	 *   without reading the chain.
+	 * @param int $anchoredAt
+	 *   Unix microseconds the anchor this commit names was written at, so a flush can tell whether
+	 *   the next anchor is due without reading it.
 	 * @param array<string, mixed> $metadata
 	 *   Anything a capture wants to carry, such as the segment key it came from.
 	 *
@@ -53,7 +69,7 @@ final class Commit implements JsonSerializable
 	 *   When an address is not a valid digest, or a count is negative.
 	 */
 	public function __construct(
-		public readonly string $tree,
+		public readonly string $index,
 		public readonly ?string $parent = null,
 		public readonly int $microtime = 0,
 		public readonly string $label = '',
@@ -63,11 +79,13 @@ final class Commit implements JsonSerializable
 		public readonly int $storedBytes = 0,
 		public readonly int $level = 0,
 		public readonly bool $base = false,
+		public readonly int $chain = 0,
+		public readonly int $anchoredAt = 0,
 		public readonly array $metadata = [],
 	) {
-		if (!Hash::isValid($tree)) {
+		if (!Hash::isValid($index)) {
 			throw new InvalidArgumentException(
-				'A commit must address its tree with a valid digest',
+				'A commit must address its anchor with a valid digest',
 			);
 		}
 		if ($parent !== null && !Hash::isValid($parent)) {
@@ -78,6 +96,9 @@ final class Commit implements JsonSerializable
 		}
 		if ($operations < 0 || $rawBytes < 0 || $storedBytes < 0 || $level < 0) {
 			throw new InvalidArgumentException('A commit count cannot be negative');
+		}
+		if ($chain < 0 || $anchoredAt < 0) {
+			throw new InvalidArgumentException('A commit anchor cannot be negative');
 		}
 	}
 
@@ -143,7 +164,7 @@ final class Commit implements JsonSerializable
 	}
 
 	/**
-	 * The same commit marked as a base anchor.
+	 * The same commit marked as having written its anchor.
 	 *
 	 * @return self
 	 *   A new commit.
@@ -151,7 +172,7 @@ final class Commit implements JsonSerializable
 	public function asBase(): self
 	{
 		return new self(
-			$this->tree,
+			$this->index,
 			$this->parent,
 			$this->microtime,
 			$this->label,
@@ -161,6 +182,8 @@ final class Commit implements JsonSerializable
 			$this->storedBytes,
 			$this->level,
 			true,
+			max(1, $this->chain),
+			$this->anchoredAt === 0 ? $this->microtime : $this->anchoredAt,
 			$this->metadata,
 		);
 	}
@@ -174,7 +197,7 @@ final class Commit implements JsonSerializable
 	public function jsonSerialize(): array
 	{
 		return [
-			'tree' => $this->tree,
+			'index' => $this->index,
 			'parent' => $this->parent,
 			'microtime' => $this->microtime,
 			'label' => $this->label,
@@ -184,6 +207,8 @@ final class Commit implements JsonSerializable
 			'storedBytes' => $this->storedBytes,
 			'level' => $this->level,
 			'base' => $this->base,
+			'chain' => $this->chain,
+			'anchoredAt' => $this->anchoredAt,
 			'metadata' => $this->metadata,
 		];
 	}
@@ -198,19 +223,19 @@ final class Commit implements JsonSerializable
 	 *   The commit.
 	 *
 	 * @throws InvalidArgumentException
-	 *   When the tree address is missing or the commit is incoherent.
+	 *   When the anchor address is missing or the commit is incoherent.
 	 */
 	public static function fromArray(array $data): self
 	{
-		if (!array_key_exists('tree', $data)) {
-			throw new InvalidArgumentException('A commit is missing "tree"');
+		if (!array_key_exists('index', $data)) {
+			throw new InvalidArgumentException('A commit is missing "index"');
 		}
 
 		/** @var array<string, mixed> $metadata */
 		$metadata = $data['metadata'] ?? [];
 
 		return new self(
-			(string) $data['tree'],
+			(string) $data['index'],
 			isset($data['parent']) ? (string) $data['parent'] : null,
 			(int) ($data['microtime'] ?? 0),
 			(string) ($data['label'] ?? ''),
@@ -220,6 +245,8 @@ final class Commit implements JsonSerializable
 			(int) ($data['storedBytes'] ?? 0),
 			(int) ($data['level'] ?? 0),
 			(bool) ($data['base'] ?? false),
+			(int) ($data['chain'] ?? 0),
+			(int) ($data['anchoredAt'] ?? 0),
 			$metadata,
 		);
 	}
