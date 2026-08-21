@@ -1,0 +1,38 @@
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: strata
+      MINIO_ROOT_PASSWORD: stratatest
+      MINIO_BROWSER_REDIRECT: 'off'
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 2s
+      timeout: 2s
+      retries: 40
+    ports:
+      - '127.0.0.1:9000:9000' # s3 api
+      - '127.0.0.1:9001:9001' # web console
+    volumes:
+      - minio-data:/data
+
+  # creates the buckets and exits; `docker compose up --wait` treats a completed one-shot as ready
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 strata stratatest
+        mc mb --ignore-existing local/strata-backups
+        mc mb --ignore-existing local/strata-replica
+        mc anonymous set none local/strata-backups
+        echo strata-minio-ready
+    restart: 'no'
+
+volumes:
+  minio-data:
