@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Unit\Cas;
 
+use Drupal\strata\Cas\FrameRecord;
 use Drupal\strata\Cas\Framer;
 use Drupal\strata\Cas\Hash;
 use Drupal\strata\Cas\MemoryFrameIndex;
@@ -462,6 +463,33 @@ class ObjectStoreTest extends TestCase
 		$this->assertLessThan($statistics['rawBytes'], $statistics['storedBytes']);
 		$this->assertGreaterThan(1.0, $statistics['ratio']);
 		$this->assertSame(0, $statistics['orphans']);
+	}
+
+	#[Test]
+	#[TestDox('page() lists every frame, referenced or not, and pages stably')]
+	#[Group('strata/cas')]
+	public function pageListsEveryFrame(): void
+	{
+		$store = $this->store(frameSize: 1024, packTarget: Packer::MIN_TARGET);
+		$store->write($this->value(8_000));
+		$store->commit();
+
+		$index = $this->index;
+
+		$this->assertNotNull($index);
+
+		$all = $index->page(1000);
+
+		$this->assertSame($index->statistics()['frames'], count($all), 'nothing is left out');
+		$this->assertSame([], $index->orphans(1000), 'and none of them is collectable');
+
+		$hashes = array_map(static fn(FrameRecord $record): string => $record->hash, $all);
+		$first = $index->page(2);
+		$rest = $index->page(1000, 2);
+
+		$this->assertSame(array_slice($hashes, 0, 2), array_column($first, 'hash'));
+		$this->assertSame(array_slice($hashes, 2), array_column($rest, 'hash'));
+		$this->assertSame([], $index->page(10, count($all)), 'past the end is empty, not a repeat');
 	}
 
 	#[Test]
