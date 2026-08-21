@@ -93,7 +93,8 @@ Two things this suite does deliberately and should keep doing:
 | `src/Compaction/`                                         | Recompression, rollup, reachability, prune receipts                 |
 | `src/Health/`                                             | Tripwires, findings, repair ladder, circuit breaker, ledger         |
 | `src/Timeline/` `src/Diff/` `src/Metrics/` `src/Explore/` | Read models the UI renders                                          |
-| `src/Drush/Commands/`                                     | 25 commands, thin over `Engine`                                     |
+| `src/Branch/`                                             | Config-only branches, merge base, three-way merge, merge commits    |
+| `src/Drush/Commands/`                                     | 27 commands, thin over `Engine`                                     |
 | `modules/strata_ui/`                                      | Controllers, forms, blocks, toolbar, templates, CSS, one JS file    |
 
 `Engine` is the only place that reads settings and decides which parts a site gets. Nothing is built
@@ -141,6 +142,21 @@ Do not "fix" these without measuring first.
   at the default level 3 whatever level the caller asked for.
 - **`ext-brotli` does support dictionaries** - `brotli_compress(string, int, int, ?string)`. An
   earlier comment asserted it did not and was wrong.
+- **A branch carries the config realm only, and refuses the rest by name.** Config is captured WHOLE,
+  so a three-way merge over it is defined on complete values; every other realm is a field delta
+  against a parent, and merging two divergent delta chains means inventing a resolution.
+- **`Commit` serializes `merge` only when it is set.** A commit is addressed by the bytes of its own
+  JSON, so writing the key as NULL on every commit would re-address every commit ever written.
+  `BranchTest::aSingleParentCommitRoundTripsUnchanged()` asserts the exact document.
+- **A merge base walk refuses a cycle by peeling, never by "met this commit twice".** A merge whose
+  branch was cut off the target's current tip reaches that tip down both sides, and every diamond
+  reaches its fork point twice; both are correct histories.
+- **A merge's restore plan carries `plannedAt = 0` on purpose.** The restore's own forced snapshot
+  writes every pending subject between plan and apply, so timestamp-based conflict detection would
+  flag every object in the plan.
+- **A merge always targets `refs/heads/main`.** It writes config to the live site, and the live site
+  is what the trunk describes; merging into another ref would leave the trunk describing a site that
+  no longer exists.
 
 ## Core Behaviour Worth Knowing
 
