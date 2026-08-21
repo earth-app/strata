@@ -49,7 +49,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: sodium, zlib, zstd, redis, json, pdo_sqlite
+          extensions: sodium, zlib, zstd, brotli, redis, json, pdo_sqlite
           coverage: none
           tools: composer:v2
 
@@ -74,7 +74,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: sodium, zlib, zstd, json, pdo_sqlite, dom, gd
+          extensions: sodium, zlib, zstd, brotli, json, pdo_sqlite, dom, gd
           coverage: none
           tools: composer:v2
 
@@ -167,7 +167,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: sodium, zlib, zstd, json, pdo_sqlite, pdo_mysql, pdo_pgsql
+          extensions: sodium, zlib, zstd, brotli, json, pdo_sqlite, pdo_mysql, pdo_pgsql
           coverage: none
           tools: composer:v2
 
