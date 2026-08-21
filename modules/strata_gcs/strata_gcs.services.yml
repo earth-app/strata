@@ -1,0 +1,6 @@
+services:
+  strata_gcs.factory:
+    class: Drupal\strata_gcs\GcsProviderFactory
+    arguments: ['@config.factory', '@http_client']
+    tags:
+      - { name: strata.storage_provider_factory }

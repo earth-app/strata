@@ -1,0 +1,9 @@
+strata_gcs.settings:
+  path: '/admin/config/system/strata/gcs'
+  defaults:
+    _form: Drupal\strata_gcs\Form\GcsSettingsForm
+    _title: 'Strata GCS'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+  options:
+    _admin_route: TRUE
