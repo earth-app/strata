@@ -70,6 +70,8 @@ class UiTest extends StrataKernelTestBase
 			'what a commit holds' => ['strata_ui.explorer.commit', ['commit' => $commit]],
 			'the estimator' => ['strata_ui.estimate', []],
 			'the calibration report' => ['strata_ui.calibrate', []],
+			'the branch listing' => ['strata_ui.branches', []],
+			'a merge' => ['strata_ui.merge', ['branch' => 'release-12']],
 			'a rollback' => ['strata_ui.rollback', ['commit' => $commit]],
 			'a quarantine' => ['strata_ui.quarantine', ['commit' => $commit]],
 			'a prune' => ['strata_ui.prune', []],
@@ -429,6 +431,36 @@ class UiTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('the branch listing renders on a store with no branch but the trunk')]
+	#[Group('strata/ui')]
+	public function branchListingRendersEmpty(): void
+	{
+		$this->settings()->set('local_path', $this->storeRoot)->set('cipher.id', 'none')->save();
+
+		$build = $this->controller('branches')->page();
+
+		$this->assertSame('strata_branches', $build['#theme']);
+		$this->assertTrue($build['#empty']);
+		$this->assertNotSame('', (string) $this->markup($build));
+	}
+
+	#[Test]
+	#[TestDox('a merge against a branch that does not exist says so rather than throwing')]
+	#[Group('strata/ui')]
+	public function mergeAgainstAnUnknownBranch(): void
+	{
+		$this->settings()->set('local_path', $this->storeRoot)->set('cipher.id', 'none')->save();
+
+		$build = $this->container
+			->get('form_builder')
+			->getForm('Drupal\strata_ui\Form\MergeConfirmForm', 'nowhere');
+		$markup = (string) $this->markup($build);
+
+		$this->assertNotSame('', $markup);
+		$this->assertStringContainsString('nowhere', $markup);
+	}
+
+	#[Test]
 	#[TestDox('the prune form previews a dry run and writes nothing while it is only previewed')]
 	#[Group('strata/ui')]
 	public function pruneFormPreviewsWithoutWriting(): void
@@ -581,7 +613,14 @@ class UiTest extends StrataKernelTestBase
 		$match = $this->container->get('current_route_match');
 
 		foreach (
-			['strata_ui.timeline', 'strata_ui.graphs', 'strata_ui.health', 'strata_ui.explorer']
+			[
+				'strata_ui.timeline',
+				'strata_ui.graphs',
+				'strata_ui.health',
+				'strata_ui.explorer',
+				'strata_ui.branches',
+				'strata_ui.merge',
+			]
 			as $route
 		) {
 			$this->assertNotEmpty($help->forRoute($route, $match), $route);
@@ -594,7 +633,7 @@ class UiTest extends StrataKernelTestBase
 	 * A controller from the container, by the short name in its service-free create().
 	 *
 	 * @param string $which
-	 *   One of timeline, graphs, diff, explorer or health.
+	 *   One of timeline, graphs, diff, explorer, branches or health.
 	 *
 	 * @return object
 	 *   The controller.
@@ -606,6 +645,7 @@ class UiTest extends StrataKernelTestBase
 			'graphs' => 'Drupal\strata_ui\Controller\GraphController',
 			'diff' => 'Drupal\strata_ui\Controller\DiffController',
 			'explorer' => 'Drupal\strata_ui\Controller\ExplorerController',
+			'branches' => 'Drupal\strata_ui\Controller\BranchController',
 			default => 'Drupal\strata_ui\Controller\HealthController',
 		};
 

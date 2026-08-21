@@ -125,6 +125,8 @@ class PermissionTest extends StrataKernelTestBase
 				'rollback strata files',
 				'rollback strata database',
 				'rollback strata full site',
+				'branch strata config',
+				'merge strata config',
 				'repair strata',
 				'quarantine strata',
 				'delete strata snapshots',
@@ -144,6 +146,7 @@ class PermissionTest extends StrataKernelTestBase
 				'rollback strata config',
 				'rollback strata database',
 				'rollback strata full site',
+				'merge strata config',
 				'delete strata snapshots',
 				'export strata archive',
 			]
@@ -189,11 +192,43 @@ class PermissionTest extends StrataKernelTestBase
 		$declared = $this->declared();
 
 		foreach (
-			['view strata timeline', 'view strata diffs', 'view strata health']
+			[
+				'view strata timeline',
+				'view strata diffs',
+				'view strata health',
+				'branch strata config',
+			]
 			as $permission
 		) {
 			$this->assertFalse((bool) ($declared[$permission]['restrict access'] ?? false));
 		}
+	}
+
+	#[Test]
+	#[TestDox('branching and merging are separate grants, and merging is the restricted one')]
+	#[Group('strata/access')]
+	public function branchingDoesNotGrantMerging(): void
+	{
+		$declared = $this->declared();
+
+		$this->assertArrayHasKey('branch strata config', $declared);
+		$this->assertArrayHasKey('merge strata config', $declared);
+		$this->assertNotSame(
+			$declared['branch strata config'],
+			$declared['merge strata config'],
+			'forking a branch writes nothing to the site and merging one writes configuration to it',
+		);
+		$this->assertTrue((bool) ($declared['merge strata config']['restrict access'] ?? false));
+		$this->assertFalse((bool) ($declared['branch strata config']['restrict access'] ?? false));
+
+		$account = $this->userWith(['branch strata config']);
+
+		$this->assertTrue($account->hasPermission('branch strata config'));
+		$this->assertFalse(
+			$account->hasPermission('merge strata config'),
+			'merging writes config to the live site, so it is never implied by branching',
+		);
+		$this->assertFalse($account->hasPermission('rollback strata config'));
 	}
 
 	#endregion
