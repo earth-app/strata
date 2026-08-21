@@ -15,9 +15,8 @@ use RuntimeException;
  * never orphan bytes already in the bucket.
  *
  * Availability is a runtime property, not a build-time one. `ext-zstd` and `ext-brotli` are
- * frequently absent - neither is present on the reference host - so a codec must report honestly
- * whether it can run rather than fataling on first use, and the registry must be able to fall back
- * without losing the ability to READ what an earlier, better-equipped host wrote.
+ * frequently absent, so a codec reports whether it can run instead of fataling on first use, and
+ * the registry falls back without losing the ability to READ what a better-equipped host wrote.
  *
  * Measured on Drupal-shaped data in 8 KiB frames: gzip -9 reaches 3.52x, zstd -19 alone 3.71x, and
  * zstd -19 with a trained dictionary 6.20x. The dictionary is worth more than the algorithm, which
@@ -95,7 +94,7 @@ interface CompressionCodecInterface
 	 * Decompresses a buffer.
 	 *
 	 * Must raise rather than return partial output. A truncated decompression is indistinguishable
-	 * from correct output until much later, which is this project's signature failure shape.
+	 * from correct output until much later.
 	 *
 	 * @param string $data
 	 *   The compressed bytes.

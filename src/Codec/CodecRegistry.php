@@ -16,14 +16,14 @@ use RuntimeException;
  * with `ext-zstd` must stay readable on a box that only has the `zstd` binary, and a bucket written
  * years ago on gzip must stay readable forever.
  *
- * The write preference is measured rather than assumed. On Drupal-shaped data in 8 KiB frames:
- * zstd with a trained dictionary 6.20x, brotli 6.31x but with no dictionary API and a quarter of
- * the throughput, gzip 3.52x. Dictionary support outranks raw ratio because the dictionary is worth
- * more than the algorithm, and because DeltaCodec cannot produce a delta at all without it.
+ * Write preference follows the figures in CodecCatalog. At 16 KiB frames zstd level 1 reaches
+ * 4.28x at 422.9 MB/s against gzip level 9's 4.40x at 67.0 MB/s, so zstd wins the flush path on
+ * throughput. Dictionary support outranks raw ratio, because DeltaCodec cannot produce a delta
+ * without it.
  *
- * ZstdPipeCodec is deliberately never the hot-path choice. A process spawn dominates the work at
- * frame sizes - 1,000 invocations measured 5.88 seconds - so it is registered for reading and for
- * batch work, and a host without the extension gets gzip on the flush path instead.
+ * ZstdPipeCodec is never the hot-path choice. A process spawn dominates the work at frame sizes -
+ * 1,000 invocations measured 5.88 seconds - so it is registered for reading and for batch work,
+ * and a host without the extension gets gzip on the flush path instead.
  *
  * @see CompressionCodecInterface
  * @see DeltaCodec
@@ -37,6 +37,11 @@ final class CodecRegistry
 	 * cannot take a dictionary cannot produce a delta.
 	 */
 	private const WRITE_PREFERENCE = ['zstd', 'brotli', 'gzip', 'none'];
+
+	/**
+	 * Codec id pinned by configuration, or NULL to follow the write preference.
+	 */
+	private ?string $pinned = null;
 
 	/**
 	 * Codecs able to write a single frame, keyed by id. First registration for an id wins.
@@ -120,6 +125,45 @@ final class CodecRegistry
 	}
 
 	/**
+	 * Pins the codec that writes frames, overriding the measured preference.
+	 *
+	 * An administrator who has calibrated on their own data outranks the shipped ordering. Pinning
+	 * only changes what is WRITTEN; every registered reader stays available, so pinning gzip on a
+	 * bucket full of zstd frames leaves that bucket readable.
+	 *
+	 * @param string $id
+	 *   The codec id to write with, or an empty string to follow the preference.
+	 *
+	 * @return $this
+	 *   The registry, for chaining.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When the id is not registered as a per-frame writer on this host. Falling back silently
+	 *   would leave an administrator believing a setting took effect when it did not.
+	 */
+	public function prefer(string $id): self
+	{
+		if ($id === '') {
+			$this->pinned = null;
+
+			return $this;
+		}
+		if (!isset($this->writers[$id])) {
+			throw new InvalidArgumentException(
+				sprintf(
+					'Codec "%s" cannot write frames on this host; available: %s',
+					$id,
+					implode(', ', array_keys($this->writers)) ?: 'none',
+				),
+			);
+		}
+
+		$this->pinned = $id;
+
+		return $this;
+	}
+
+	/**
 	 * Whether any registered codec can read frames written under an id.
 	 *
 	 * @param string $id
@@ -137,6 +181,26 @@ final class CodecRegistry
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether a codec can be chosen to compress a single frame on the flush path.
+	 *
+	 * Distinct from CodecRegistry::canRead(). A host with the `zstd` binary but no `ext-zstd` can
+	 * read every zstd frame in the bucket and can use it for compaction, but must not use it per
+	 * frame, because a process spawn dominates at frame sizes. Reporting that as plain availability
+	 * would tell an administrator the extension is unnecessary while the flush path has fallen back
+	 * to gzip.
+	 *
+	 * @param string $id
+	 *   A codec id.
+	 *
+	 * @return bool
+	 *   TRUE when this codec may compress an individual frame here.
+	 */
+	public function canWritePerFrame(string $id): bool
+	{
+		return isset($this->writers[$id]);
 	}
 
 	/**
@@ -198,6 +262,10 @@ final class CodecRegistry
 	 */
 	public function writer(): CompressionCodecInterface
 	{
+		if ($this->pinned !== null) {
+			return $this->writers[$this->pinned];
+		}
+
 		foreach (self::WRITE_PREFERENCE as $id) {
 			if (isset($this->writers[$id])) {
 				return $this->writers[$id];
@@ -218,8 +286,8 @@ final class CodecRegistry
 	 * Delta coding on the flush path needs this. Returns NULL rather than falling back, because a
 	 * caller that silently accepted a non-dictionary codec would write frames whose headers claim a
 	 * dictionary they were not compressed with. A host with only the zstd binary gets NULL here and
-	 * a usable codec from CodecRegistry::bulkWriter(), which is the honest split: it can produce
-	 * deltas during compaction but not on the request path.
+	 * a usable codec from CodecRegistry::bulkWriter(): it can produce deltas during compaction but
+	 * not on the request path.
 	 *
 	 * @return CompressionCodecInterface|null
 	 *   The best available per-frame dictionary-capable writer, or NULL when this host has none.
