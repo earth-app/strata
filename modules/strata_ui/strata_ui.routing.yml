@@ -1,0 +1,147 @@
+strata_ui.timeline:
+  path: '/admin/reports/strata/timeline'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\TimelineController::page
+    _title: 'Strata Timeline'
+  requirements:
+    _permission: 'view strata timeline'
+  options:
+    _admin_route: TRUE
+
+strata_ui.bucket:
+  path: '/admin/reports/strata/timeline/{start}/{resolution}'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\TimelineController::bucket
+    _title: 'Strata Commits in a Window'
+  requirements:
+    _permission: 'view strata timeline'
+    start: \d+
+    resolution: \d+
+  options:
+    _admin_route: TRUE
+
+strata_ui.graphs:
+  path: '/admin/reports/strata/graphs'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\GraphController::page
+    _title: 'Strata Graphs'
+  requirements:
+    _permission: 'view strata timeline'
+  options:
+    _admin_route: TRUE
+
+strata_ui.diff:
+  path: '/admin/reports/strata/diff'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\DiffController::page
+    _title: 'Strata Diff'
+  requirements:
+    _permission: 'view strata diffs'
+  options:
+    _admin_route: TRUE
+
+strata_ui.diff.pair:
+  path: '/admin/reports/strata/diff/{from}/{to}'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\DiffController::page
+    _title: 'Strata Diff'
+  requirements:
+    _permission: 'view strata diffs'
+    from: '[0-9a-f]{64}'
+    to: '[0-9a-f]{64}'
+  options:
+    _admin_route: TRUE
+
+strata_ui.health:
+  path: '/admin/reports/strata/health'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\HealthController::page
+    _title: 'Strata Health'
+  requirements:
+    _permission: 'view strata health'
+  options:
+    _admin_route: TRUE
+
+strata_ui.explorer:
+  path: '/admin/config/system/strata/explorer'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\ExplorerController::page
+    _title: 'Strata Storage Explorer'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+  options:
+    _admin_route: TRUE
+
+strata_ui.explorer.commit:
+  path: '/admin/config/system/strata/explorer/{commit}'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\ExplorerController::commit
+    _title: 'What Removing This Commit Would Free'
+  requirements:
+    _permission: 'manage strata storage+administer strata'
+    commit: '[0-9a-f]{64}'
+  options:
+    _admin_route: TRUE
+
+strata_ui.calibrate:
+  path: '/admin/config/system/strata/calibrate'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\CalibrateController::page
+    _title: 'Strata Calibration'
+  requirements:
+    _permission: 'view strata cost estimates+administer strata'
+  options:
+    _admin_route: TRUE
+
+strata_ui.estimate:
+  path: '/admin/config/system/strata/estimate'
+  defaults:
+    _form: Drupal\strata_ui\Form\EstimateForm
+    _title: 'Strata Cost Estimate'
+  requirements:
+    _permission: 'view strata cost estimates'
+  options:
+    _admin_route: TRUE
+
+strata_ui.rollback:
+  path: '/admin/reports/strata/rollback/{commit}'
+  defaults:
+    _form: Drupal\strata_ui\Form\RollbackConfirmForm
+    _title: 'Roll Back to This Point'
+  requirements:
+    _permission: 'rollback strata content+rollback strata config+rollback strata files+rollback strata database+rollback strata full site+administer strata+rollback strata realm entity+rollback strata realm config+rollback strata realm state+rollback strata realm keyvalue+rollback strata realm table+rollback strata realm schema+rollback strata realm file+rollback strata realm code'
+    commit: '[0-9a-f]{64}'
+  options:
+    _admin_route: TRUE
+
+strata_ui.quarantine:
+  path: '/admin/reports/strata/quarantine/{commit}'
+  defaults:
+    _form: Drupal\strata_ui\Form\QuarantineConfirmForm
+    _title: 'Quarantine This Commit'
+  requirements:
+    _permission: 'quarantine strata'
+    commit: '[0-9a-f]{64}'
+  options:
+    _admin_route: TRUE
+
+strata_ui.prune:
+  path: '/admin/config/system/strata/prune'
+  defaults:
+    _form: Drupal\strata_ui\Form\PruneConfirmForm
+    _title: 'Prune Stored History'
+  requirements:
+    _permission: 'delete strata snapshots'
+  options:
+    _admin_route: TRUE
+
+strata_ui.repair:
+  path: '/admin/reports/strata/repair/{code}'
+  defaults:
+    _form: Drupal\strata_ui\Form\RepairConfirmForm
+    _title: 'Repair a Finding'
+  requirements:
+    _permission: 'repair strata'
+    code: '[a-z0-9_.]+'
+  options:
+    _admin_route: TRUE

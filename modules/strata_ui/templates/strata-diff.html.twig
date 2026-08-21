@@ -1,0 +1,93 @@
+{#
+/**
+ * @file
+ * What changed between two commits.
+ *
+ * Available variables:
+ * - from, to: the two commits, abbreviated.
+ * - subjects: each changed subject, its status and its fields.
+ * - examined: how many subjects were compared.
+ * - truncated: whether the walk was cut short.
+ * - truncation_note: what to do about it.
+ * - payloads: whether the viewer may see stored values rather than only field names.
+ * - realms: links narrowing the diff to one realm.
+ * - timeline_url: back to the timeline.
+ *
+ * @ingroup themeable
+ */
+#}
+<div class="strata strata-diff">
+	<nav class="strata-nav" aria-label="{{ 'Narrow by realm'|t }}">
+		<a class="strata-nav__link" href="{{ timeline_url }}">{{ 'Timeline'|t }}</a>
+		{% for realm in realms %}
+			<a class="strata-nav__link" href="{{ realm.url }}">{{ realm.label }}</a>
+		{% endfor %}
+	</nav>
+
+	<p class="strata-note">
+		{{ 'Comparing @from to @to, @count subjects examined.'|t({'@from': from, '@to': to, '@count': examined}) }}
+		{% if truncated %}<strong>{{ truncation_note }}</strong>{% endif %}
+	</p>
+
+	{% if not payloads %}
+		<p class="strata-note">
+			{{ 'You may see which fields changed but not what they hold. Stored values need the payload permission, because they are the content of the site itself.'|t }}
+		</p>
+	{% endif %}
+
+	{% if subjects is empty %}
+		<p class="strata-empty">{{ 'Nothing changed between these two points.'|t }}</p>
+	{% endif %}
+
+	{% for subject in subjects %}
+		<details class="strata-subject strata-subject--{{ subject.status }}" open>
+			<summary class="strata-subject__title">
+				<span class="strata-badge strata-badge--{{ subject.status }}">{{ subject.status }}</span>
+				<span class="strata-subject__label">{{ subject.title }}</span>
+				<span class="strata-subject__realm">{{ subject.realm }}</span>
+			</summary>
+
+			{% if not subject.readable %}
+				<p class="strata-empty">{{ subject.problem }}</p>
+			{% else %}
+				<p class="strata-subject__summary">{{ subject.summary }}</p>
+
+				{% for field in subject.fields %}
+					<div class="strata-field strata-field--{{ field.status }}">
+						<h4 class="strata-field__name">
+							{{ field.name }}
+							<span class="strata-badge strata-badge--{{ field.status }}">{{ field.status }}</span>
+						</h4>
+
+						{% if not payloads %}
+							{# names only; the values are the site's own content #}
+						{% elseif field.textual %}
+							<table class="strata-hunks">
+								<tbody>
+									{% for hunk in field.hunks %}
+										{% if hunk.type != 'copy' %}
+											{% for line in hunk.before %}
+												<tr class="strata-hunks__row strata-hunks__row--removed">
+													<td class="strata-hunks__gutter">-</td>
+													<td class="strata-hunks__line">{{ line }}</td>
+												</tr>
+											{% endfor %}
+											{% for line in hunk.after %}
+												<tr class="strata-hunks__row strata-hunks__row--added">
+													<td class="strata-hunks__gutter">+</td>
+													<td class="strata-hunks__line">{{ line }}</td>
+												</tr>
+											{% endfor %}
+										{% endif %}
+									{% endfor %}
+								</tbody>
+							</table>
+						{% else %}
+							<p class="strata-field__inline">{{ field.describe }}</p>
+						{% endif %}
+					</div>
+				{% endfor %}
+			{% endif %}
+		</details>
+	{% endfor %}
+</div>

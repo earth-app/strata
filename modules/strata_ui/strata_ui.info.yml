@@ -1,0 +1,8 @@
+name: 'Strata UI'
+description: 'Timeline, diff viewer, graphs, storage explorer, health dashboard and rollback forms for Strata.'
+type: module
+package: Strata
+core_version_requirement: ^11.2
+
+dependencies:
+  - strata:strata

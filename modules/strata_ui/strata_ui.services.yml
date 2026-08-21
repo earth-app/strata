@@ -1,0 +1,10 @@
+services:
+  Drupal\strata_ui\Hook\Theme:
+    class: Drupal\strata_ui\Hook\Theme
+
+  Drupal\strata_ui\Hook\Help:
+    class: Drupal\strata_ui\Hook\Help
+
+  Drupal\strata_ui\Hook\Toolbar:
+    class: Drupal\strata_ui\Hook\Toolbar
+    arguments: ['@strata.engine', '@current_user']

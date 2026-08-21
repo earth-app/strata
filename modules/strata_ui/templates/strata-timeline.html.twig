@@ -1,0 +1,125 @@
+{#
+/**
+ * @file
+ * The Strata timeline.
+ *
+ * Available variables:
+ * - chart: geometry, bars, gridlines, labels and navigation links.
+ * - window: the span drawn and the resolution it is drawn at.
+ * - summary: totals across the window, already formatted.
+ * - graphs_url: where the graphs for this window are.
+ * - empty: whether the window holds any commit at all.
+ *
+ * @ingroup themeable
+ */
+#}
+<div class="strata strata-timeline">
+	<div class="strata-summary" role="group" aria-label="{{ 'Totals across this window'|t }}">
+		<div class="strata-summary__item">
+			<span class="strata-summary__label">{{ 'Commits'|t }}</span>
+			<span class="strata-summary__value">{{ summary.commits }}</span>
+		</div>
+		<div class="strata-summary__item">
+			<span class="strata-summary__label">{{ 'Operations'|t }}</span>
+			<span class="strata-summary__value">{{ summary.operations }}</span>
+		</div>
+		<div class="strata-summary__item">
+			<span class="strata-summary__label">{{ 'Stored'|t }}</span>
+			<span class="strata-summary__value">{{ summary.stored }}</span>
+		</div>
+		<div class="strata-summary__item">
+			<span class="strata-summary__label">{{ 'Ratio'|t }}</span>
+			<span class="strata-summary__value">{{ summary.ratio }}</span>
+		</div>
+		<div class="strata-summary__item">
+			<span class="strata-summary__label">{{ 'Anchors'|t }}</span>
+			<span class="strata-summary__value">{{ summary.anchors }}</span>
+		</div>
+	</div>
+
+	{% if empty %}
+		<p class="strata-empty">
+			{{ 'Nothing has been captured in this window. A quiet site writes nothing, which costs nothing.'|t }}
+		</p>
+	{% else %}
+		<nav class="strata-nav" aria-label="{{ 'Zoom and pan'|t }}">
+			{% for key, control in chart.navigation %}
+				<a class="strata-nav__link strata-nav__link--{{ key }}" href="{{ control.url }}">
+					{{ control.label|t }}
+				</a>
+			{% endfor %}
+			<a class="strata-nav__link" href="{{ graphs_url }}">{{ 'Graphs'|t }}</a>
+			<span class="strata-nav__resolution">
+				{{ 'One bar is @res'|t({'@res': chart.resolution}) }}
+			</span>
+		</nav>
+
+		<svg
+			class="strata-chart"
+			viewBox="{{ chart.view_box }}"
+			role="img"
+			aria-label="{{ 'Operations captured over time. Each bar links to the commits in that window.'|t }}"
+			data-strata-timeline
+			data-strata-from="{{ window.from }}"
+			data-strata-to="{{ window.to }}"
+		>
+			{% for line in chart.gridlines %}
+				<line
+					class="strata-chart__gridline"
+					x1="{{ line.x1 }}"
+					y1="{{ line.y }}"
+					x2="{{ line.x2 }}"
+					y2="{{ line.y }}"
+				/>
+				<text class="strata-chart__axis" x="{{ line.x1 - 8 }}" y="{{ line.y + 4 }}" text-anchor="end">
+					{{ line.label }}
+				</text>
+			{% endfor %}
+
+			<line
+				class="strata-chart__baseline"
+				x1="{{ chart.plot_left }}"
+				y1="{{ chart.baseline }}"
+				x2="{{ chart.plot_right }}"
+				y2="{{ chart.baseline }}"
+			/>
+
+			{% for bar in chart.bars %}
+				{% if bar.url %}
+					<a href="{{ bar.url }}">
+						<rect
+							class="{{ bar.classes }}"
+							x="{{ bar.x }}"
+							y="{{ bar.y }}"
+							width="{{ bar.width }}"
+							height="{{ bar.height }}"
+						><title>{{ bar.title }}</title></rect>
+					</a>
+				{% else %}
+					<rect
+						class="{{ bar.classes }}"
+						x="{{ bar.x }}"
+						y="{{ chart.baseline - 1 }}"
+						width="{{ bar.width }}"
+						height="1"
+					><title>{{ bar.title }}</title></rect>
+				{% endif %}
+			{% endfor %}
+
+			{% for label in chart.labels %}
+				<text class="strata-chart__tick" x="{{ label.x }}" y="{{ chart.height - 8 }}">
+					{{ label.text }}
+				</text>
+			{% endfor %}
+		</svg>
+
+		<dl class="strata-legend">
+			<dt class="strata-legend__swatch strata-legend__swatch--bar"></dt>
+			<dd>{{ 'Operations captured'|t }}</dd>
+			<dt class="strata-legend__swatch strata-legend__swatch--anchor"></dt>
+			<dd>{{ 'An anchor was written'|t }}</dd>
+			<dt class="strata-legend__swatch strata-legend__swatch--restore"></dt>
+			<dd>{{ 'A restore ran'|t }}</dd>
+		</dl>
+	{% endif %}
+</div>

@@ -1,0 +1,23 @@
+strata_ui.timeline:
+  title: 'Strata Timeline'
+  description: 'When the site changed, what changed and who changed it.'
+  route_name: strata_ui.timeline
+  parent: system.admin_reports
+
+strata_ui.health:
+  title: 'Strata Health'
+  description: 'Open findings, repair rungs and what the last restore drill proved.'
+  route_name: strata_ui.health
+  parent: system.admin_reports
+
+strata_ui.estimate:
+  title: 'Strata Cost Estimate'
+  description: 'Project what stored history will cost.'
+  route_name: strata_ui.estimate
+  parent: system.admin_config_system
+
+strata_ui.explorer:
+  title: 'Strata Storage Explorer'
+  description: 'What is stored now, and what deleting something would take with it.'
+  route_name: strata_ui.explorer
+  parent: system.admin_config_system

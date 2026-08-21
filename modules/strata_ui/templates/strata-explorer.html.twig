@@ -1,0 +1,111 @@
+{#
+/**
+ * @file
+ * What the store holds, and what deleting something would take with it.
+ *
+ * Available variables:
+ * - totals: frames, commits, dictionaries and bytes, already formatted.
+ * - reachable: how many objects each reachability class holds.
+ * - by_realm: captured bytes per realm.
+ * - complete: whether the reachability walk finished.
+ * - collectable: how many frames could be collected, or NULL when unknown.
+ * - collectable_bytes, waste_share: what collecting them would free.
+ * - incomplete_note: what to do when the walk did not finish.
+ * - realm_note: what the per-realm figures actually measure.
+ * - largest: the largest commits, as table rows.
+ * - prune_url: where a prune is confirmed.
+ * - summary: the one-line summary.
+ *
+ * @ingroup themeable
+ */
+#}
+<div class="strata strata-explorer">
+	<div class="strata-summary" role="group" aria-label="{{ 'What the store holds'|t }}">
+		{% for label, value in totals %}
+			<div class="strata-summary__item">
+				<span class="strata-summary__label">{{ label }}</span>
+				<span class="strata-summary__value">{{ value }}</span>
+			</div>
+		{% endfor %}
+	</div>
+
+	<p class="strata-note">{{ summary }}</p>
+
+	<section class="strata-reachability">
+		<h3>{{ 'Reachability'|t }}</h3>
+		<table class="strata-table">
+			<tbody>
+				{% for what, count in reachable %}
+					<tr>
+						<th scope="row">{{ what }}</th>
+						<td>{{ count }}</td>
+					</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+
+		{% if complete %}
+			<p>
+				{{ '@count frames (@bytes, @share) are held by nothing and could be collected.'|t({
+					'@count': collectable,
+					'@bytes': collectable_bytes,
+					'@share': waste_share,
+				}) }}
+			</p>
+			{% if collectable > 0 %}
+				<a class="strata-button strata-button--danger" href="{{ prune_url }}">
+					{{ 'Prune'|t }}
+				</a>
+			{% endif %}
+		{% else %}
+			<p class="strata-warning">{{ incomplete_note }}</p>
+		{% endif %}
+	</section>
+
+	<section class="strata-realms">
+		<h3>{{ 'Captured Bytes by Realm'|t }}</h3>
+		<p class="strata-note">{{ realm_note }}</p>
+		<table class="strata-table">
+			<thead>
+				<tr>
+					<th>{{ 'Realm'|t }}</th>
+					<th>{{ 'Captured'|t }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for row in by_realm %}
+					<tr>
+						<td>{{ row.0 }}</td>
+						<td>{{ row.1 }}</td>
+					</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</section>
+
+	<section class="strata-largest">
+		<h3>{{ 'Largest Commits'|t }}</h3>
+		<table class="strata-table">
+			<thead>
+				<tr>
+					<th>{{ 'Sealed'|t }}</th>
+					<th>{{ 'Commit'|t }}</th>
+					<th>{{ 'Covers'|t }}</th>
+					<th>{{ 'Stored'|t }}</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for row in largest %}
+					<tr>
+						<td>{{ row.0 }}</td>
+						<td><code>{{ row.1 }}</code></td>
+						<td>{{ row.2 }}</td>
+						<td>{{ row.3 }}</td>
+						<td>{{ row.4.data }}</td>
+					</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</section>
+</div>
