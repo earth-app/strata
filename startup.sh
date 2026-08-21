@@ -21,11 +21,12 @@ Usage: ./startup.sh [command] [options]
 
 Build the playground (the default when no command is given):
 
-  ./startup.sh [--db=mariadb|postgres|sqlite] [--fresh] [--no-s3]
+  ./startup.sh [--db=mariadb|postgres|sqlite] [--fresh] [--no-s3] [--no-codecs]
 
-  --db=       database ddev runs; defaults to mariadb
-  --fresh     delete the existing site and rebuild it from scratch
-  --no-s3     skip the minio container and use the local filesystem provider
+  --db=        database ddev runs; defaults to mariadb
+  --fresh      delete the existing site and rebuild it from scratch
+  --no-s3      skip the minio container and use the local filesystem provider
+  --no-codecs  skip building ext-zstd and ext-brotli into the web container
 
 Drive it. Each command needs the site to exist already.
 
@@ -34,6 +35,9 @@ Drive it. Each command needs the site to exist already.
               --rewrites=<n>                        edits per subject; default 2
 
   measure     what the store holds, what it cost, and what a month of it would cost
+
+  codecs      measure every codec on this host against the payloads already captured
+              --level=fast|default|dense            default measures fast and dense both
 
   rollback    plan a rollback and print the manifest; --apply performs it
               --to=<commit|HEAD~n>                  target; default HEAD~1
@@ -68,11 +72,13 @@ USAGE
 DB="mariadb"
 FRESH=0
 USE_S3=1
+USE_CODECS=1
 COMMAND="build"
 SERVE_PORT="8087"
 STOP=0
 SCALE="small"
 REWRITES="2"
+LEVEL=""
 KIND=""
 SHARE="50"
 TARGET="HEAD~1"
@@ -80,7 +86,8 @@ APPLY=0
 
 if [ "$#" -gt 0 ]; then
 	case "$1" in
-		traffic | measure | rollback | meltdown | heal | attack | scenario | serve | functional)
+		traffic | measure | codecs | rollback | meltdown | heal | attack | scenario | serve | \
+			functional)
 			COMMAND="$1"
 			shift
 			;;
@@ -92,8 +99,10 @@ for arg in "$@"; do
 		--db=*) DB="${arg#*=}" ;;
 		--fresh) FRESH=1 ;;
 		--no-s3) USE_S3=0 ;;
+		--no-codecs) USE_CODECS=0 ;;
 		--scale=*) SCALE="${arg#*=}" ;;
 		--rewrites=*) REWRITES="${arg#*=}" ;;
+		--level=*) LEVEL="${arg#*=}" ;;
 		--kind=*) KIND="${arg#*=}" ;;
 		--share=*) SHARE="${arg#*=}" ;;
 		--to=*) TARGET="${arg#*=}" ;;
@@ -247,6 +256,27 @@ case "$COMMAND" in
 		run_script measure
 		exit 0
 		;;
+	codecs)
+		if [ ! -d "$SITE_DIR" ]; then
+			echo ">>> No site at $SITE_DIR yet. Run ./startup.sh first."
+			exit 1
+		fi
+
+		cd "$SITE_DIR"
+		ddev start > /dev/null
+
+		if [ -n "$LEVEL" ]; then
+			ddev drush strata:calibrate --level="$LEVEL"
+		else
+			echo ">>> Level 1, what the flush path uses inside a web request"
+			ddev drush strata:calibrate --level=fast
+			echo
+			echo ">>> Level 19, what compaction uses on cron"
+			ddev drush strata:calibrate --level=dense
+		fi
+
+		exit 0
+		;;
 	rollback)
 		if [ "$APPLY" = "1" ]; then
 			run_script rollback "$TARGET" apply
@@ -308,6 +338,59 @@ fi
 
 #endregion
 
+#region Codec Extensions
+
+WEB_BUILD_SRC="$SRC_PATH/docker/web-build"
+WEB_BUILD_CHANGED=0
+
+# the ddev web image carries neither ext-zstd nor ext-brotli, so without this the playground falls
+# back to gzip and none of the measured ratios can be reproduced by hand
+install_web_build() {
+	local dest="$SITE_DIR/.ddev/web-build"
+
+	if [ "$USE_CODECS" = "0" ]; then
+		if [ -f "$dest/Dockerfile.strata" ]; then
+			rm -f "$dest/Dockerfile.strata"
+			WEB_BUILD_CHANGED=1
+			echo ">>> Dropping the codec build; zstd and brotli will be unavailable"
+		fi
+
+		return 0
+	fi
+
+	mkdir -p "$dest"
+
+	for file in "$WEB_BUILD_SRC"/*; do
+		[ -f "$file" ] || continue
+
+		if ! cmp -s "$file" "$dest/$(basename "$file")"; then
+			cp "$file" "$dest/"
+			WEB_BUILD_CHANGED=1
+		fi
+	done
+
+	if [ "$WEB_BUILD_CHANGED" = "1" ]; then
+		echo ">>> Building ext-zstd and ext-brotli into the web container (a few minutes, once)"
+	fi
+}
+
+# a changed build context needs a restart, and a half-built layer from an earlier run needs the
+# cache thrown away rather than reused
+ddev_up() {
+	if [ "$WEB_BUILD_CHANGED" = "1" ]; then
+		if ddev restart; then
+			return 0
+		fi
+
+		echo ">>> The image build failed; rebuilding it without the layer cache"
+		ddev debug rebuild -s web
+	fi
+
+	ddev start > /dev/null
+}
+
+#endregion
+
 #region Site
 
 copy_module() {
@@ -354,7 +437,8 @@ if [ ! -d "$SITE_DIR" ]; then
 			--project-name="$PROJECT_NAME" --host-webserver-port=8788
 	fi
 
-	ddev start
+	install_web_build
+	ddev_up
 
 	ddev drush -y site:install minimal \
 		--account-name=admin \
@@ -369,7 +453,8 @@ else
 	echo ">>> Using module at $SRC_PATH"
 
 	cd "$SITE_DIR"
-	ddev start > /dev/null
+	install_web_build
+	ddev_up
 
 	# uninstall first so a changed hook_schema is reinstalled rather than drifting
 	ddev drush -y pmu "$PROJECT_NAME" > /dev/null 2>&1 || true
@@ -430,6 +515,17 @@ echo
 echo ">>> Exercising the pipeline"
 
 ddev drush status --field=drupal-version
+
+echo
+echo ">>> Codecs this host can run"
+ddev drush -y php:eval '
+$registry = \Drupal::service("strata.engine")->codecs();
+printf("  writing with  %s\n", $registry->writer()->id());
+printf("  available     %s\n", implode(", ", $registry->available()));
+foreach ($registry->unavailable() as $id => $reasons) {
+  printf("  unavailable   %-8s %s\n", $id, implode("; ", $reasons));
+}
+'
 
 # a real capture: create a node type and a node, then force a flush
 ddev drush -y php:eval '
@@ -498,6 +594,7 @@ cat << 'NEXT'
 Drive it:
   ./startup.sh traffic --scale=medium      # a site somebody uses, sealed as it goes
   ./startup.sh measure                     # what that cost, and what a month would cost
+  ./startup.sh codecs                      # every codec measured on real captured payloads
   ./startup.sh rollback --to=HEAD~1        # the manifest a rollback would write
   ./startup.sh rollback --to=HEAD~1 --apply
   ./startup.sh meltdown --kind=everything  # break it on purpose
