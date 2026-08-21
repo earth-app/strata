@@ -1,0 +1,133 @@
+langcode: en
+status: true
+dependencies:
+  module:
+    - strata
+    - user
+id: strata_commits
+label: 'Strata commits'
+module: views
+description: 'Every point in the history a restore can target, newest first.'
+tag: strata
+base_table: strata_commit
+base_field: id
+display:
+  default:
+    id: default
+    display_title: Default
+    display_plugin: default
+    position: 0
+    display_options:
+      title: 'Strata commits'
+      access:
+        type: perm
+        options:
+          perm: 'view strata timeline'
+      cache:
+        type: tag
+        options: {}
+      query:
+        type: views_query
+        options: {}
+      exposed_form:
+        type: basic
+        options:
+          submit_button: Filter
+          reset_button: true
+          reset_button_label: Reset
+      pager:
+        type: full
+        options:
+          items_per_page: 50
+      style:
+        type: table
+        options:
+          default: microtime
+          order: desc
+          columns:
+            microtime: microtime
+            id: id
+            label: label
+            operations: operations
+            raw_bytes: raw_bytes
+            stored_bytes: stored_bytes
+            is_base: is_base
+          info:
+            microtime:
+              sortable: true
+              default_sort_order: desc
+            id:
+              sortable: false
+            label:
+              sortable: false
+            operations:
+              sortable: true
+            raw_bytes:
+              sortable: true
+            stored_bytes:
+              sortable: true
+            is_base:
+              sortable: true
+      row:
+        type: fields
+        options: {}
+      fields:
+        microtime:
+          id: microtime
+          table: strata_commit
+          field: microtime
+          plugin_id: strata_microtime
+          label: Sealed
+        id:
+          id: id
+          table: strata_commit
+          field: id
+          plugin_id: strata_commit
+          label: Commit
+        label:
+          id: label
+          table: strata_commit
+          field: label
+          plugin_id: standard
+          label: Covers
+        operations:
+          id: operations
+          table: strata_commit
+          field: operations
+          plugin_id: numeric
+          label: Operations
+        raw_bytes:
+          id: raw_bytes
+          table: strata_commit
+          field: raw_bytes
+          plugin_id: strata_bytes
+          label: Raw
+        stored_bytes:
+          id: stored_bytes
+          table: strata_commit
+          field: stored_bytes
+          plugin_id: strata_bytes
+          label: Stored
+        is_base:
+          id: is_base
+          table: strata_commit
+          field: is_base
+          plugin_id: boolean
+          label: Anchor
+      filters: {}
+      sorts:
+        microtime:
+          id: microtime
+          table: strata_commit
+          field: microtime
+          plugin_id: standard
+          order: DESC
+  page_1:
+    id: page_1
+    display_title: Page
+    display_plugin: page
+    position: 1
+    display_options:
+      path: admin/reports/strata/commits
+      menu:
+        type: none

@@ -1,0 +1,135 @@
+langcode: en
+status: true
+dependencies:
+  module:
+    - strata
+id: strata_health
+label: 'Strata health'
+module: views
+description: 'What the tripwires found, most serious first, open findings only.'
+tag: strata
+base_table: strata_health
+base_field: id
+display:
+  default:
+    id: default
+    display_title: Default
+    display_plugin: default
+    position: 0
+    display_options:
+      title: 'Strata health'
+      access:
+        type: perm
+        options:
+          perm: 'repair strata'
+      cache:
+        type: tag
+        options: {}
+      query:
+        type: views_query
+        options: {}
+      exposed_form:
+        type: basic
+        options:
+          submit_button: Filter
+          reset_button: true
+          reset_button_label: Reset
+      pager:
+        type: full
+        options:
+          items_per_page: 50
+      style:
+        type: table
+        options:
+          default: severity
+          order: desc
+          columns:
+            severity: severity
+            code: code
+            scope: scope
+            context: context
+            rung: rung
+            created: created
+          info:
+            severity:
+              sortable: true
+              default_sort_order: desc
+            code:
+              sortable: true
+            scope:
+              sortable: false
+            context:
+              sortable: false
+            rung:
+              sortable: true
+            created:
+              sortable: true
+      row:
+        type: fields
+        options: {}
+      fields:
+        severity:
+          id: severity
+          table: strata_health
+          field: severity
+          plugin_id: strata_severity
+          label: Severity
+        code:
+          id: code
+          table: strata_health
+          field: code
+          plugin_id: standard
+          label: Code
+        scope:
+          id: scope
+          table: strata_health
+          field: scope
+          plugin_id: standard
+          label: Scope
+        context:
+          id: context
+          table: strata_health
+          field: context
+          plugin_id: standard
+          label: Detail
+        rung:
+          id: rung
+          table: strata_health
+          field: rung
+          plugin_id: standard
+          label: Rung
+        created:
+          id: created
+          table: strata_health
+          field: created
+          plugin_id: date
+          label: Recorded
+      filters:
+        resolved:
+          id: resolved
+          table: strata_health
+          field: resolved
+          plugin_id: date
+          operator: empty
+      sorts:
+        severity:
+          id: severity
+          table: strata_health
+          field: severity
+          plugin_id: standard
+          order: DESC
+        created:
+          id: created
+          table: strata_health
+          field: created
+          plugin_id: date
+          order: DESC
+  page_1:
+    id: page_1
+    display_title: Page
+    display_plugin: page
+    position: 1
+    display_options:
+      path: admin/reports/strata/health
+      menu:
+        type: none
