@@ -7,6 +7,8 @@
 
 declare(strict_types=1);
 
+use Drupal\Core\Database\Statement\FetchAs;
+use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strata\Codec\CodecCatalog;
 use Drupal\strata\Codec\CodecProfile;
@@ -134,11 +136,11 @@ function strata_schema(): array
 				'not null' => false,
 				'description' => 'Parent commit, or NULL for the root of history.',
 			],
-			'tree' => [
+			'index_ref' => [
 				'type' => 'varchar',
 				'length' => 64,
 				'not null' => true,
-				'description' => 'Root tree node address.',
+				'description' => 'Base anchor address this commit resolves against.',
 			],
 			'microtime' => [
 				'type' => 'int',
@@ -194,7 +196,22 @@ function strata_schema(): array
 				'size' => 'tiny',
 				'not null' => true,
 				'default' => 0,
-				'description' => 'Whether a replay can stop at this commit.',
+				'description' => 'Whether this commit wrote the anchor it names.',
+			],
+			'chain' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' =>
+					'Anchors between this commit\'s anchor and the full one behind it.',
+			],
+			'anchored_at' => [
+				'type' => 'int',
+				'size' => 'big',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix microseconds the anchor this commit names was written at.',
 			],
 			'segment_key' => [
 				'type' => 'varchar',
@@ -209,6 +226,51 @@ function strata_schema(): array
 			'parent' => ['parent'],
 			'level_microtime' => ['level', 'microtime'],
 			'base' => ['is_base', 'microtime'],
+		],
+	];
+
+	$schema['strata_subject'] = [
+		'description' =>
+			'Where every subject was last stored, so an anchor and a delta both read nothing.',
+		'fields' => [
+			'subject' => [
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => true,
+				'description' => 'Realm-qualified subject path.',
+			],
+			'frames' => [
+				'type' => 'text',
+				'size' => 'medium',
+				'not null' => true,
+				'description' => 'JSON list of frame addresses that reconstruct the subject.',
+			],
+			'size' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Decoded bytes the subject occupies.',
+			],
+			'deleted' => [
+				'type' => 'int',
+				'size' => 'tiny',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Whether the subject was removed rather than written.',
+			],
+			'updated' => [
+				'type' => 'int',
+				'size' => 'big',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix microseconds the subject last changed.',
+			],
+		],
+		'primary key' => ['subject'],
+		'indexes' => [
+			'updated' => ['updated'],
 		],
 	];
 
@@ -279,12 +341,93 @@ function strata_schema(): array
 				'default' => 0,
 				'description' => 'Unix timestamp the frame was first stored.',
 			],
+			'delta_parent' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' => 'Frame this one is a delta against, or NULL when it stands alone.',
+			],
+			'delta_depth' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Position in the delta chain; zero for an anchor.',
+			],
 		],
 		'primary key' => ['hash'],
 		'indexes' => [
 			'pack' => ['pack'],
 			'orphans' => ['refs'],
 			'dictionary' => ['dictionary'],
+			'delta_parent' => ['delta_parent'],
+		],
+	];
+
+	$schema['strata_dict'] = [
+		'description' => 'Index over the per-realm compression dictionaries in the store.',
+		'fields' => [
+			'id' => [
+				'type' => 'varchar',
+				'length' => 96,
+				'not null' => true,
+				'description' => 'Realm and version, as every frame records it.',
+			],
+			'realm' => [
+				'type' => 'varchar',
+				'length' => 32,
+				'not null' => true,
+				'description' => 'Realm the dictionary was trained for.',
+			],
+			'version' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'description' => 'Version, counting from one.',
+			],
+			'address' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Content address of the dictionary bytes.',
+			],
+			'bytes' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'How large the dictionary is.',
+			],
+			'source' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'default' => 'raw',
+				'description' => 'Whether it was concatenated or trained by the zstd binary.',
+			],
+			'ratio' => [
+				'type' => 'float',
+				'not null' => true,
+				'default' => 1,
+				'description' => 'Compression ratio measured on the samples it was scored against.',
+			],
+			'samples' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'How many samples it was built from.',
+			],
+			'trained_at' => [
+				'type' => 'int',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix seconds the dictionary was trained at.',
+			],
+		],
+		'primary key' => ['id'],
+		'indexes' => [
+			'realm_version' => ['realm', 'version'],
 		],
 	];
 
@@ -537,7 +680,234 @@ function strata_schema(): array
 		'indexes' => ['classification' => ['classification']],
 	];
 
+	$schema['strata_provider_stat'] = [
+		'description' => 'What each storage provider was asked to do, accumulated per day.',
+		'fields' => [
+			'provider' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Provider id.',
+			],
+			'day' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp of the day this row accumulates, at midnight UTC.',
+			],
+			'operation' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'One of put, get, head, list or delete.',
+			],
+			'requests' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Requests performed.',
+			],
+			'failures' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Requests that did not succeed.',
+			],
+			'bytes' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Bytes transferred.',
+			],
+			'seconds' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Time spent, in milliseconds.',
+			],
+			'slowest' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Slowest single request, in milliseconds.',
+			],
+		],
+		'primary key' => ['provider', 'day', 'operation'],
+		'indexes' => ['day' => ['day']],
+	];
+
+	$schema['strata_placement'] = [
+		'description' => 'Which storage tier holds which object, one row per copy.',
+		'fields' => [
+			'object_key' => [
+				'type' => 'varchar_ascii',
+				'length' => 255,
+				'not null' => true,
+				'description' => 'Object key, exactly as the bucket holds it.',
+			],
+			'tier' => [
+				'type' => 'int',
+				'size' => 'small',
+				'unsigned' => true,
+				'not null' => true,
+				'description' => 'Tier index, zero being the nearest.',
+			],
+			'bytes' => [
+				'type' => 'int',
+				'size' => 'big',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'The object size, so per-tier totals need no listing.',
+			],
+			'recorded' => [
+				'type' => 'int',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix timestamp this placement was written.',
+			],
+		],
+		'primary key' => ['object_key', 'tier'],
+		'indexes' => [
+			'tier' => ['tier', 'object_key'],
+			'recorded' => ['recorded'],
+		],
+	];
+
+	$schema['strata_drill'] = [
+		'description' => 'What each restore drill proved about the store.',
+		'fields' => [
+			'id' => [
+				'type' => 'serial',
+				'unsigned' => true,
+				'not null' => true,
+				'description' => 'Row id.',
+			],
+			'target' => [
+				'type' => 'varchar_ascii',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Commit the drill replayed against.',
+			],
+			'mode' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'How the drill compared, either replay or scratch.',
+			],
+			'verdict' => [
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => true,
+				'description' => 'One of pass, fail, inconclusive or refused.',
+			],
+			'matched' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects the store reproduced exactly.',
+			],
+			'differed' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects where the stored value and the live one disagree.',
+			],
+			'skipped' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' =>
+					'Subjects that moved on after the replayed commit, so nothing was proved.',
+			],
+			'unreadable' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects the store could not produce a value for.',
+			],
+			'sampled' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects examined.',
+			],
+			'population' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Subjects the index held, so the sampled share is legible.',
+			],
+			'seconds' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => true,
+				'default' => 0,
+				'description' => 'How long the drill took, in milliseconds.',
+			],
+			'created' => [
+				'type' => 'int',
+				'not null' => true,
+				'description' => 'Unix timestamp the drill ran.',
+			],
+			'detail' => [
+				'type' => 'varchar',
+				'length' => 500,
+				'not null' => false,
+				'description' => 'The summary line, bounded.',
+			],
+		],
+		'primary key' => ['id'],
+		'indexes' => [
+			'created' => ['created'],
+			'verdict' => ['verdict', 'created'],
+		],
+	];
+
 	return $schema;
+}
+
+/**
+ * Adds the tier placement index and the tiering defaults.
+ *
+ * The table is derived state like every other one here, so it is created empty and
+ * `drush strata:reindex` fills it by listing each bucket. Tiering itself is left off: a site that
+ * has been writing to one bucket keeps writing to one bucket, and a ladder nobody configured would
+ * otherwise be a silent change to where history goes.
+ */
+function strata_update_11101(): string
+{
+	$schema = Drupal::database()->schema();
+	$tables = strata_schema();
+
+	if (!$schema->tableExists('strata_placement')) {
+		$schema->createTable('strata_placement', $tables['strata_placement']);
+	}
+
+	$settings = Drupal::configFactory()->getEditable('strata.settings');
+
+	if ($settings->get('tiers') === null) {
+		$settings
+			->set('tiers.enabled', false)
+			->set('tiers.verify_copies', true)
+			->set('tiers.levels', [])
+			->save();
+	}
+
+	return (string) new TranslatableMarkup(
+		'Added the tier placement index. Tiered storage is off; configure it at admin/config/system/strata/tiers.',
+	);
 }
 
 /**
@@ -570,7 +940,7 @@ function strata_requirements(string $phase): array
 			'@codec' => $registry->writer()->id(),
 			'@usable' => $usableIds ?: 'none',
 		]),
-		'severity' => $hasDictionary ? REQUIREMENT_OK : REQUIREMENT_WARNING,
+		'severity' => $hasDictionary ? RequirementSeverity::OK : RequirementSeverity::Warning,
 		'description' => $hasDictionary
 			? new TranslatableMarkup('Delta coding is available.')
 			: new TranslatableMarkup(
@@ -584,7 +954,9 @@ function strata_requirements(string $phase): array
 		'value' => extension_loaded('sodium')
 			? new TranslatableMarkup('Available')
 			: new TranslatableMarkup('Unavailable'),
-		'severity' => extension_loaded('sodium') ? REQUIREMENT_OK : REQUIREMENT_ERROR,
+		'severity' => extension_loaded('sodium')
+			? RequirementSeverity::OK
+			: RequirementSeverity::Error,
 		'description' => extension_loaded('sodium')
 			? new TranslatableMarkup('XChaCha20-Poly1305 is available through ext-sodium.')
 			: new TranslatableMarkup('ext-sodium is not loaded, so frames cannot be encrypted.'),
@@ -596,7 +968,7 @@ function strata_requirements(string $phase): array
 /**
  * Implements hook_uninstall().
  *
- * Runs before hook_schema()'s tables are dropped, so the two tables nothing in the bucket can
+ * Runs before hook_schema()'s tables are dropped, so the three tables nothing in the bucket can
  * reproduce are written to the file system first. The object store itself is never touched: an
  * uninstall removes the local index, not the backups.
  */
@@ -621,13 +993,13 @@ function strata_uninstall(): void
 		return;
 	}
 
-	foreach (['strata_restore_log', 'strata_health'] as $table) {
+	foreach (['strata_restore_log', 'strata_health', 'strata_drill'] as $table) {
 		try {
 			$rows = $database
 				->select($table, 't')
 				->fields('t')
 				->execute()
-				?->fetchAll(PDO::FETCH_ASSOC);
+				?->fetchAll(FetchAs::Associative);
 			$path = $directory . '/' . $table . '.json';
 
 			file_put_contents($path, (string) json_encode($rows ?? [], JSON_PRETTY_PRINT));
