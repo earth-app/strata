@@ -90,6 +90,16 @@ final class Theme
 					'timeline_url' => '',
 				],
 			],
+			'strata_branches' => [
+				'variables' => [
+					'branches' => [],
+					'empty' => true,
+					'realm' => '',
+					'realm_note' => '',
+					'flush_note' => '',
+					'timeline_url' => '',
+				],
+			],
 			'strata_status' => [
 				'variables' => ['rows' => [], 'severity' => 'ok', 'url' => ''],
 			],

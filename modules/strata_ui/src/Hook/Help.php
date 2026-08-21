@@ -55,7 +55,7 @@ final class Help
 		return match ($routeName) {
 			'help.page.strata_ui' => [
 				(string) $this->t(
-					'Adds the Strata reports: timeline, diff, graphs, explorer, health.',
+					'Adds the Strata reports: timeline, diff, graphs, explorer, health, branches.',
 				),
 				(string) $this->t('It captures nothing and stores nothing of its own.'),
 				(string) $this->t('Uninstalling it leaves the stored history untouched.'),
@@ -88,6 +88,29 @@ final class Help
 				(string) $this->t('What a deletion frees is rarely the size of the thing deleted.'),
 				(string) $this->t('A frame can be shared by many commits, or be a delta anchor.'),
 				(string) $this->t('This page prices a removal by what would become unreachable.'),
+			],
+			'strata_ui.branches' => [
+				(string) $this->t(
+					'A branch is a ref, and it carries the configuration realm only.',
+				),
+				(string) $this->t(
+					'Configuration is captured whole, so merging it is well defined.',
+				),
+				(string) $this->t('Content and rows are captured as deltas against a parent.'),
+				(string) $this->t(
+					'Merging two divergent delta chains would mean inventing values.',
+				),
+				(string) $this->t('Flush onto a branch with drush strata:flush --ref=heads/NAME.'),
+			],
+			'strata_ui.merge' => [
+				(string) $this->t(
+					'Every object one side or the other touched is listed before you.',
+				),
+				(string) $this->t('Two edits to different keys of one object both survive.'),
+				(string) $this->t(
+					'Two edits to the same key stop the merge and print both values.',
+				),
+				(string) $this->t('A snapshot is captured before anything is written, always.'),
 			],
 			'strata_ui.health' => [
 				(string) $this->t('Findings are collapsed to one row per code.'),

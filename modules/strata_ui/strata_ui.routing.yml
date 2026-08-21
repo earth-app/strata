@@ -114,6 +114,27 @@ strata_ui.rollback:
   options:
     _admin_route: TRUE
 
+strata_ui.branches:
+  path: '/admin/reports/strata/branches'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\BranchController::page
+    _title: 'Strata Configuration Branches'
+  requirements:
+    _permission: 'branch strata config+merge strata config+administer strata'
+  options:
+    _admin_route: TRUE
+
+strata_ui.merge:
+  path: '/admin/reports/strata/branches/{branch}/merge'
+  defaults:
+    _form: Drupal\strata_ui\Form\MergeConfirmForm
+    _title: 'Merge This Branch Into the Trunk'
+  requirements:
+    _permission: 'merge strata config+administer strata'
+    branch: '[a-z0-9][a-z0-9_\-/]*'
+  options:
+    _admin_route: TRUE
+
 strata_ui.quarantine:
   path: '/admin/reports/strata/quarantine/{commit}'
   defaults:
