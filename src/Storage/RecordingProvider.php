@@ -76,6 +76,20 @@ final class RecordingProvider implements StorageProviderInterface
 		return $this->stats;
 	}
 
+	/**
+	 * The provider every call is forwarded to.
+	 *
+	 * Exposed for the same reason SiteScopedProvider::unscoped() is: code that has to know which
+	 * endpoint is really configured should not have to match on a decorator.
+	 *
+	 * @return StorageProviderInterface
+	 *   The wrapped provider.
+	 */
+	public function inner(): StorageProviderInterface
+	{
+		return $this->inner;
+	}
+
 	#region Identity
 
 	/**

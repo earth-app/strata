@@ -89,6 +89,24 @@ final class ProviderStats implements JsonSerializable
 	 */
 	private float $seconds = 0.0;
 
+	/**
+	 * Seconds spent per operation, untruncated.
+	 *
+	 * Held separately from the latency samples because the samples are capped: a run that issues
+	 * more than LATENCY_SAMPLES puts of its own would otherwise persist a total describing only the
+	 * last thousand.
+	 *
+	 * @var array<string, float>
+	 */
+	private array $durations = [];
+
+	/**
+	 * The slowest single attempt per operation, untruncated.
+	 *
+	 * @var array<string, float>
+	 */
+	private array $peaks = [];
+
 	#region Recording
 
 	/**
@@ -129,6 +147,8 @@ final class ProviderStats implements JsonSerializable
 
 		$this->counts[$operation] = ($this->counts[$operation] ?? 0) + 1;
 		$this->volumes[$operation] = ($this->volumes[$operation] ?? 0) + $bytes;
+		$this->durations[$operation] = ($this->durations[$operation] ?? 0.0) + $seconds;
+		$this->peaks[$operation] = max($this->peaks[$operation] ?? 0.0, $seconds);
 		$this->seconds += $seconds;
 
 		if ($failed) {
@@ -158,6 +178,12 @@ final class ProviderStats implements JsonSerializable
 		foreach ($other->failed as $operation => $failures) {
 			$this->failed[$operation] = ($this->failed[$operation] ?? 0) + $failures;
 		}
+		foreach ($other->durations as $operation => $seconds) {
+			$this->durations[$operation] = ($this->durations[$operation] ?? 0.0) + $seconds;
+		}
+		foreach ($other->peaks as $operation => $seconds) {
+			$this->peaks[$operation] = max($this->peaks[$operation] ?? 0.0, $seconds);
+		}
 		foreach ($other->samples as $operation => $samples) {
 			foreach ($samples as $seconds) {
 				$this->sample($operation, $seconds);
@@ -176,6 +202,8 @@ final class ProviderStats implements JsonSerializable
 		$this->volumes = [];
 		$this->failed = [];
 		$this->samples = [];
+		$this->durations = [];
+		$this->peaks = [];
 		$this->seconds = 0.0;
 	}
 
@@ -286,6 +314,50 @@ final class ProviderStats implements JsonSerializable
 		}
 
 		return $breakdown;
+	}
+
+	/**
+	 * Wall-clock time spent on one operation.
+	 *
+	 * Counted over every attempt, so it is the figure to persist. ProviderStats::latency() reports
+	 * the retained sample instead and can describe less than the whole run.
+	 *
+	 * @param string $operation
+	 *   One of ProviderStats::OPERATIONS.
+	 *
+	 * @return float
+	 *   Seconds, or 0.0 when the operation was never attempted.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When $operation is not a billed verb.
+	 */
+	public function secondsFor(string $operation): float
+	{
+		self::assertOperation($operation);
+
+		return $this->durations[$operation] ?? 0.0;
+	}
+
+	/**
+	 * The slowest single attempt at one operation.
+	 *
+	 * Taken over every attempt rather than the retained sample, so a spike that happened early in a
+	 * long run is still reported.
+	 *
+	 * @param string $operation
+	 *   One of ProviderStats::OPERATIONS.
+	 *
+	 * @return float
+	 *   Seconds, or 0.0 when the operation was never attempted.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When $operation is not a billed verb.
+	 */
+	public function slowestOf(string $operation): float
+	{
+		self::assertOperation($operation);
+
+		return $this->peaks[$operation] ?? 0.0;
 	}
 
 	/**
