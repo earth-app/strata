@@ -1,0 +1,351 @@
+services:
+  logger.channel.strata:
+    parent: logger.channel_base
+    arguments: ['strata']
+
+  strata.journal_factory:
+    class: Drupal\strata\Journal\JournalFactory
+    arguments: ['@config.factory', '@database', '@logger.channel.strata']
+
+  strata.journal:
+    class: Drupal\strata\Journal\JournalInterface
+    factory: ['@strata.journal_factory', 'create']
+
+  Drupal\strata\Journal\JournalInterface:
+    alias: strata.journal
+
+  strata.notifier:
+    class: Drupal\strata\Event\Notifier
+    arguments: ['@event_dispatcher', '@logger.channel.strata']
+
+  Drupal\strata\Event\Notifier:
+    alias: strata.notifier
+
+  strata.webhooks:
+    class: Drupal\strata\Event\Webhook\WebhookDispatcher
+    arguments:
+      - '@http_client'
+      - '@config.factory'
+      - '@queue'
+      - '@datetime.time'
+      - '@logger.channel.strata'
+
+  Drupal\strata\Event\Webhook\WebhookDispatcher:
+    alias: strata.webhooks
+
+  strata.webhook_subscriber:
+    class: Drupal\strata\Event\Webhook\WebhookSubscriber
+    arguments: ['@strata.webhooks']
+    tags:
+      - { name: event_subscriber }
+
+  strata.capture_scope:
+    class: Drupal\strata\Capture\CaptureScope
+    arguments: ['@config.factory']
+
+  Drupal\strata\Capture\CaptureScope:
+    alias: strata.capture_scope
+
+  strata.site:
+    class: Drupal\strata\Site\SiteContext
+    arguments: ['@config.factory', '@database']
+
+  Drupal\strata\Site\SiteContext:
+    alias: strata.site
+
+  strata.classifications:
+    class: Drupal\strata\Capture\Classifier\ClassificationRegistry
+    arguments: ['@database']
+
+  Drupal\strata\Capture\Classifier\ClassificationRegistry:
+    alias: strata.classifications
+
+  strata.key_recorder:
+    class: Drupal\strata\Capture\KeyRecorder
+    arguments:
+      - '@strata.journal'
+      - '@strata.capture_scope'
+      - '@current_user'
+      - '@logger.channel.strata'
+
+  Drupal\strata\Capture\KeyRecorder:
+    alias: strata.key_recorder
+
+  strata.config_capture:
+    class: Drupal\strata\Capture\EventSubscriber\ConfigCaptureSubscriber
+    arguments:
+      - '@strata.journal'
+      - '@strata.capture_scope'
+      - '@current_user'
+      - '@logger.channel.strata'
+    tags:
+      - { name: event_subscriber }
+
+  strata.statement_capture:
+    class: Drupal\strata\Capture\EventSubscriber\StatementCaptureSubscriber
+    arguments:
+      - '@database'
+      - '@strata.journal'
+      - '@strata.capture_scope'
+      - '@current_user'
+      - '@logger.channel.strata'
+    tags:
+      - { name: event_subscriber }
+
+  strata.state:
+    class: Drupal\strata\Capture\StateCapture
+    decorates: state
+    arguments: ['@.inner', '@strata.key_recorder']
+
+  strata.lease:
+    class: Drupal\strata\Flush\Lease
+    arguments: ['@database']
+
+  Drupal\strata\Flush\Lease:
+    alias: strata.lease
+
+  Drupal\strata\Hook\EntityCapture:
+    class: Drupal\strata\Hook\EntityCapture
+    arguments:
+      - '@strata.journal'
+      - '@strata.capture_scope'
+      - '@current_user'
+      - '@logger.channel.strata'
+
+  strata.storage_providers:
+    class: Drupal\strata\Storage\StorageProviderManager
+    tags:
+      - {
+          name: service_collector,
+          tag: strata.storage_provider_factory,
+          call: registerProviderFactory
+        }
+
+  Drupal\strata\Storage\StorageProviderManager:
+    alias: strata.storage_providers
+
+  strata.frame_index:
+    class: Drupal\strata\Cas\DatabaseFrameIndex
+    arguments: ['@database']
+
+  Drupal\strata\Cas\FrameIndexInterface:
+    alias: strata.frame_index
+
+  strata.commit_index:
+    class: Drupal\strata\Tree\CommitIndex
+    arguments: ['@database']
+
+  Drupal\strata\Tree\CommitIndex:
+    alias: strata.commit_index
+
+  strata.health_ledger:
+    class: Drupal\strata\Health\DatabaseHealthLedger
+    arguments: ['@database']
+
+  Drupal\strata\Health\HealthLedgerInterface:
+    alias: strata.health_ledger
+
+  strata.restore_audit:
+    class: Drupal\strata\Restore\RestoreAudit
+    arguments: ['@database']
+
+  Drupal\strata\Restore\RestoreAudit:
+    alias: strata.restore_audit
+
+  strata.engine:
+    class: Drupal\strata\Engine
+    tags:
+      - { name: service_collector, tag: strata.keyspace_source, call: addKeyspaceSource }
+      - { name: service_collector, tag: strata.restore_strategy, call: addRestoreStrategy }
+    arguments:
+      - '@config.factory'
+      - '@strata.journal'
+      - '@strata.frame_index'
+      - '@strata.commit_index'
+      - '@strata.health_ledger'
+      - '@strata.lease'
+      - '@logger.channel.strata'
+      - '@strata.restore_audit'
+      - '@entity_type.manager'
+      - '@state'
+      - '@keyvalue'
+      - '@database'
+      - '@strata.capture_scope'
+      - '@strata.classifications'
+      - '@strata.site'
+      - '@current_user'
+      - '@strata.notifier'
+      - '@datetime.time'
+      - '@?key.repository'
+      - '@?strata.storage_providers'
+      - '@?http_client'
+
+  Drupal\strata\Engine:
+    alias: strata.engine
+
+  strata.provider_stats:
+    class: Drupal\strata\Storage\ProviderStatStore
+    factory: ['@strata.engine', 'providerStatStore']
+
+  Drupal\strata\Storage\ProviderStatStore:
+    alias: strata.provider_stats
+
+  strata.provider_stat_subscriber:
+    class: Drupal\strata\Storage\ProviderStatSubscriber
+    arguments: ['@strata.engine', '@logger.channel.strata']
+    tags:
+      - { name: event_subscriber }
+
+  strata.flusher:
+    class: Drupal\strata\Flush\Flusher
+    factory: ['@strata.engine', 'flusher']
+
+  strata.verifier:
+    class: Drupal\strata\Verify\Verifier
+    factory: ['@strata.engine', 'verifier']
+
+  strata.reindexer:
+    class: Drupal\strata\Verify\Reindexer
+    factory: ['@strata.engine', 'reindexer']
+
+  strata.compactor:
+    class: Drupal\strata\Compaction\Compactor
+    factory: ['@strata.engine', 'compactor']
+
+  strata.replayer:
+    class: Drupal\strata\Restore\Replayer
+    factory: ['@strata.engine', 'replayer']
+
+  strata.preflight:
+    class: Drupal\strata\Restore\Preflight
+    factory: ['@strata.engine', 'preflight']
+
+  strata.logical_restore:
+    class: Drupal\strata\Restore\LogicalRestore
+    factory: ['@strata.engine', 'logicalRestore']
+
+  strata.reconciler:
+    class: Drupal\strata\Capture\Reconciler
+    factory: ['@strata.engine', 'reconciler']
+
+  strata.keyspace_discovery:
+    class: Drupal\strata\Capture\Classifier\KeyspaceDiscovery
+    factory: ['@strata.engine', 'keyspaceDiscovery']
+
+  strata.code_capture:
+    class: Drupal\strata\Code\CodeCapture
+    factory: ['@strata.engine', 'codeCapture']
+
+  strata.dictionary_pass:
+    class: Drupal\strata\Codec\Dictionary\DictionaryPass
+    factory: ['@strata.engine', 'dictionaryPass']
+
+  strata.dictionaries:
+    class: Drupal\strata\Codec\Dictionary\DictionaryStore
+    factory: ['@strata.engine', 'dictionaries']
+
+  strata.physical_restore:
+    class: Drupal\strata\Restore\PhysicalRestore
+    factory: ['@strata.engine', 'physicalRestore']
+
+  strata.restore_access:
+    class: Drupal\strata\Access\RestoreAccess
+    factory: ['@strata.engine', 'restoreAccess']
+
+  Drupal\strata\Access\RestoreAccess:
+    alias: strata.restore_access
+
+  strata.archive_exporter:
+    class: Drupal\strata\Archive\ArchiveExporter
+    factory: ['@strata.engine', 'archiveExporter']
+
+  Drupal\strata\Archive\ArchiveExporter:
+    alias: strata.archive_exporter
+
+  strata.archive_importer:
+    class: Drupal\strata\Archive\ArchiveImporter
+    factory: ['@strata.engine', 'archiveImporter']
+
+  Drupal\strata\Archive\ArchiveImporter:
+    alias: strata.archive_importer
+
+  strata.timeline:
+    class: Drupal\strata\Timeline\TimelineQuery
+    factory: ['@strata.engine', 'timeline']
+
+  Drupal\strata\Timeline\TimelineQuery:
+    alias: strata.timeline
+
+  strata.series:
+    class: Drupal\strata\Metrics\SeriesBuilder
+    factory: ['@strata.engine', 'series']
+
+  Drupal\strata\Metrics\SeriesBuilder:
+    alias: strata.series
+
+  strata.diff:
+    class: Drupal\strata\Diff\DiffBuilder
+    factory: ['@strata.engine', 'diffBuilder']
+
+  Drupal\strata\Diff\DiffBuilder:
+    alias: strata.diff
+
+  strata.explorer:
+    class: Drupal\strata\Explore\StorageExplorer
+    factory: ['@strata.engine', 'storageExplorer']
+
+  Drupal\strata\Explore\StorageExplorer:
+    alias: strata.explorer
+
+  strata.drill_index:
+    class: Drupal\strata\Drill\DrillIndex
+    factory: ['@strata.engine', 'drillIndex']
+
+  Drupal\strata\Drill\DrillIndex:
+    alias: strata.drill_index
+
+  strata.drill:
+    class: Drupal\strata\Drill\DrillRunner
+    factory: ['@strata.engine', 'drillRunner']
+
+  Drupal\strata\Drill\DrillRunner:
+    alias: strata.drill
+
+  strata.anomaly:
+    class: Drupal\strata\Anomaly\AnomalyDetector
+    factory: ['@strata.engine', 'anomalyDetector']
+
+  Drupal\strata\Anomaly\AnomalyDetector:
+    alias: strata.anomaly
+
+  strata.telemetry:
+    class: Drupal\strata\Telemetry\TelemetryPass
+    factory: ['@strata.engine', 'telemetryPass']
+
+  Drupal\strata\Telemetry\TelemetryPass:
+    alias: strata.telemetry
+
+  strata.tracer:
+    class: Drupal\strata\Telemetry\Tracer
+    factory: ['@strata.engine', 'tracer']
+
+  Drupal\strata\Telemetry\Tracer:
+    alias: strata.tracer
+
+  Drupal\strata\Hook\CronCapture:
+    class: Drupal\strata\Hook\CronCapture
+    arguments:
+      - '@strata.flusher'
+      - '@strata.capture_scope'
+      - '@strata.lease'
+      - '@logger.channel.strata'
+      - '@strata.reconciler'
+      - '@strata.code_capture'
+      - '@strata.keyspace_discovery'
+      - '@strata.dictionary_pass'
+      - '@state'
+      - 604800
+      - '@strata.anomaly'
+      - '@strata.drill'
+      - '@strata.telemetry'
+      - '@config.factory'
