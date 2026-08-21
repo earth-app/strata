@@ -131,13 +131,25 @@ final class Finding implements JsonSerializable
 	 */
 	public function severityName(): string
 	{
-		return match ($this->severity) {
+		return self::severities()[$this->severity] ?? 'UNKNOWN';
+	}
+
+	/**
+	 * Every severity name, keyed by the ordinal the ledger stores.
+	 *
+	 * Read by a report that has an ordinal out of the database and no finding object to ask.
+	 *
+	 * @return array<int, string>
+	 *   Ordinal keyed to name, lowest first.
+	 */
+	public static function severities(): array
+	{
+		return [
 			self::INFO => 'INFO',
 			self::WARN => 'WARN',
 			self::ERROR => 'ERROR',
 			self::CRITICAL => 'CRITICAL',
-			default => 'UNKNOWN',
-		};
+		];
 	}
 
 	/**

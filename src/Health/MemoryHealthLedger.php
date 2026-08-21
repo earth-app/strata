@@ -135,6 +135,34 @@ final class MemoryHealthLedger implements HealthLedgerInterface
 	/**
 	 * {@inheritdoc}
 	 */
+	public function summary(): array
+	{
+		$byCode = [];
+
+		foreach ($this->open() as $finding) {
+			$row = $byCode[$finding->code] ?? [
+				'code' => $finding->code,
+				'severity' => $finding->severity,
+				'rung' => $this->rungFor($finding->code),
+				'scopes' => 0,
+				'newest' => 0,
+			];
+
+			$row['severity'] = max($row['severity'], $finding->severity);
+			$row['scopes']++;
+			$byCode[$finding->code] = $row;
+		}
+
+		$summary = array_values($byCode);
+
+		usort($summary, static fn(array $a, array $b): int => $b['severity'] <=> $a['severity']);
+
+		return $summary;
+	}
+
+	/**
+	 * {@inheritdoc}
+	 */
 	public function resolve(string $code, string $scope): int
 	{
 		$rows = $this->entries[$code] ?? null;

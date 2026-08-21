@@ -84,6 +84,18 @@ interface HealthLedgerInterface
 	public function setRung(string $code, string $rung): void;
 
 	/**
+	 * Open findings collapsed to one row per code.
+	 *
+	 * What a dashboard and a metrics export both read: a code with four hundred scopes is one line an
+	 * operator acts on rather than four hundred, and the scopes are only useful once they have decided
+	 * to look at that code.
+	 *
+	 * @return list<array{code: string, severity: int, rung: string, scopes: int, newest: int}>
+	 *   One entry per open code, worst severity first.
+	 */
+	public function summary(): array;
+
+	/**
 	 * Drops findings recorded before a point in time.
 	 *
 	 * @param int $olderThan
