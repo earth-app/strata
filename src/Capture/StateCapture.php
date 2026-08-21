@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\strata\Capture;
 
+use Drupal\Core\Cache\CacheCollectorInterface;
 use Drupal\Core\DestructableInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\strata\Journal\Realm;
@@ -24,10 +25,16 @@ use stdClass;
  * The whole value is stored rather than a delta. State values are small and structurally arbitrary,
  * so a field-level diff would cost more to compute and store than the value itself.
  *
+ * **Both contracts have to be satisfied, not just `StateInterface`.** Core's `State` extends
+ * `CacheCollector`, and core calls the collector's own methods on the service by name: the test
+ * runner's `RefreshVariablesTrait` calls `reset()` on `state` with no `is_callable` guard at all. A
+ * decorator declaring only `StateInterface` therefore compiles, installs, serves pages, and then
+ * fails the moment anything reaches for the half of the surface the interface does not describe.
+ *
  * @see KeyRecorder
  * @see KeyValueCapture
  */
-final class StateCapture implements StateInterface, DestructableInterface
+final class StateCapture implements StateInterface, CacheCollectorInterface, DestructableInterface
 {
 	/**
 	 * Constructs the decorator.
@@ -74,6 +81,49 @@ final class StateCapture implements StateInterface, DestructableInterface
 	public function getValuesSetDuringRequest(string $key): ?array
 	{
 		return $this->inner->getValuesSetDuringRequest($key);
+	}
+
+	/**
+	 * {@inheritdoc}
+	 *
+	 * Part of the collector contract rather than the state one, and answered from the inner service
+	 * so a key written this request counts as present.
+	 */
+	public function has($key)
+	{
+		return $this->inner instanceof CacheCollectorInterface
+			? $this->inner->has($key)
+			: $this->exists((string) $key);
+	}
+
+	#endregion
+
+	#region Collector
+
+	/**
+	 * {@inheritdoc}
+	 *
+	 * Nothing is journaled: discarding a local cache changes no stored value. An inner service that
+	 * is not a collector has no cache to discard, which is why this is a no-op rather than a throw.
+	 */
+	public function reset()
+	{
+		if ($this->inner instanceof CacheCollectorInterface) {
+			$this->inner->reset();
+		}
+	}
+
+	/**
+	 * {@inheritdoc}
+	 *
+	 * Also not journaled. `clear()` empties the collector's cache bin rather than the state values
+	 * themselves, so nothing a restore would put back has changed.
+	 */
+	public function clear()
+	{
+		if ($this->inner instanceof CacheCollectorInterface) {
+			$this->inner->clear();
+		}
 	}
 
 	#endregion
