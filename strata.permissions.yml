@@ -53,6 +53,15 @@
   description: 'Restore every realm at once, in maintenance mode.'
   restrict access: true
 
+'branch strata config':
+  title: 'Branch Strata Configuration'
+  description: 'Fork a named branch off a commit and let configuration diverge on it. Writes nothing to the live site.'
+
+'merge strata config':
+  title: 'Merge Strata Configuration'
+  description: 'Merge a configuration branch back into the trunk, which writes those objects to the live site.'
+  restrict access: true
+
 'repair strata':
   title: 'Repair Strata'
   description: 'Run the automatic repair rungs against an open finding.'

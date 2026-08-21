@@ -136,6 +136,13 @@ function strata_schema(): array
 				'not null' => false,
 				'description' => 'Parent commit, or NULL for the root of history.',
 			],
+			'merge_parent' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => false,
+				'description' =>
+					'Second parent a merge brought in, or NULL for every other commit.',
+			],
 			'index_ref' => [
 				'type' => 'varchar',
 				'length' => 64,
@@ -224,8 +231,51 @@ function strata_schema(): array
 		'indexes' => [
 			'microtime' => ['microtime'],
 			'parent' => ['parent'],
+			'merge_parent' => ['merge_parent'],
 			'level_microtime' => ['level', 'microtime'],
 			'base' => ['is_base', 'microtime'],
+		],
+	];
+
+	$schema['strata_branch'] = [
+		'description' => 'Index over the config branches the object store holds.',
+		'fields' => [
+			'name' => [
+				'type' => 'varchar',
+				'length' => 128,
+				'not null' => true,
+				'description' => 'Branch name, which is the ref segment under refs/heads/.',
+			],
+			'forked_from' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Commit the branch was cut from.',
+			],
+			'tip' => [
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => true,
+				'description' => 'Commit the branch currently points at.',
+			],
+			'actor' => [
+				'type' => 'int',
+				'unsigned' => true,
+				'not null' => false,
+				'description' => 'Drupal user id that created it, or NULL.',
+			],
+			'created' => [
+				'type' => 'int',
+				'size' => 'big',
+				'not null' => true,
+				'default' => 0,
+				'description' => 'Unix microseconds the branch was created at.',
+			],
+		],
+		'primary key' => ['name'],
+		'indexes' => [
+			'created' => ['created'],
+			'forked_from' => ['forked_from'],
 		],
 	];
 
@@ -907,6 +957,35 @@ function strata_update_11101(): string
 
 	return (string) new TranslatableMarkup(
 		'Added the tier placement index. Tiered storage is off; configure it at admin/config/system/strata/tiers.',
+	);
+}
+
+/**
+ * Adds the branch index and the merge parent column.
+ *
+ * Both are derived state, so both are created empty and `drush strata:reindex` fills them from the
+ * bucket. Nothing existing changes address: a commit serializes its merge parent only when it has
+ * one, so every commit written before this update hashes to exactly what it always did.
+ */
+function strata_update_11102(): string
+{
+	$schema = Drupal::database()->schema();
+	$tables = strata_schema();
+
+	if (!$schema->tableExists('strata_branch')) {
+		$schema->createTable('strata_branch', $tables['strata_branch']);
+	}
+	if (!$schema->fieldExists('strata_commit', 'merge_parent')) {
+		$schema->addField(
+			'strata_commit',
+			'merge_parent',
+			$tables['strata_commit']['fields']['merge_parent'],
+			['indexes' => ['merge_parent' => ['merge_parent']]],
+		);
+	}
+
+	return (string) new TranslatableMarkup(
+		'Added the branch index. Run drush strata:reindex to fill it from the bucket.',
 	);
 }
 

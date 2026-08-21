@@ -34,6 +34,11 @@ use Drupal\strata\Timeline\TimelineQuery;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use InvalidArgumentException;
+use Drupal\strata\Branch\BranchIndex;
+use Drupal\strata\Branch\BranchStore;
+use Drupal\strata\Branch\MergeBase;
+use Drupal\strata\Branch\Merger;
+use Drupal\strata\Branch\ThreeWayMerge;
 use Drupal\strata\Capture\CaptureScope;
 use Drupal\strata\Capture\Classifier\ClassificationRegistry;
 use Drupal\strata\Capture\Classifier\DatabaseKeyspaceSource;
@@ -1024,6 +1029,68 @@ final class Engine
 	}
 
 	/**
+	 * The branch store over the configured provider.
+	 *
+	 * @return BranchStore
+	 *   The store.
+	 */
+	public function branchStore(): BranchStore
+	{
+		return new BranchStore($this->provider(), $this->refStore());
+	}
+
+	/**
+	 * The local index of what branches this site holds.
+	 *
+	 * @return BranchIndex
+	 *   The index.
+	 */
+	public function branchIndex(): BranchIndex
+	{
+		return new BranchIndex($this->database);
+	}
+
+	/**
+	 * A merge base finder over the local commit index.
+	 *
+	 * @return MergeBase
+	 *   The finder.
+	 */
+	public function mergeBase(): MergeBase
+	{
+		return new MergeBase(
+			$this->commitIndex->parentsOf(...),
+			(int) ($this->settings()->get('merge.base_ceiling') ?? MergeBase::DEFAULT_CEILING),
+		);
+	}
+
+	/**
+	 * A merger over the configured store.
+	 *
+	 * @return Merger
+	 *   The merger, which branches, lists and merges the configuration realm.
+	 */
+	public function merger(): Merger
+	{
+		return new Merger(
+			$this->branchStore(),
+			$this->refStore(),
+			$this->commitLog(),
+			$this->commitIndex,
+			$this->mergeBase(),
+			new ThreeWayMerge(),
+			$this->replayer(),
+			$this->segmentReader(),
+			$this->logicalRestore(),
+			$this->flusher(),
+			$this->branchIndex(),
+			$this->currentUser,
+			$this->logger,
+			(int) ($this->settings()->get('merge.walk_limit') ?? Merger::MAX_WALK),
+		);
+	}
+
+	/**
 	 * A verifier over the configured store.
 	 *
 	 * @return Verifier
@@ -1657,6 +1724,8 @@ final class Engine
 			$this->segmentReader(),
 			$this->logger,
 			$this->tierPlacementRebuilder(),
+			$this->branchStore(),
+			$this->branchIndex(),
 		);
 	}
 
