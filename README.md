@@ -1,16 +1,24 @@
-# Strata
+# ⛰️ Strata
 
-> Advanced backup and instant rollback for Drupal 11 over S3-compatible storage.
+> Advanced Backup & Instant Rollback for Drupal 11.2+, over any object store.
 
-Strata records every mutation a Drupal site makes into a content-addressed, deduplicated,
-compressed, encrypted object store, and can put the site back to any instant. It keeps a commit log
-rather than periodic snapshots, so storage cost is linear in **churn** rather than in
-`snapshots x site size`.
+[![Packagist](https://img.shields.io/packagist/v/earth-app/strata)](https://packagist.org/packages/earth-app/strata)
+[![Build](https://github.com/earth-app/strata/actions/workflows/build.yml/badge.svg)](https://github.com/earth-app/strata/actions/workflows/build.yml)
+[![Coverage](https://github.com/earth-app/strata/actions/workflows/coverage.yml/badge.svg)](https://github.com/earth-app/strata/actions/workflows/coverage.yml)
+[![Prettier](https://github.com/earth-app/strata/actions/workflows/prettier.yml/badge.svg)](https://github.com/earth-app/strata/actions/workflows/prettier.yml)
+[![codecov](https://codecov.io/gh/earth-app/strata/branch/master/graph/badge.svg)](https://codecov.io/gh/earth-app/strata)
+[![Drupal](https://img.shields.io/badge/drupal-%3E%3D11.2-0678be.svg)](https://www.drupal.org)
+[![PHP](https://img.shields.io/badge/php-%3E%3D8.3-777bb4.svg)](composer.json)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A conventional backup module produces whole-site dumps on a cron interval: hour-or-day granularity,
-no deduplication, no semantic diff, no surgical undo. Strata captures entities, configuration, state,
-key-value entries, custom tables, schema changes, files and module code as individual operations, and
-a rollback can target one field on one node.
+**Strata** is a backup and rollback module for Drupal that records every mutation your site makes into
+a content-addressed, deduplicated, compressed, encrypted object store, and can put the site back to
+any instant. It is designed to be simple to run and hard to lose data with, while still giving you a
+rollback that can target one field on one node.
+
+It keeps a commit log instead of periodic snapshots, so storage cost is linear in **churn** and not in
+`snapshots x site size`. It is written in PHP and speaks to S3, Cloudflare R2, Azure Blob Storage,
+Google Cloud Storage and Backblaze B2.
 
 ```bash
 composer require earth-app/strata
@@ -18,26 +26,43 @@ drush en strata strata_s3 strata_ui -y
 drush strata:calibrate
 ```
 
-## 📖 Contents
+## ❓ Why?
 
-- [How It Works](#-how-it-works)
-- [Requirements](#-requirements)
-- [Installation](#-installation)
-- [Submodules](#-submodules)
-- [Configuration](#-configuration)
-- [Commands](#-commands)
-- [Reports](#-reports)
-- [Measurements](#-measurements)
-- [Cost](#-cost)
-- [Tiered Buckets](#-tiered-buckets)
-- [Self-Healing](#-self-healing)
-- [Permissions](#-permissions)
-- [Events and Webhooks](#-events-and-webhooks)
-- [Out of Scope](#-out-of-scope)
-- [FAQ](#-faq)
-- [Development](#-development)
-- [License](#-license)
-- [Credits](#-credits)
+- **Granular**: A rollback can target one field on one node. You are not restoring the whole site to
+  undo one edit.
+- **Cheap**: Cost follows how much the site changes, so a full year of database, configuration,
+  content and code history fits inside R2's free tier.
+- **Verifiable**: Scheduled drills replay the store and diff it against the live site, so you find
+  out the backups work before you need them.
+- **Self-healing**: Twenty tripwires watch the store, and a repair ladder fixes what it safely can
+  without waking anyone up.
+- **Measured**: Every figure below was taken through the code that ships, and `drush strata:calibrate`
+  takes them again on your own host.
+
+## 🧰 Features
+
+- **Capture**
+    - Entities, configuration, state and key-value entries
+    - Custom tables and schema changes
+    - Managed and unmanaged files, as 64 KiB blocks
+    - Module and theme code, with `composer.lock` standing in for `vendor/`
+    - Authoritative Redis keys
+- **Storage**
+    - AWS S3, Cloudflare R2 & any S3-compatible endpoint
+    - Azure Blob Storage, Google Cloud Storage & Backblaze B2
+    - Tiered buckets, so old history moves to colder storage on its own
+    - ...and much more!
+- **Rollback**
+    - Logical restore, down to a single field
+    - Physical restore of whole tables
+    - Configuration branches & three-way merges
+    - A forced snapshot before anything is written
+- **Operations**
+    - 27 Drush commands
+    - Timeline, diff viewer, graphs, storage explorer & a health dashboard
+    - Mail, webhook & OpenTelemetry outputs
+    - Budget guards with a cost estimator
+    - ...and much more!
 
 ## 🏗️ How It Works
 
@@ -107,7 +132,7 @@ drush strata:calibrate
 ```
 
 `strata:calibrate` measures compression ratios, dictionary gain, delta-coding gain and capture
-overhead on the host that will run them, rather than relying on the figures in this document.
+overhead on the host that will run them. Use its numbers, not the ones below.
 
 ## 🧩 Submodules
 
@@ -115,6 +140,9 @@ overhead on the host that will run them, rather than relying on the figures in t
 | --------------- | --------------------------------------------------------------------------- |
 | `strata`        | Capture, journal, object store, restore, compaction, health, Drush commands |
 | `strata_s3`     | AWS S3, any S3-compatible endpoint, and Cloudflare R2                       |
+| `strata_azure`  | Azure Blob Storage over the Blob REST API                                   |
+| `strata_gcs`    | Google Cloud Storage over the JSON API                                      |
+| `strata_b2`     | Backblaze B2 over the native API, which takes a bucket-scoped key           |
 | `strata_ui`     | Timeline, diff viewer, graphs, storage explorer, health dashboard           |
 | `strata_files`  | Managed and unmanaged file capture as 64 KiB blocks                         |
 | `strata_notify` | Mail and webhook notifications                                              |
@@ -149,26 +177,30 @@ moment walks up to 960 segments.
 ## 🧰 Commands
 
 ```bash
-drush strata:status           # provider, key, budget headroom, open findings
-drush strata:flush            # seal the current window now
-drush strata:list --limit=20  # recent commits
-drush strata:diff HEAD~1 HEAD # what changed, field by field
-drush strata:rollback HEAD~1 --scope=entity:node:1 --dry-run
-drush strata:verify --deep   # read every frame back and check its digest
-drush strata:audit           # what the reconciler found that capture missed
-drush strata:drill           # prove the store reproduces the site
-drush strata:compact         # recompress, re-anchor, roll up
-drush strata:prune --dry-run # what pruning would destroy
-drush strata:estimate --users=50000 --provider=r2
-drush strata:export --to=/tmp/site.tar.gz
+drush strata:status                                  # provider, key, budget headroom, open findings
+drush strata:flush                                   # seal the current window now
+drush strata:list --limit=20                         # recent commits
+drush strata:diff HEAD~1 HEAD                        # what changed, field by field
+drush strata:restore HEAD~1 entity/node:42 --dry-run # one subject, manifest only
+drush strata:rollback HEAD~1 --dry-run               # everything at that commit
+drush strata:verify                                  # read every frame back and check its digest
+drush strata:audit                                   # what the reconciler found that capture missed
+drush strata:compact                                 # recompress, re-anchor, roll up
+drush strata:prune --dry-run                         # what pruning would destroy
+drush strata:estimate --users=50000 --nodes=200000
+drush strata:export /tmp/site.tar.gz
+drush strata:branch release-12   # cut a config branch
+drush strata:merge release-12    # three-way merge it back
 drush strata:reindex             # rebuild the local index from the bucket
 drush strata:reindex --adopt-ref # recover a history whose ref was deleted
 drush strata:rotate-key          # re-seal what still opens under a retired key
 drush strata:tiers               # which bucket holds what, and what a restore needs
 ```
 
-Twenty-five commands in total; `drush list --filter=strata` shows them all. Every destructive
-command supports `--dry-run` and prints its manifest before asking.
+Twenty-seven commands in total, and `drush list --filter=strata` shows them all. `strata:restore`,
+`strata:rollback`, `strata:prune`, `strata:import`, `strata:merge` and `strata:rotate-key` all take
+`--dry-run` and print their manifest before asking. `strata:verify` reads every frame back by default,
+and `--shallow` checks the index without the bytes.
 
 ## 📊 Reports
 
@@ -178,7 +210,7 @@ command supports `--dry-run` and prints its manifest before asking.
 links to the commits inside it. The window is in the URL, so a view can be bookmarked or shared.
 
 **Diff viewer.** Field-level differences between any two commits, over Drupal's own diff engine.
-Field names are visible to anyone who may see diffs; the values need the payload permission, because
+Field names are visible to anyone who may see diffs. The values need the payload permission, because
 they are the content of the site.
 
 **Graphs.** Stored size, operation rate, deduplication ratio, compression ratio, delta chain depth
@@ -191,8 +223,8 @@ dictionary by frames elsewhere, so a removal is priced by what would become unre
 **Health dashboard.** Open findings by severity, the repair rung each sits on, and what the last
 restore drill proved.
 
-The pages need no JavaScript. Wheel-zoom and drag-pan are added when scripting is available; every
-navigation is also a link. Charts follow the reader's colour scheme, honour
+The pages need no JavaScript. Wheel-zoom and drag-pan are added when scripting is available, and
+every navigation is also a link. Charts follow the reader's colour scheme, honour
 `prefers-reduced-motion` and `prefers-contrast`, and encode state in shape as well as colour.
 
 ## 🔬 Measurements
@@ -397,24 +429,6 @@ Spans and metrics can be exported to any OpenTelemetry collector. The metric wor
 `strata.rpo_lag_seconds`, the age of the newest sealed commit, which is how much captured work would
 be lost if the host died now.
 
-## 🚧 Out of Scope
-
-- **Cloudflare Workers as a runtime.** Strata targets a VPS or comparable host. R2 is supported as
-  storage.
-- **Content-defined chunking on a default path.** Measured at 4.29 MB/s in pure PHP.
-- **The AWS SDK.** `aws-sdk-php` is 22 MiB and its mandatory checksum headers broke R2, MinIO, B2 and
-  Dell ECS in 2025. Strata signs its own requests with a SigV4 signer validated against AWS's
-  published test vectors, and sends checksum headers per probed endpoint capability.
-- **Restoring the `ephemeral` realm.** Cache and queue state is captured and flagged, never written
-  back; it is rebuilt by the data around it.
-- **Restoring `access`, `login` or `init` on a user.** Rolling an active account back to an old
-  access timestamp would make it look dormant.
-- **Replaying DDL against a live schema.** A logical restore refuses the schema realm and names
-  physical restore.
-- **Automatic rollback on a site-down signal.** Deciding whether a rollback is the right response is
-  the hard part: a fatal from a bad deploy is rollback-shaped, a failing upstream API is not, and
-  rolling the database back to fix a code bug destroys real user data.
-
 ## ❓ FAQ
 
 ### At a 15-second interval, does a quiet site keep writing duplicates?
@@ -496,17 +510,18 @@ change when a domain does.
 
 ### How do I know the backups actually restore?
 
-**Quick answer.** Turn on restore drills. Until one has run, that the backups restore is a claim
-rather than a measurement.
+**Quick answer.** Set `drill.enabled` and let cron prove it. Nothing else actually answers the
+question.
 
-**Technical answer.** `drush strata:drill` and the scheduled drill replay a bounded sample of subjects
-from the store and compare each against what the site holds now. A subject that reproduces exactly
-counts as matched; one the store cannot produce a value for counts as unreadable and fails the drill.
-A subject edited after the commit being replayed is **skipped**, not failed, because a difference
-there is the site being newer rather than the store being wrong. Every drill is recorded in
-`strata_drill` and a failing one raises a `drill.drift` finding. Separately, `drush strata:verify
---deep` reads every frame back and checks that its bytes hash to the address it is filed under, which
-is what catches silent corruption; nothing else notices that on its own.
+**Technical answer.** The drill stage replays a bounded sample of subjects from the store on its own
+interval and compares each against what the site holds now. A subject that reproduces exactly counts
+as matched. One the store cannot produce a value for counts as unreadable and fails the drill. A
+subject edited after the commit being replayed is **skipped**, not failed, because a difference there
+means the site is newer, not that the store is wrong. A drill that could judge nothing reports
+`inconclusive`, never `pass`. Every drill is recorded in `strata_drill` and a failing one raises a
+`drill.drift` finding. Separately, `drush strata:verify` reads every frame back and checks that its
+bytes hash to the address it is filed under. That is the only thing that catches silent corruption,
+and `--shallow` is what turns it off.
 
 ### Why fixed-size framing instead of content-defined chunking?
 
@@ -549,11 +564,17 @@ the two run side by side.
 local MinIO container, and takes `--db=mariadb|postgres|sqlite` because the physical-restore
 strategies are driver-specific.
 
+The DDEV web image ships neither `ext-zstd` nor `ext-brotli`, so the build in
+[docker/web-build/](docker/web-build/) adds both extensions and both CLI binaries to the container.
+Without them the playground compresses with gzip and none of the measurements below can be
+reproduced by hand. `--no-codecs` skips that build.
+
 That site can then be driven, measured and broken by hand:
 
 ```bash
 ./startup.sh traffic --scale=medium # traffic that looks like a site somebody uses
 ./startup.sh measure                # what it holds, what it cost, what a month costs
+./startup.sh codecs                 # every codec measured on the payloads it captured
 ./startup.sh rollback --to=HEAD~1   # the manifest a rollback would write
 ./startup.sh meltdown --kind=everything --share=40
 ./startup.sh heal --apply            # rebuild what can be rebuilt, name what cannot
@@ -563,20 +584,8 @@ That site can then be driven, measured and broken by hand:
 
 Code style is tabs at four columns, 100 columns, LF. Prettier is the authority on formatting.
 
-## 📄 License
+## 📝 Contributing
 
-MIT. See [LICENSE](LICENSE).
+Contributions are welcome! Feel free to open an issue or submit a pull request.
 
-## 🤝 Credits
-
-- **Compression**: [zstd](https://facebook.github.io/zstd/) and [Brotli](https://github.com/google/brotli)
-- **Hashing and sealing**: [libsodium](https://doc.libsodium.org/) BLAKE2b and XChaCha20-Poly1305
-- **Storage**: [Cloudflare R2](https://developers.cloudflare.com/r2/),
-  [AWS S3](https://aws.amazon.com/s3/), and any S3-compatible endpoint
-- **Key management**: [`drupal/key`](https://www.drupal.org/project/key)
-- **Developed by**: [Gregory Mitchell](https://github.com/gmitch215)
-
----
-
-**For questions or support**, open an issue on
-[GitHub](https://github.com/earth-app/strata) or contact the development team.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
