@@ -15,8 +15,11 @@ use Drupal\strata\Health\Tripwire\FrameHashMismatch;
 use Drupal\strata\Health\Tripwire\FrameMissing;
 use Drupal\strata\Health\Tripwire\FrameUnindexed;
 use Drupal\strata\Health\Tripwire\FrameUnreadable;
+use Drupal\strata\Health\Tripwire\KeyRotatedMidFlight;
 use Drupal\strata\Health\Tripwire\PackShortRead;
+use Drupal\strata\Health\Tripwire\RefMissing;
 use Drupal\strata\Health\Tripwire\SegmentTruncated;
+use Drupal\strata\Health\Tripwire\TierUnreachable;
 use Drupal\strata\Health\Tripwire\AnchorMissing;
 use Drupal\strata\Health\Tripwire\UnclassifiedGrowth;
 use Drupal\strata\Health\Tripwire\VendorDrift;
@@ -80,7 +83,10 @@ final class TripwireRegistry
 			->register(new SegmentTruncated())
 			->register(new CommitParentMissing())
 			->register(new AnchorMissing())
-			->register(new BaseUnreachable());
+			->register(new BaseUnreachable())
+			->register(new RefMissing())
+			->register(new TierUnreachable())
+			->register(new KeyRotatedMidFlight());
 	}
 
 	/**
