@@ -58,6 +58,7 @@ final class CommitIndex
 			->key('id', $id)
 			->fields([
 				'parent' => $commit->parent,
+				'merge_parent' => $commit->merge,
 				'index_ref' => $commit->index,
 				'chain' => $commit->chain,
 				'anchored_at' => $commit->anchoredAt,
@@ -115,6 +116,41 @@ final class CommitIndex
 			?->fetchAssoc();
 
 		return $row === false || $row === null ? null : $row;
+	}
+
+	/**
+	 * What one commit builds on.
+	 *
+	 * Two columns rather than the whole row, because a merge base walks thousands of commits and needs
+	 * nothing else from any of them.
+	 *
+	 * @param string $id
+	 *   The commit id.
+	 *
+	 * @return list<string>|null
+	 *   Parent addresses, the first parent first, or NULL when the commit is not indexed. An indexed
+	 *   root returns an empty list, which is what tells "no parents" apart from "not here".
+	 */
+	public function parentsOf(string $id): ?array
+	{
+		$row = $this->database
+			->select(self::TABLE, 'c')
+			->fields('c', ['parent', 'merge_parent'])
+			->condition('id', $id)
+			->range(0, 1)
+			->execute()
+			?->fetchAssoc();
+
+		if ($row === false || $row === null) {
+			return null;
+		}
+
+		return array_values(
+			array_filter([
+				$row['parent'] === null ? null : (string) $row['parent'],
+				$row['merge_parent'] === null ? null : (string) $row['merge_parent'],
+			]),
+		);
 	}
 
 	/**

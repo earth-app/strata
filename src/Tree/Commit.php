@@ -14,9 +14,15 @@ use JsonSerializable;
  * Shaped like a git commit: a parent, a tree, a time, an actor and a message. A restore target is
  * always a commit, and every commit is reachable from a ref by walking parents.
  *
- * The root commit has no parent. Every other commit has exactly one, so history is a chain rather
- * than a graph; nothing in Strata merges two lines of history, and a restore rewrites the ref
- * rather than creating a branch.
+ * The root commit has no parent and almost every other commit has exactly one, so history is a
+ * chain. The single exception is a merge commit, which also names the branch tip it brought in
+ * through Commit::$merge, and that is the only way a second line of history becomes reachable from
+ * a ref.
+ *
+ * **`merge` is serialized only when it is set.** A commit is addressed by the bytes of its own JSON,
+ * so writing the key as NULL on every commit would change the address of every commit ever written
+ * and orphan the whole store. A single-parent commit therefore serializes exactly as it did before
+ * merging existed, which CommitTest proves byte for byte.
  *
  * **A commit does not carry an index of the site.** It names the anchor its history resolves against,
  * and only the commit that wrote that anchor is marked as one. Writing a per-commit index was
@@ -64,9 +70,13 @@ final class Commit implements JsonSerializable
 	 *   the next anchor is due without reading it.
 	 * @param array<string, mixed> $metadata
 	 *   Anything a capture wants to carry, such as the segment key it came from.
+	 * @param string|null $merge
+	 *   Address of the second parent, which is the branch tip a merge brought in, or NULL for every
+	 *   other commit. Declared last so every existing positional caller is untouched.
 	 *
 	 * @throws InvalidArgumentException
-	 *   When an address is not a valid digest, or a count is negative.
+	 *   When an address is not a valid digest, a count is negative, or a merge parent is named by a
+	 *   commit that has no first parent.
 	 */
 	public function __construct(
 		public readonly string $index,
@@ -82,6 +92,7 @@ final class Commit implements JsonSerializable
 		public readonly int $chain = 0,
 		public readonly int $anchoredAt = 0,
 		public readonly array $metadata = [],
+		public readonly ?string $merge = null,
 	) {
 		if (!Hash::isValid($index)) {
 			throw new InvalidArgumentException(
@@ -90,6 +101,14 @@ final class Commit implements JsonSerializable
 		}
 		if ($parent !== null && !Hash::isValid($parent)) {
 			throw new InvalidArgumentException('A commit parent must be a valid digest');
+		}
+		if ($merge !== null && !Hash::isValid($merge)) {
+			throw new InvalidArgumentException('A commit merge parent must be a valid digest');
+		}
+		if ($merge !== null && $parent === null) {
+			throw new InvalidArgumentException(
+				'A merge commit joins two lines of history, so it cannot be the root of one',
+			);
 		}
 		if ($microtime < 0) {
 			throw new InvalidArgumentException('A commit time cannot be negative');
@@ -124,6 +143,32 @@ final class Commit implements JsonSerializable
 	public function isRoot(): bool
 	{
 		return $this->parent === null;
+	}
+
+	/**
+	 * Whether this commit joined a second line of history.
+	 *
+	 * @return bool
+	 *   TRUE when it names a merge parent.
+	 */
+	public function isMerge(): bool
+	{
+		return $this->merge !== null;
+	}
+
+	/**
+	 * Every commit this one builds on.
+	 *
+	 * A walk that follows only Commit::$parent stays on the line the ref describes, which is what a
+	 * replay wants; a walk that has to decide whether one commit is an ancestor of another needs both,
+	 * which is what a merge base wants.
+	 *
+	 * @return list<string>
+	 *   Parent addresses, the first parent first, empty for the root of history.
+	 */
+	public function parents(): array
+	{
+		return array_values(array_filter([$this->parent, $this->merge]));
 	}
 
 	/**
@@ -185,6 +230,7 @@ final class Commit implements JsonSerializable
 			max(1, $this->chain),
 			$this->anchoredAt === 0 ? $this->microtime : $this->anchoredAt,
 			$this->metadata,
+			$this->merge,
 		);
 	}
 
@@ -192,11 +238,12 @@ final class Commit implements JsonSerializable
 	 * {@inheritdoc}
 	 *
 	 * @return array<string, mixed>
-	 *   The commit as a plain array.
+	 *   The commit as a plain array. The merge parent appears only on a commit that has one, so a
+	 *   single-parent commit hashes to the address it always did.
 	 */
 	public function jsonSerialize(): array
 	{
-		return [
+		$data = [
 			'index' => $this->index,
 			'parent' => $this->parent,
 			'microtime' => $this->microtime,
@@ -211,6 +258,12 @@ final class Commit implements JsonSerializable
 			'anchoredAt' => $this->anchoredAt,
 			'metadata' => $this->metadata,
 		];
+
+		if ($this->merge !== null) {
+			$data['merge'] = $this->merge;
+		}
+
+		return $data;
 	}
 
 	/**
@@ -248,6 +301,7 @@ final class Commit implements JsonSerializable
 			(int) ($data['chain'] ?? 0),
 			(int) ($data['anchoredAt'] ?? 0),
 			$metadata,
+			isset($data['merge']) ? (string) $data['merge'] : null,
 		);
 	}
 }
