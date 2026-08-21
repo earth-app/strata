@@ -65,6 +65,10 @@ final class SegmentWriter
 	 *
 	 * @param SegmentManifest $manifest
 	 *   The manifest.
+	 * @param int|null $second
+	 *   The epoch second to file the segment under, or NULL to take it from the first operation. A
+	 *   rollup supplies the coarse window's start, because a segment covering an hour belongs to that
+	 *   hour rather than to the second its earliest operation happened to land in.
 	 *
 	 * @return string
 	 *   The object key the segment was written to.
@@ -72,7 +76,7 @@ final class SegmentWriter
 	 * @throws RuntimeException
 	 *   When the manifest is empty, or the write fails.
 	 */
-	public function write(SegmentManifest $manifest): string
+	public function write(SegmentManifest $manifest, ?int $second = null): string
 	{
 		if ($manifest->isEmpty()) {
 			throw new RuntimeException('An empty segment is not written');
@@ -81,7 +85,7 @@ final class SegmentWriter
 		$bytes = (string) json_encode($manifest);
 		$codec = $this->codecs->writer();
 		$digest = Hash::of($bytes);
-		$key = self::key($manifest, $digest);
+		$key = self::key($manifest, $digest, $second);
 
 		// the key is the associated data, so a segment relocated to another key fails to open
 		$sealed = $this->cipher->seal($codec->compress($bytes, $this->level), $key);
@@ -126,17 +130,22 @@ final class SegmentWriter
 	 *   The manifest.
 	 * @param string $digest
 	 *   Digest of the serialized manifest.
+	 * @param int|null $second
+	 *   The epoch second to file it under, or NULL to take it from the first operation.
 	 *
 	 * @return string
 	 *   The object key.
 	 */
-	public static function key(SegmentManifest $manifest, string $digest): string
-	{
+	public static function key(
+		SegmentManifest $manifest,
+		string $digest,
+		?int $second = null,
+	): string {
 		return sprintf(
 			'%s/%d/%d/%020d-%s.seg',
 			self::PREFIX,
 			$manifest->level,
-			intdiv($manifest->firstMicrotime, 1_000_000),
+			$second ?? intdiv($manifest->firstMicrotime, 1_000_000),
 			$manifest->firstSequence,
 			Hash::abbreviate($digest, 16),
 		);

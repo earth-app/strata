@@ -14,19 +14,29 @@ use Drupal\strata\Tree\Commit;
 use Drupal\strata\Tree\CommitIndex;
 use Drupal\strata\Tree\CommitLog;
 use Drupal\strata\Tree\RefStore;
-use Drupal\strata\Tree\TreeBuilder;
+use Drupal\strata\Tree\BasePolicy;
+use Drupal\strata\Tree\BaseReader;
+use Drupal\strata\Tree\BaseWriter;
+use Drupal\strata\Tree\SubjectIndex;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * Seals a window of captured operations into a segment, a tree and a commit.
+ * Seals a window of captured operations into a segment and a commit.
  *
  * The step that turns capture into a backup. Everything before it is local and cheap; this is where
  * bytes leave the site.
  *
+ * **Four objects, whatever the site's size.** A pack of frames, a segment manifest, a commit and the
+ * ref that names it. The index of every subject is not one of them: writing one per flush was
+ * measured at 3,989,289 bytes to record a 201-byte change across 50,000 subjects, because its cost
+ * scaled with how many subjects the site had rather than with how many changed. So the index belongs
+ * to a base anchor on its own interval, the commits in between inherit its address, and what changed
+ * in the meantime accumulates in a local table that costs no requests at all.
+ *
  * The order is fixed by what a crash between two steps would leave behind. Payloads are stored
  * first, because a frame nothing references is collectable garbage while a manifest naming a frame
- * that was never written is a corrupt segment. The segment is written before the tree, the tree
+ * that was never written is a corrupt segment. The segment is written before the anchor, the anchor
  * before the commit, and the commit before the ref moves, so at every point the objects already
  * written are either referenced or collectable, and never dangling.
  *
@@ -38,6 +48,7 @@ use Throwable;
  * @see FlushPolicy
  * @see SegmentBuilder
  * @see CommitLog
+ * @see BasePolicy
  */
 final class Flusher
 {
@@ -52,8 +63,15 @@ final class Flusher
 	 *   Stores payloads.
 	 * @param SegmentWriter $segments
 	 *   Writes the segment manifest.
-	 * @param TreeBuilder $trees
-	 *   Builds the tree describing the site.
+	 * @param BaseWriter $bases
+	 *   Writes the base anchor when one is due.
+	 * @param BaseReader $reader
+	 *   Resolves the anchor chain when a full anchor is due.
+	 * @param BasePolicy $basePolicy
+	 *   Decides when an anchor is due and when it has to list every subject.
+	 * @param SubjectIndex $subjects
+	 *   Records where every subject was last stored, which is both what the next anchor names and what
+	 *   the next rewrite of a subject is delta coded against.
 	 * @param CommitLog $commits
 	 *   Appends the commit and advances the ref.
 	 * @param Lease $lease
@@ -70,7 +88,10 @@ final class Flusher
 		private readonly FlushPolicy $policy,
 		private readonly ObjectStore $store,
 		private readonly SegmentWriter $segments,
-		private readonly TreeBuilder $trees,
+		private readonly BaseWriter $bases,
+		private readonly BaseReader $reader,
+		private readonly BasePolicy $basePolicy,
+		private readonly SubjectIndex $subjects,
 		private readonly CommitLog $commits,
 		private readonly Lease $lease,
 		private readonly LoggerInterface $logger,
@@ -184,7 +205,12 @@ final class Flusher
 			return FlushResult::skipped('nothing pending');
 		}
 
-		$builder = new SegmentBuilder($this->store);
+		// the index holds where each subject was last stored, which is what a delta codes against
+		$builder = new SegmentBuilder(
+			$this->store,
+			0,
+			fn(string $subject): array => $this->subjects->frames($subject),
+		);
 
 		foreach ($window as $entry) {
 			$builder->add($entry['operation'], $entry['payload']);
@@ -199,26 +225,22 @@ final class Flusher
 		$segmentKey = $this->segments->write($manifest);
 
 		$head = $this->commits->head($ref);
-		$subjects = [];
+		$touched = [];
 
 		foreach ($manifest->operations as $operation) {
 			$frames = $manifest->payloadFor($operation);
 			$path = $operation->realm->value . '/' . $operation->subject;
 
-			// an operation with no payload removes the subject from the tree
-			$subjects[$path] =
+			// an operation with no payload removes the subject from the index
+			$touched[$path] =
 				$frames === [] ? null : ['frames' => $frames, 'size' => $operation->payloadLength];
 		}
 
-		$tree =
-			$head === null
-				? $this->trees->build(
-					array_filter($subjects, static fn(?array $s): bool => $s !== null),
-				)
-				: $this->trees->rebuild($head->tree, $subjects);
+		$this->subjects->record($touched, $manifest->lastMicrotime);
+		$anchor = $this->anchor($head, $manifest->lastMicrotime);
 
 		$commit = new Commit(
-			$tree,
+			$anchor['index'],
 			$head?->id(),
 			$manifest->lastMicrotime,
 			$manifest->summary(),
@@ -227,8 +249,14 @@ final class Flusher
 			$manifest->rawBytes,
 			0,
 			0,
-			$head === null,
-			['segment' => $segmentKey, 'reason' => $reason],
+			$anchor['wrote'],
+			$anchor['chain'],
+			$anchor['at'],
+			array_filter([
+				'segment' => $segmentKey,
+				'reason' => $reason,
+				'anchor' => $anchor['why'],
+			]),
 		);
 
 		$commitId = $this->commits->append($commit, $ref);
@@ -253,6 +281,88 @@ final class Flusher
 		$this->logger->info('Strata %summary', ['%summary' => $result->summary()]);
 
 		return $result;
+	}
+
+	/**
+	 * Writes the base anchor if one is due, or names the one already in force.
+	 *
+	 * Which subjects the anchor names is decided by when they last changed rather than by emptying a
+	 * queue. The rows stay, because they are what the next rewrite of each subject is delta coded
+	 * against, and a failed anchor therefore costs nothing: the next attempt selects the same set.
+	 *
+	 * @param Commit|null $head
+	 *   The commit this one follows, or NULL for the root of history, which always writes one.
+	 * @param int $microtime
+	 *   Unix microseconds the window was sealed at.
+	 *
+	 * @return array{index: string, wrote: bool, chain: int, at: int, why: string}
+	 *   The anchor address to record, whether this flush wrote it, its chain length, the time it was
+	 *   written and why, which is an empty string when nothing was written.
+	 */
+	private function anchor(?Commit $head, int $microtime): array
+	{
+		$why = $this->basePolicy->reason($head?->anchoredAt ?: null, $microtime, $head->chain ?? 0);
+
+		if ($why === null && $head !== null) {
+			return [
+				'index' => $head->index,
+				'wrote' => false,
+				'chain' => $head->chain,
+				'at' => $head->anchoredAt,
+				'why' => '',
+			];
+		}
+
+		$changed = $this->subjects->changedSince($head === null ? 0 : $head->anchoredAt);
+		$full = $head === null || $this->basePolicy->needsFull($head->chain);
+
+		if ($full) {
+			$index = $this->resolveFull($head, $changed);
+			$address = $this->bases->full($index, $microtime);
+			$chain = 1;
+		} else {
+			$address = $this->bases->delta($changed, $head->index, $microtime);
+			$chain = $head->chain + 1;
+		}
+
+		return [
+			'index' => $address,
+			'wrote' => true,
+			'chain' => $chain,
+			'at' => $microtime,
+			'why' => (string) $why,
+		];
+	}
+
+	/**
+	 * The complete index a full anchor lists.
+	 *
+	 * The previous anchor resolved, with this window's changes applied over it. Reading the previous
+	 * chain is what a full anchor costs and why it is written rarely.
+	 *
+	 * @param Commit|null $head
+	 *   The commit this one follows, or NULL when there is no history to carry forward.
+	 * @param array<string, array{frames: list<string>, size: int}|null> $changed
+	 *   What has changed since the last anchor.
+	 *
+	 * @return array<string, array{frames: list<string>, size: int}>
+	 *   Every subject the site holds.
+	 */
+	private function resolveFull(?Commit $head, array $changed): array
+	{
+		$index = $head === null ? [] : $this->reader->resolve($head->index);
+
+		foreach ($changed as $subject => $entry) {
+			if ($entry === null) {
+				unset($index[(string) $subject]);
+
+				continue;
+			}
+
+			$index[(string) $subject] = $entry;
+		}
+
+		return $index;
 	}
 
 	/**

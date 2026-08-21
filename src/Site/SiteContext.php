@@ -27,7 +27,7 @@ use Drupal\strata\Cas\Hash;
  * to a new database keeps its history by setting the id explicitly, which is exactly the case where
  * deriving it again would silently start a second history.
  *
- * @see SiteRegistry
+ * @see SiteScopedProvider
  */
 final class SiteContext
 {
