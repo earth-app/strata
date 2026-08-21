@@ -1,0 +1,74 @@
+name: Coverage
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, kernel, functional]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sodium, zlib, zstd, json, pdo_sqlite, dom, gd
+          coverage: pcov
+          tools: composer:v2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-coverage-${{ hashFiles('composer.json') }}
+          restore-keys: composer-coverage-
+
+      - run: composer install --prefer-dist --no-progress --no-interaction
+
+      - if: matrix.suite == 'functional'
+        run: php tests/drupal-root.php
+
+      - name: Serve the synthesised root
+        if: matrix.suite == 'functional'
+        run: |
+          php -S localhost:8087 -t "$PWD/vendor/drupal" "$PWD/vendor/drupal/.ht.router.php" \
+            > /tmp/strata-server.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:8087/core/install.php; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/strata-server.log
+          exit 1
+
+      - run: bun run test:coverage:${{ matrix.suite }}
+        shell: bash
+        env:
+          SIMPLETEST_BASE_URL: http://localhost:8087
+          SIMPLETEST_DB: sqlite://localhost/sites/default/files/.ht.functional.sqlite
+
+      - uses: codecov/codecov-action@v5
+        with:
+          files: coverage/${{ matrix.suite }}.clover.xml
+          flags: ${{ matrix.suite }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - uses: codecov/test-results-action@v1
+        if: always()
+        with:
+          files: coverage/${{ matrix.suite }}.junit.xml
+          flags: ${{ matrix.suite }}
+          token: ${{ secrets.CODECOV_TOKEN }}
