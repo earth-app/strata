@@ -40,6 +40,8 @@ final class ReindexReport implements JsonSerializable
 	 * @param int $placements
 	 *   Object placements recorded, on a store spread across several buckets. Zero on a store with
 	 *   one destination, where every object is in the only place it could be.
+	 * @param int $branches
+	 *   Branch rows written from the refs and the metadata objects beside them.
 	 */
 	public function __construct(
 		public readonly int $commits = 0,
@@ -51,6 +53,7 @@ final class ReindexReport implements JsonSerializable
 		public readonly array $problems = [],
 		public readonly float $seconds = 0.0,
 		public readonly int $placements = 0,
+		public readonly int $branches = 0,
 	) {}
 
 	/**
@@ -81,6 +84,9 @@ final class ReindexReport implements JsonSerializable
 			$this->seconds,
 		);
 
+		if ($this->branches > 0) {
+			$summary .= sprintf(', and %d branches', $this->branches);
+		}
 		if ($this->placements > 0) {
 			$summary .= sprintf(', and placed %d objects across their tiers', $this->placements);
 		}
@@ -106,6 +112,7 @@ final class ReindexReport implements JsonSerializable
 			'segments' => $this->segments,
 			'skipped' => $this->skipped,
 			'placements' => $this->placements,
+			'branches' => $this->branches,
 			'problems' => $this->problems,
 			'seconds' => round($this->seconds, 4),
 			'clean' => $this->isClean(),

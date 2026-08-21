@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\strata\Verify;
 
+use Drupal\strata\Branch\BranchIndex;
+use Drupal\strata\Branch\BranchStore;
 use Drupal\strata\Cas\FrameEnvelope;
 use Drupal\strata\Cas\FrameIndexInterface;
 use Drupal\strata\Cas\FrameRecord;
@@ -68,6 +70,11 @@ final class Reindexer
 	 * @param TierPlacementRebuilder|null $placement
 	 *   Rebuilds which bucket holds which object, or NULL on a store with one destination, where
 	 *   there is no such question to answer.
+	 * @param BranchStore|null $branches
+	 *   Reads the branches back out of the refs and the metadata beside them, or NULL to leave the
+	 *   branch index alone.
+	 * @param BranchIndex|null $branchIndex
+	 *   The branch index to rebuild.
 	 */
 	public function __construct(
 		private readonly StorageProviderInterface $provider,
@@ -78,6 +85,8 @@ final class Reindexer
 		private readonly SegmentReader $segments,
 		private readonly LoggerInterface $logger,
 		private readonly ?TierPlacementRebuilder $placement = null,
+		private readonly ?BranchStore $branches = null,
+		private readonly ?BranchIndex $branchIndex = null,
 	) {}
 
 	/**
@@ -98,6 +107,7 @@ final class Reindexer
 		if ($fresh) {
 			$this->index->clear();
 			$this->commitIndex->clear();
+			$this->branchIndex?->clear();
 		}
 
 		$problems = [];
@@ -107,6 +117,7 @@ final class Reindexer
 		$frames = $this->indexObjects($problems);
 		$commits = $this->indexCommits($problems);
 		$attribution = $this->attributeReferences($problems);
+		$branches = $this->indexBranches($problems);
 
 		$report = new ReindexReport(
 			$commits,
@@ -118,6 +129,7 @@ final class Reindexer
 			$problems,
 			microtime(true) - $started,
 			$placed,
+			$branches,
 		);
 
 		$this->logger->info('Strata %summary', ['%summary' => $report->summary()]);
@@ -260,6 +272,48 @@ final class Reindexer
 
 	#endregion
 
+	#region Branches
+
+	/**
+	 * Rebuilds the branch index from the refs and the metadata objects beside them.
+	 *
+	 * A branch is a ref plus a small object naming where it was cut from, so both already exist in the
+	 * bucket and neither is invented here. A ref whose metadata has gone is still indexed, with its
+	 * own tip standing in as its fork point, because a branch that lost its provenance is still a
+	 * branch and dropping it would hide history the store holds.
+	 *
+	 * @param list<string> $problems
+	 *   Collects one line per branch that could not be read.
+	 *
+	 * @return int
+	 *   How many branch rows were written.
+	 */
+	private function indexBranches(array &$problems): int
+	{
+		if ($this->branches === null || $this->branchIndex === null) {
+			return 0;
+		}
+
+		try {
+			$branches = $this->branches->all();
+		} catch (Throwable $error) {
+			$problems[] = sprintf('branches: %s', $error->getMessage());
+
+			return 0;
+		}
+
+		$written = 0;
+
+		foreach ($branches as $branch) {
+			$this->branchIndex->record($branch);
+			$written++;
+		}
+
+		return $written;
+	}
+
+	#endregion
+
 	#region References
 
 	/**
@@ -276,6 +330,10 @@ final class Reindexer
 	 * contributes no references. It stays indexed and restorable; it just does not hold frames alive
 	 * against a prune.
 	 *
+	 * Every parent is followed, not only the first. A merge commit's second parent is a line of
+	 * history this ref reaches, and its segments were counted when they were flushed, so a rebuild
+	 * that skipped them would come back with lower counts than the store was written with.
+	 *
 	 * @param list<string> $problems
 	 *   Collects one line per unusable object.
 	 *
@@ -286,31 +344,41 @@ final class Reindexer
 	{
 		$references = 0;
 		$seen = [];
+		$walked = [];
+		$pending = array_values($this->refs->all());
 
-		foreach ($this->refs->all() as $id) {
-			$current = $id;
+		while ($pending !== []) {
+			$current = (string) array_pop($pending);
 
-			while ($current !== null) {
-				try {
-					$commit = $this->commits->read($current);
-				} catch (Throwable $error) {
-					$problems[] = sprintf(
-						'commit %s: %s',
-						Hash::abbreviate($current),
-						$error->getMessage(),
-					);
+			if (isset($walked[$current])) {
+				continue;
+			}
 
-					break;
+			$walked[$current] = true;
+
+			try {
+				$commit = $this->commits->read($current);
+			} catch (Throwable $error) {
+				$problems[] = sprintf(
+					'commit %s: %s',
+					Hash::abbreviate($current),
+					$error->getMessage(),
+				);
+
+				continue;
+			}
+
+			$segment = $commit->metadata['segment'] ?? null;
+
+			if (is_string($segment) && $segment !== '' && !isset($seen[$segment])) {
+				$seen[$segment] = true;
+				$references += $this->attributeSegment($segment, $problems);
+			}
+
+			foreach ($commit->parents() as $parent) {
+				if (!isset($walked[$parent])) {
+					$pending[] = $parent;
 				}
-
-				$segment = $commit->metadata['segment'] ?? null;
-
-				if (is_string($segment) && $segment !== '' && !isset($seen[$segment])) {
-					$seen[$segment] = true;
-					$references += $this->attributeSegment($segment, $problems);
-				}
-
-				$current = $commit->parent;
 			}
 		}
 

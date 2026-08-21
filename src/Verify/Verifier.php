@@ -257,11 +257,13 @@ final class Verifier
 	 */
 	private function verifyCommit(string $id, Commit $commit, bool $deep): void
 	{
-		if ($commit->parent !== null) {
+		// both parents, so a merge commit naming a branch tip that has gone is a finding rather than a
+		// dangling link nothing looks at
+		foreach ($commit->parents() as $parent) {
 			$this->sweep([
 				'commit' => $id,
-				'commit_parent' => $commit->parent,
-				'commit_parent_present' => $this->commits->exists($commit->parent),
+				'commit_parent' => $parent,
+				'commit_parent_present' => $this->commits->exists($parent),
 			]);
 		}
 

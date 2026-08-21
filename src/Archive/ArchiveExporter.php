@@ -181,29 +181,58 @@ final class ArchiveExporter
 		$objects = [];
 		$problems = [];
 		$anchors = [];
+		$seen = [];
+		$budget = $limit > 0 ? $limit : null;
 
-		// a broken parent link ends the walk with what was collected rather than throwing it away
-		try {
-			foreach ($this->commits->walk($head, $limit > 0 ? $limit : null) as $id => $commit) {
-				$commits[] = (string) $id;
-				$objects[Hash::key((string) $id, CommitLog::PREFIX)] = true;
+		// a merge commit's second parent is a line of history CommitLog::walk() never enters, and an
+		// archive missing it imports cleanly and then fails a verify on the parent that is not there
+		$tips = [$head];
 
-				foreach ($this->segmentFrames($commit, $objects, $problems) as $hash) {
-					$frames[$hash] = true;
-				}
-				foreach (
-					$this->anchorChain($commit->index, $anchors, $objects, $problems)
-					as $hash
-				) {
-					$frames[$hash] = true;
-				}
+		while ($tips !== [] && ($budget === null || $budget > 0)) {
+			$tip = (string) array_shift($tips);
+
+			if (isset($seen[$tip])) {
+				continue;
 			}
-		} catch (Throwable $e) {
-			$problems[] = sprintf(
-				'The commit chain from %s ended early: %s',
-				Hash::abbreviate($head),
-				$e->getMessage(),
-			);
+
+			// a broken parent link ends this line with what was collected rather than throwing it away
+			try {
+				foreach ($this->commits->walk($tip, $budget) as $id => $commit) {
+					$path = (string) $id;
+
+					if (isset($seen[$path])) {
+						break;
+					}
+
+					$seen[$path] = true;
+					$commits[] = $path;
+					$objects[Hash::key($path, CommitLog::PREFIX)] = true;
+
+					if ($commit->merge !== null) {
+						$tips[] = $commit->merge;
+					}
+
+					foreach ($this->segmentFrames($commit, $objects, $problems) as $hash) {
+						$frames[$hash] = true;
+					}
+					foreach (
+						$this->anchorChain($commit->index, $anchors, $objects, $problems)
+						as $hash
+					) {
+						$frames[$hash] = true;
+					}
+
+					if ($budget !== null && --$budget < 1) {
+						break;
+					}
+				}
+			} catch (Throwable $e) {
+				$problems[] = sprintf(
+					'The commit chain from %s ended early: %s',
+					Hash::abbreviate($tip),
+					$e->getMessage(),
+				);
+			}
 		}
 
 		$resolved = $this->frameObjects(array_keys($frames), $problems);

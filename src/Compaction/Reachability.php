@@ -186,16 +186,23 @@ final class Reachability
 	/**
 	 * Walks one chain of history from a tip.
 	 *
+	 * Every parent is followed, not only the first. A merge commit names the branch tip it brought in
+	 * as a second parent, and those commits are reachable from this ref whether or not the branch's own
+	 * ref still exists. Following the first parent alone would report them collectable the moment the
+	 * branch was deleted, and a prune would take the frames out from under a commit the trunk names.
+	 *
 	 * @param string $tip
 	 *   Commit id to start at.
 	 */
 	private function walkFrom(string $tip): void
 	{
-		$id = $tip;
+		$pending = [$tip];
 
-		while (true) {
+		while ($pending !== []) {
+			$id = (string) array_pop($pending);
+
 			if (isset($this->liveCommits[$id])) {
-				return;
+				continue;
 			}
 
 			try {
@@ -207,17 +214,17 @@ final class Reachability
 					$error->getMessage(),
 				);
 
-				return;
+				continue;
 			}
 
 			$this->liveCommits[$id] = true;
 			$this->walkAnchor($commit->index);
 
-			if ($commit->parent === null) {
-				return;
+			foreach ($commit->parents() as $parent) {
+				if (!isset($this->liveCommits[$parent])) {
+					$pending[] = $parent;
+				}
 			}
-
-			$id = $commit->parent;
 		}
 	}
 
