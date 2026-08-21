@@ -104,6 +104,8 @@ class DrushCommandTest extends StrataKernelTestBase
 			'strata:export',
 			'strata:import',
 			'strata:sites',
+			'strata:branch',
+			'strata:merge',
 		];
 
 		return array_combine($names, array_map(static fn(string $n): array => [$n], $names));
@@ -174,7 +176,7 @@ class DrushCommandTest extends StrataKernelTestBase
 	}
 
 	#[Test]
-	#[TestDox('the suite declares the 25 commands and nothing else')]
+	#[TestDox('the suite declares the 27 commands and nothing else')]
 	#[Group('strata/drush')]
 	public function theSuiteDeclaresExactlyTheCommandSurface(): void
 	{
@@ -315,6 +317,30 @@ class DrushCommandTest extends StrataKernelTestBase
 		foreach (Classification::cases() as $case) {
 			$this->assertArrayHasKey($case->value, $rows, $case->value);
 		}
+	}
+
+	#[Test]
+	#[TestDox('branch lists nothing on a site that has never flushed')]
+	#[Group('strata/drush')]
+	public function branchListsNothingBeforeAnyHistory(): void
+	{
+		$rows = $this->restores()->branch();
+
+		$this->assertInstanceOf(RowsOfFields::class, $rows);
+		$this->assertSame([], $rows->getArrayCopy(), 'there is no ref, so there is no branch');
+	}
+
+	#[Test]
+	#[TestDox('merging a branch that does not exist refuses and names it')]
+	#[Group('strata/drush')]
+	public function mergingAnUnknownBranchRefuses(): void
+	{
+		$result = $this->restores()
+			->merge('nowhere', ['strategy' => DrushCommands::REQ, 'dry-run' => true])
+			->getArrayCopy();
+
+		$this->assertSame('no', $result['applied']);
+		$this->assertStringContainsString('nowhere', $result['refused']);
 	}
 
 	#[Test]
@@ -489,6 +515,14 @@ class DrushCommandTest extends StrataKernelTestBase
 	private function diagnostics(): StrataDiagnosticCommands
 	{
 		$command = StrataDiagnosticCommands::create($this->container);
+		$this->drive($command);
+
+		return $command;
+	}
+
+	private function restores(): StrataRestoreCommands
+	{
+		$command = StrataRestoreCommands::create($this->container);
 		$this->drive($command);
 
 		return $command;

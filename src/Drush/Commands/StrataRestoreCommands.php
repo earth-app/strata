@@ -9,6 +9,12 @@ use Consolidation\OutputFormatters\StructuredData\RowsOfFields;
 use Drupal\strata\Archive\ArchiveExporter;
 use Drupal\strata\Archive\ArchiveImporter;
 use Drupal\strata\Archive\ArchiveManifest;
+use Drupal\strata\Branch\Branch;
+use Drupal\strata\Branch\MergeEntry;
+use Drupal\strata\Branch\MergeOutcome;
+use Drupal\strata\Branch\MergePlan;
+use Drupal\strata\Branch\MergeResult;
+use Drupal\strata\Branch\MergeStrategy;
 use Drupal\strata\Engine;
 use Drupal\strata\Health\HealthLedgerInterface;
 use Drupal\strata\Health\RepairLadder;
@@ -29,11 +35,17 @@ use Drush\Commands\DrushCommands;
  * changed while the plan was waiting is listed as a conflict and left alone unless the operator says
  * otherwise, because overwriting an edit nobody reviewed is a decision rather than a detail.
  *
+ * A merge follows the same shape and the same rule. Its manifest is printed with both values of
+ * every key the two sides disagree about, and a strategy has to be named before any of them is
+ * decided. It covers the configuration realm alone; the other realms are captured as deltas against
+ * a parent, and merging two divergent delta chains would mean inventing values.
+ *
  * Archives are the same history in a portable file. An import verifies every content-addressed
  * object against its own digest before writing it and never advances a ref, so importing history
  * from elsewhere cannot change what this site restores to.
  *
  * @see RestorePlan
+ * @see MergePlan
  * @see ArchiveManifest
  */
 final class StrataRestoreCommands extends DrushCommands
@@ -433,6 +445,203 @@ final class StrataRestoreCommands extends DrushCommands
 
 	#endregion
 
+	#region Branching
+
+	/**
+	 * Lists the configuration branches, or creates and removes one.
+	 *
+	 * Called with no name it lists what the store holds. Called with one it cuts a branch off the
+	 * trunk's tip, or off `--from`, and `--delete` removes the name while leaving every commit it
+	 * pointed at in place for a prune to decide about.
+	 *
+	 * A branch carries configuration and nothing else, because configuration is captured whole and
+	 * every other realm is captured as deltas against a parent. Flush onto one with
+	 * `drush strata:flush --ref=heads/NAME`.
+	 *
+	 * @param string|null $name
+	 *   The branch name, or NULL to list what exists.
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return RowsOfFields
+	 *   One row per branch, the trunk included.
+	 */
+	#[CLI\Command(name: 'strata:branch', aliases: ['strata-branch'])]
+	#[CLI\Argument(name: 'name', description: 'The branch name. Omit to list what exists.')]
+	#[
+		CLI\Option(
+			name: 'from',
+			description: 'Commit to fork from. Defaults to the trunk\'s current tip.',
+		),
+	]
+	#[CLI\Option(name: 'delete', description: 'Remove the named branch instead of creating it.')]
+	#[
+		CLI\Usage(
+			name: 'drush strata:branch',
+			description: 'List every configuration branch and where each one points.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:branch release-12',
+			description: 'Cut a branch off the current head to hold configuration changes.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:branch release-12 --delete -y',
+			description: 'Remove a branch name, leaving its commits for a prune to decide about.',
+		),
+	]
+	#[
+		CLI\FieldLabels(
+			labels: [
+				'name' => 'Branch',
+				'ref' => 'Ref',
+				'forked-from' => 'Forked From',
+				'tip' => 'Tip',
+				'moved' => 'Moved Since Fork',
+				'created' => 'Created',
+				'actor' => 'Actor',
+			],
+		),
+	]
+	#[CLI\DefaultTableFields(fields: ['name', 'forked-from', 'tip', 'moved', 'created'])]
+	public function branch(
+		?string $name = null,
+		array $options = ['from' => self::REQ, 'delete' => false],
+	): RowsOfFields {
+		$merger = $this->engine->merger();
+
+		if ($name === null || $name === '') {
+			return new RowsOfFields($this->branchRows($merger->list()));
+		}
+
+		if (self::flag($options, 'delete')) {
+			if (!$this->agreed(sprintf('Remove the branch "%s"?', $name))) {
+				$this->prose()->warning('The branch was left alone.');
+
+				return new RowsOfFields($this->branchRows($merger->list()));
+			}
+
+			$this->announce(
+				$merger->remove($name),
+				sprintf('branch %s is gone; its commits are not', $name),
+			);
+
+			return new RowsOfFields($this->branchRows($merger->list()));
+		}
+
+		$branch = $merger->branch($name, self::value($options, 'from'));
+
+		$this->announce(
+			true,
+			sprintf('branch %s forked from %s', $branch->name, self::digest($branch->forkedFrom)),
+		);
+		$this->prose()->text(
+			sprintf(
+				'Flush configuration onto it with: drush strata:flush --ref=%s',
+				$branch->ref(),
+			),
+		);
+
+		return new RowsOfFields($this->branchRows($merger->list()));
+	}
+
+	/**
+	 * Merges a configuration branch back into the trunk.
+	 *
+	 * The manifest is printed before the confirmation: every object the merge would write, every one
+	 * it would keep, and both values of every key the two sides disagree about. A conflict stops the
+	 * merge unless `--strategy` names what to do with it, because two people having written different
+	 * answers to the same question is not something to decide by default.
+	 *
+	 * Applying goes through the ordinary logical restore, so the pre-write snapshot that makes it
+	 * undoable is taken whatever the options say.
+	 *
+	 * @param string $name
+	 *   The branch to merge.
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return PropertyList
+	 *   What was written, or what would be.
+	 */
+	#[CLI\Command(name: 'strata:merge', aliases: ['strata-merge'])]
+	#[CLI\Argument(name: 'name', description: 'The branch to merge into the trunk.')]
+	#[
+		CLI\Option(
+			name: 'strategy',
+			description: 'What to do with a key both sides changed: refuse, ours or theirs.',
+		),
+	]
+	#[CLI\Option(name: 'dry-run', description: 'Print the manifest and write nothing.')]
+	#[
+		CLI\Usage(
+			name: 'drush strata:merge release-12 --dry-run',
+			description: 'Print what merging a branch would write, and what collides.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:merge release-12 --strategy=theirs -y',
+			description: 'Merge a branch, letting it win every key the trunk also changed.',
+		),
+	]
+	#[
+		CLI\FieldLabels(
+			labels: [
+				'branch' => 'Branch',
+				'target' => 'Target',
+				'base' => 'Merge Base',
+				'strategy' => 'Strategy',
+				'applied' => 'Applied',
+				'written' => 'Objects Written',
+				'conflicts' => 'Conflicts',
+				'unchanged' => 'Unchanged',
+				'snapshot' => 'Undo Commit',
+				'commit' => 'Merge Commit',
+				'failed' => 'Failed',
+				'refused' => 'Refused',
+			],
+		),
+	]
+	#[CLI\Format(listDelimiter: ':', tableStyle: 'compact')]
+	public function merge(
+		string $name,
+		array $options = ['strategy' => self::REQ, 'dry-run' => false],
+	): PropertyList {
+		$merger = $this->engine->merger();
+		$plan = $merger->plan($name, MergeStrategy::named(self::value($options, 'strategy')));
+
+		$this->printMerge($plan);
+
+		if (self::flag($options, 'dry-run') || !$plan->isApplicable()) {
+			return $this->mergeList($merger->apply($plan, false));
+		}
+		if (
+			!$this->agreed(
+				sprintf(
+					'Write %d configuration objects from %s over the live site?',
+					count($plan->writable()),
+					$name,
+				),
+			)
+		) {
+			$this->prose()->warning('Nothing was merged.');
+
+			return $this->mergeList($merger->apply($plan, false));
+		}
+
+		$result = $merger->apply($plan, true);
+
+		$this->announce($result->isComplete(), $result->summary());
+
+		return $this->mergeList($result);
+	}
+
+	#endregion
+
 	#region Archiving
 
 	/**
@@ -709,6 +918,126 @@ final class StrataRestoreCommands extends DrushCommands
 			'unrestorable' => $counts[SubjectStatus::UNRESTORABLE->value],
 			'restored' => count($result->restored),
 			'skipped' => count($result->skipped),
+			'failed' => count($result->failed),
+			'refused' => (string) ($result->refused ?? '-'),
+		]);
+	}
+
+	#endregion
+
+	#region Merges
+
+	/**
+	 * Turns a branch listing into the command's rows.
+	 *
+	 * @param array<string, Branch> $branches
+	 *   Branch name keyed to the branch.
+	 *
+	 * @return array<string, array<string, string>>
+	 *   Branch name keyed to its row.
+	 */
+	private function branchRows(array $branches): array
+	{
+		$rows = [];
+
+		foreach ($branches as $branch) {
+			$rows[$branch->name] = [
+				'name' => $branch->name,
+				'ref' => $branch->ref(),
+				'forked-from' => self::digest($branch->forkedFrom),
+				'tip' => self::digest($branch->tip),
+				'moved' => self::yesNo(!$branch->isUnchanged()),
+				'created' => self::moment($branch->createdAt),
+				'actor' => $branch->actor === null ? '-' : (string) $branch->actor,
+			];
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Prints a merge manifest in full, before anything acts on it.
+	 *
+	 * @param MergePlan $plan
+	 *   The plan.
+	 */
+	private function printMerge(MergePlan $plan): void
+	{
+		$this->prose()->text($plan->summary());
+		$this->prose()->text(sprintf('Conflicts: %s.', $plan->strategy->describe()));
+
+		$rows = [];
+
+		foreach ($plan->entries as $entry) {
+			$rows[] = [
+				$entry->name,
+				$entry->outcome->value,
+				self::yesNo($entry->isWritten()),
+				$entry->describe(),
+			];
+		}
+
+		if ($rows !== []) {
+			$this->prose()->table(['Object', 'Outcome', 'Written', 'Detail'], $rows);
+		}
+
+		foreach ($plan->unresolved() as $entry) {
+			$this->printConflict($entry);
+		}
+
+		if ($plan->problems !== []) {
+			$this->prose()->error('This merge cannot be applied:');
+			$this->prose()->listing($plan->problems);
+		}
+	}
+
+	/**
+	 * Prints both values of every key one object disagrees about.
+	 *
+	 * @param MergeEntry $entry
+	 *   The conflicting entry.
+	 */
+	private function printConflict(MergeEntry $entry): void
+	{
+		$rows = [];
+
+		foreach ($entry->conflicts as $path => $pair) {
+			$rows[] = [
+				$path === '' ? '(the whole object)' : (string) $path,
+				$this->render($pair['ours']),
+				$this->render($pair['theirs']),
+			];
+		}
+
+		$this->prose()->warning(sprintf('%s: both sides changed the same keys', $entry->name));
+		$this->prose()->table(['Key', 'On the Trunk', 'On the Branch'], $rows);
+	}
+
+	/**
+	 * Turns a merge outcome into the command's result.
+	 *
+	 * @param MergeResult $result
+	 *   What the merge did.
+	 *
+	 * @return PropertyList
+	 *   The result.
+	 */
+	private function mergeList(MergeResult $result): PropertyList
+	{
+		$plan = $result->plan;
+		$counts = $plan->counts();
+
+		return new PropertyList([
+			'branch' => $plan->branch,
+			'target' => $plan->target,
+			'base' => self::digest($plan->base),
+			'strategy' => $plan->strategy->value,
+			'applied' => self::yesNo($result->applied),
+			'written' => count($result->written),
+			'conflicts' => $counts[MergeOutcome::CONFLICT->value],
+			'unchanged' => $counts[MergeOutcome::UNCHANGED->value],
+			'snapshot' => self::digest($result->snapshot),
+			'commit' => self::digest($result->commit),
 			'failed' => count($result->failed),
 			'refused' => (string) ($result->refused ?? '-'),
 		]);
