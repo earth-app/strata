@@ -4,3 +4,7 @@ parameters:
         - src
         - modules
     treatPhpDocTypesAsCertain: false
+    scanFiles:
+        - stubs/zstd.php
+        - stubs/brotli.php
+        - stubs/redis.php
