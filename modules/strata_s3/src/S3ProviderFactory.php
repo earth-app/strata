@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata_s3;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\strata\Storage\HttpTransport;
 use Drupal\strata\Storage\TierProviderFactoryInterface;
 use Drupal\strata\Tier\TierTarget;
 use Drupal\strata_s3\Credentials\ConfiguredCredentials;
@@ -133,7 +134,7 @@ final class S3ProviderFactory implements TierProviderFactoryInterface
 				$settings->get('s3.secret_access_key'),
 			),
 			$endpoint,
-			new GuzzleTransport($this->httpClient),
+			new HttpTransport($this->httpClient),
 			new SigV4Signer($region),
 		);
 	}
@@ -171,7 +172,7 @@ final class S3ProviderFactory implements TierProviderFactoryInterface
 		}
 
 		// the metadata service answers only on ec2; elsewhere the short timeout makes it a no-op
-		$providers[] = new InstanceProfileCredentials(new GuzzleTransport($this->httpClient, 2, 1));
+		$providers[] = new InstanceProfileCredentials(new HttpTransport($this->httpClient, 2, 1));
 
 		return new CredentialChain($providers);
 	}

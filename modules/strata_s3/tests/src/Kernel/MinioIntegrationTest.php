@@ -13,7 +13,7 @@ use Drupal\strata\Codec\CodecRegistry;
 use Drupal\strata\Storage\ByteRange;
 use Drupal\strata_s3\Credentials\ConfiguredCredentials;
 use Drupal\strata_s3\Credentials\Credentials;
-use Drupal\strata_s3\GuzzleTransport;
+use Drupal\strata\Storage\HttpTransport;
 use Drupal\strata_s3\S3Endpoint;
 use Drupal\strata_s3\S3StorageProvider;
 use Drupal\strata_s3\SigV4Signer;
@@ -112,7 +112,7 @@ class MinioIntegrationTest extends StrataKernelTestBase
 		return new S3StorageProvider(
 			new ConfiguredCredentials(new Credentials('strata', 'stratatest')),
 			$endpoint,
-			new GuzzleTransport(new Client()),
+			new HttpTransport(new Client()),
 			new SigV4Signer('us-east-1'),
 		);
 	}

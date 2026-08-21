@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Drupal\strata\Storage\ByteRange;
 use Drupal\strata\Storage\Capabilities;
+use Drupal\strata\Storage\ObjectKeys;
 use Drupal\strata\Storage\ObjectMeta;
 use Drupal\strata\Storage\ObjectPage;
 use Drupal\strata\Storage\PutResult;
@@ -73,14 +74,6 @@ final class S3StorageProvider implements StorageProviderInterface
 	public const MAX_BATCH_DELETE = 1_000;
 
 	/**
-	 * Suffix that marks a write in progress rather than an object.
-	 *
-	 * Reserved for the same reason LocalStorage reserves it: a manifest is the only thing that names
-	 * keys, and a key ending here would collide with a partial write on a local staging tier.
-	 */
-	private const RESERVED_SUFFIX = '.tmp';
-
-	/**
 	 * Bytes read per iteration when a body arrives as a stream.
 	 */
 	private const COPY_CHUNK = 1_048_576;
@@ -94,6 +87,11 @@ final class S3StorageProvider implements StorageProviderInterface
 	 * The injected transport.
 	 */
 	private readonly Closure $transport;
+
+	/**
+	 * The key namespace this provider writes inside.
+	 */
+	private readonly ObjectKeys $keys;
 
 	/**
 	 * The probed capability set, or NULL before the first probe.
@@ -142,6 +140,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		}
 
 		$this->transport = $transport(...);
+		$this->keys = new ObjectKeys($endpoint->keyPrefix);
 	}
 
 	/**
@@ -216,7 +215,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		$headers = $range === null ? [] : ['Range' => $range->toHeader()];
 		$response = $this->request(
 			'GET',
-			$this->endpoint->urlFor($this->objectKey($key)),
+			$this->endpoint->urlFor($this->keys->resolve($key)),
 			$headers,
 			null,
 			SigV4Signer::EMPTY_PAYLOAD,
@@ -274,7 +273,7 @@ final class S3StorageProvider implements StorageProviderInterface
 	{
 		$response = $this->request(
 			'HEAD',
-			$this->endpoint->urlFor($this->objectKey($key)),
+			$this->endpoint->urlFor($this->keys->resolve($key)),
 			[],
 			null,
 			SigV4Signer::EMPTY_PAYLOAD,
@@ -297,7 +296,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		}
 
 		return new ObjectMeta(
-			$this->normalize($key),
+			$this->keys->normalize($key),
 			(int) ($headers['content-length'] ?? 0),
 			$headers['etag'] ?? null,
 			$this->timestamp($headers['last-modified'] ?? ''),
@@ -324,7 +323,7 @@ final class S3StorageProvider implements StorageProviderInterface
 	public function put(string $key, mixed $body, array $options = []): PutResult
 	{
 		$started = microtime(true);
-		$target = $this->objectKey($key);
+		$target = $this->keys->resolve($key);
 		$capabilities = $this->capabilities();
 		$conditional = ($options['ifNoneMatch'] ?? false) === true;
 
@@ -396,7 +395,7 @@ final class S3StorageProvider implements StorageProviderInterface
 	public function delete(array $keys): int
 	{
 		$targets = array_map(
-			fn(string $key): string => $this->objectKey($key),
+			fn(string $key): string => $this->keys->resolve($key),
 			array_values($keys),
 		);
 
@@ -436,7 +435,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		$query = [
 			'list-type' => '2',
 			'max-keys' => (string) $limit,
-			'prefix' => $this->endpoint->keyPrefix . ltrim($prefix, '/'),
+			'prefix' => $this->keys->scope($prefix),
 		];
 
 		if ($cursor !== null && $cursor !== '') {
@@ -468,7 +467,7 @@ final class S3StorageProvider implements StorageProviderInterface
 			}
 
 			$objects[] = new ObjectMeta(
-				$this->stripPrefix($key),
+				$this->keys->strip($key),
 				(int) (string) $entry->Size,
 				isset($entry->ETag) ? (string) $entry->ETag : null,
 				$this->timestamp((string) $entry->LastModified),
@@ -477,7 +476,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		}
 
 		foreach ($document->CommonPrefixes as $common) {
-			$prefixes[] = $this->stripPrefix((string) $common->Prefix);
+			$prefixes[] = $this->keys->strip((string) $common->Prefix);
 		}
 
 		$truncated = strtolower(trim((string) $document->IsTruncated)) === 'true';
@@ -517,7 +516,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		return $this->signer->presign(
 			$this->resolveCredentials(),
 			$method,
-			$this->endpoint->urlFor($this->objectKey($key)),
+			$this->endpoint->urlFor($this->keys->resolve($key)),
 			$expires,
 			$this->now(),
 		);
@@ -584,7 +583,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		$this->assertSuccess($response, sprintf('write object %s', $key));
 
 		return new PutResult(
-			$this->normalize($key),
+			$this->keys->normalize($key),
 			strlen($body),
 			$response['headers']['etag'] ?? null,
 			false,
@@ -680,7 +679,7 @@ final class S3StorageProvider implements StorageProviderInterface
 		}
 
 		return new PutResult(
-			$this->normalize($key),
+			$this->keys->normalize($key),
 			$size,
 			$etag,
 			true,
@@ -977,7 +976,7 @@ final class S3StorageProvider implements StorageProviderInterface
 			return 0;
 		}
 
-		$this->assertSuccess($response, sprintf('delete object %s', $this->stripPrefix($target)));
+		$this->assertSuccess($response, sprintf('delete object %s', $this->keys->strip($target)));
 
 		return 1;
 	}
@@ -1445,86 +1444,7 @@ final class S3StorageProvider implements StorageProviderInterface
 
 	#endregion
 
-	#region Keys
-
-	/**
-	 * Turns a caller's key into the key the endpoint sees.
-	 *
-	 * A key arrives from a manifest, and a manifest can be tampered with, so `..` and empty segments
-	 * are rejected by name rather than normalised away.
-	 *
-	 * @param string $key
-	 *   Object key relative to the store root.
-	 *
-	 * @return string
-	 *   The key with S3Endpoint::$keyPrefix in front of it.
-	 *
-	 * @throws InvalidArgumentException
-	 *   When the key is empty, contains a traversal or empty segment or a null byte, or carries the
-	 *   suffix reserved for a write in progress.
-	 */
-	private function objectKey(string $key): string
-	{
-		$key = $this->normalize($key);
-
-		if ($key === '') {
-			throw new InvalidArgumentException('An object key cannot be empty');
-		}
-		if (str_contains($key, "\0")) {
-			throw new InvalidArgumentException('An object key cannot contain a null byte');
-		}
-
-		foreach (explode('/', $key) as $segment) {
-			if ($segment === '..' || $segment === '.' || $segment === '') {
-				throw new InvalidArgumentException(
-					sprintf('Object key "%s" contains a traversal or empty segment', $key),
-				);
-			}
-		}
-		if (str_ends_with($key, self::RESERVED_SUFFIX)) {
-			throw new InvalidArgumentException(
-				sprintf(
-					'Object key "%s" ends in the reserved suffix "%s", which marks a write in progress',
-					$key,
-					self::RESERVED_SUFFIX,
-				),
-			);
-		}
-
-		return $this->endpoint->keyPrefix . $key;
-	}
-
-	/**
-	 * Strips leading and trailing slashes from a key.
-	 *
-	 * @param string $key
-	 *   The key.
-	 *
-	 * @return string
-	 *   The key with no leading or trailing slash.
-	 */
-	private function normalize(string $key): string
-	{
-		return trim($key, '/');
-	}
-
-	/**
-	 * Removes the store prefix from a key the endpoint reported.
-	 *
-	 * @param string $key
-	 *   A key or common prefix as the endpoint named it.
-	 *
-	 * @return string
-	 *   The key the engine knows it by.
-	 */
-	private function stripPrefix(string $key): string
-	{
-		$prefix = $this->endpoint->keyPrefix;
-
-		return $prefix !== '' && str_starts_with($key, $prefix)
-			? substr($key, strlen($prefix))
-			: $key;
-	}
+	#region Query
 
 	/**
 	 * Renders query parameters in canonical order.
