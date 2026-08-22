@@ -6,20 +6,21 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: docs
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  build:
-    name: Build Documentation
+  deploy:
+    name: Deploy Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -30,7 +31,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 'latest'
 
       - name: Install Composer Dependencies
         run: |
@@ -41,23 +42,11 @@ jobs:
           done
           exit 1
 
-      - run: bun install --frozen-lockfile
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
 
-      - run: bun run docs
+      - name: Build Documentation
+        run: bun run docs
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-
-  deploy:
-    name: Deploy Documentation
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
+      - name: Deploy Documentation
+        run: bash phpdoc.sh "${GITHUB_SHA::7}"
