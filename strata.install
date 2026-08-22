@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 use Drupal\Core\Database\Statement\FetchAs;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
+use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strata\Codec\CodecCatalog;
 use Drupal\strata\Codec\CodecProfile;
@@ -1007,12 +1008,13 @@ function strata_update_11103(): string
 	$schema = Drupal::database()->schema();
 	$tables = strata_schema();
 
+	// no new keys: the primary key is already on this column and survives the change. Naming it here
+	// makes MySQL emit ADD PRIMARY KEY alongside the CHANGE and refuse the statement outright
 	$schema->changeField(
 		'strata_journal',
 		'sequence',
 		'sequence',
 		$tables['strata_journal']['fields']['sequence'],
-		['primary key' => ['sequence']],
 	);
 
 	return (string) new TranslatableMarkup('Widened the journal sequence to a 64-bit key.');
@@ -1070,7 +1072,153 @@ function strata_requirements(string $phase): array
 			: new TranslatableMarkup('ext-sodium is not loaded, so frames cannot be encrypted.'),
 	];
 
+	$requirements['strata_storage'] = strata_storage_requirement();
+
 	return $requirements;
+}
+
+/**
+ * Reports whether the configured storage provider can be reached.
+ *
+ * Split out of `strata_requirements()` because it is the only part of the status report that touches
+ * the network, and the only part that can be asked about a store the site has not set up yet.
+ *
+ * The provider id is read from configuration and probed through `strata.storage_providers`, never
+ * through `strata.engine`. Assembling the engine's store refuses on a site that has not chosen an
+ * encryption key, and encryption is on by default, so a status report routed through the engine
+ * would show an error about a missing key where the operator asked about a bucket. The provider
+ * manager is a plain service collector and builds one provider from its own submodule settings.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_storage_requirement(): array
+{
+	$title = new TranslatableMarkup('Strata storage');
+	$id = (string) Drupal::config('strata.settings')->get('provider');
+
+	if ($id === '') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Not configured'),
+			'severity' => RequirementSeverity::Warning,
+			'description' => new TranslatableMarkup(
+				'No storage provider is chosen, so nothing is being backed up. Choose one at admin/config/system/strata/storage.',
+			),
+		];
+	}
+
+	// the two built-in ids are resolved by Engine rather than registered with the manager, and
+	// "reachable" is not the question for either of them
+	if ($id === 'null') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Discarding every backup'),
+			'severity' => RequirementSeverity::Warning,
+			'description' => new TranslatableMarkup(
+				'The null provider accepts writes and keeps nothing, so this site has no backups. Choose a real store at admin/config/system/strata/storage.',
+			),
+		];
+	}
+	if ($id === 'local') {
+		return strata_local_storage_requirement($title);
+	}
+
+	$reason = Drupal::service('strata.storage_providers')->reachability($id);
+
+	if ($reason === null) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('@provider, reachable', ['@provider' => $id]),
+			'severity' => RequirementSeverity::OK,
+		];
+	}
+
+	return [
+		'title' => $title,
+		'value' => new TranslatableMarkup('@provider, unreachable', ['@provider' => $id]),
+		'severity' => RequirementSeverity::Error,
+		'description' => new TranslatableMarkup(
+			'Strata cannot reach the store it writes backups to: @reason',
+			['@reason' => $reason],
+		),
+	];
+}
+
+/**
+ * Reports on the local storage directory.
+ *
+ * A directory that is missing or read-only fails at the first flush, in a queue worker, where the
+ * only trace is a log line. The status report is where an operator can still be told.
+ *
+ * @param TranslatableMarkup $title
+ *   The requirement title, shared with the remote branch.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_local_storage_requirement(TranslatableMarkup $title): array
+{
+	$path = trim((string) Drupal::config('strata.settings')->get('local_path'));
+
+	if ($path === '') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Local, no directory set'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'The local provider is chosen but no directory is configured, so a flush has nowhere to write.',
+			),
+		];
+	}
+
+	// the shipped default is private://strata, and a site that never configured a private file
+	// system has no such wrapper; is_dir() on it raises a php warning rather than answering.
+	// stream_get_wrappers() rather than the stream wrapper manager, because what decides whether
+	// is_dir() can answer is what PHP has registered, not what Drupal knows about
+	$scheme = StreamWrapperManager::getScheme($path);
+
+	if ($scheme !== false && !in_array($scheme, stream_get_wrappers(), true)) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Local, @scheme:// is not configured', [
+				'@scheme' => $scheme,
+			]),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'Backups are set to go to @path, and this site has no @scheme:// file system, so a flush has nowhere to write.',
+				['@path' => $path, '@scheme' => $scheme],
+			),
+		];
+	}
+
+	if (!is_dir($path)) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Local, directory missing'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup('@path is not a directory.', [
+				'@path' => $path,
+			]),
+		];
+	}
+	if (!is_writable($path)) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Local, not writable'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'@path cannot be written to, so a flush would fail.',
+				['@path' => $path],
+			),
+		];
+	}
+
+	return [
+		'title' => $title,
+		'value' => new TranslatableMarkup('Local, writable'),
+		'severity' => RequirementSeverity::OK,
+	];
 }
 
 /**
