@@ -273,6 +273,31 @@ Do not "fix" these without measuring first.
   variable rather than a literal.
 - **`DrushCommands::REQ` is `InputOption::VALUE_REQUIRED`, the integer 2, not NULL.** An
   `$options['x'] === null` check is therefore false when a method runs with its own declared defaults.
+- **Never pass `Schema::changeField()` a primary key that is not changing.** MySQL emits
+  `ADD PRIMARY KEY` alongside the `CHANGE` and refuses the whole statement with "Multiple primary key
+  defined"; SQLite and PostgreSQL accept it. The key stays on the column through a `CHANGE`, so the
+  fifth argument is for a key that actually moves. This broke `strata_update_11103()` on MySQL only.
+- **`is_dir()` on a stream wrapper PHP has not registered raises a warning instead of answering
+  FALSE**, and the shipped `local_path` default is `private://strata`, which a site with no private
+  file system does not have. Guard with `in_array($scheme, stream_get_wrappers(), true)` and **not**
+  with `StreamWrapperManager::isValidScheme()`: that knows only Drupal's wrappers and rejects genuine
+  PHP ones, including the `vfs://` URI a kernel test's `siteDirectory` is.
+- **An update hook needs a test, and that test runs on all three drivers.** Nothing executed
+  `strata_update_11101` or `11102` before 2026-08-22 and they still have no coverage; `11103` has
+  four tests because it alters a primary key, which is the most driver-sensitive thing here.
+- **`StrataServiceProvider::alter()` is the only thing that wires key-value capture onto a site, and
+  the kernel lane structurally cannot reach it** - `KernelTestBase` makes `keyvalue` synthetic and the
+  method returns early. It is unit-tested over a real `ContainerBuilder` instead, which is what caught
+  it wrapping the decorator in itself on a second pass and journaling every write twice.
+- **`StorageProviderManager` is a registry, not a policy.** Which provider a flush goes to is
+  `strata.settings`'s `provider` key, resolved by `Engine::buildProvider()`; the manager never knew.
+  It once carried `activate()` and `active()` modelling an active provider it did not own, and both
+  were dead. Registration also follows the enabled submodules rather than the configuration, so
+  anything sweeping `ids()` reports an unconfigured submodule as broken - which is why
+  `reachability()` takes one id.
+- **`local` and `null` are resolved by `Engine::buildProvider()` and are not registered with the
+  manager.** Anything asking the manager about the configured provider has to handle those two
+  itself, or a site on local storage - the shipped default - is told its provider does not exist.
 
 ## Translatable Strings
 
