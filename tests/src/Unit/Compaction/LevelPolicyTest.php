@@ -192,4 +192,78 @@ class LevelPolicyTest extends TestCase
 	}
 
 	#endregion
+
+	#region Ladders At Both Extremes
+
+	#[Test]
+	#[TestDox('a ladder of one level never rolls up, however old the window is')]
+	#[Group('strata/compaction')]
+	public function singleLevelLadderNeverRollsUp(): void
+	{
+		$policy = new LevelPolicy([['window' => 60, 'keep' => 900]]);
+
+		$this->assertSame(1, $policy->depth());
+		$this->assertNull($policy->promotes(0));
+		$this->assertFalse($policy->isDueForRollup(0, 0, PHP_INT_MAX));
+
+		// the retention still applies, so a prune has a cutoff even with nowhere to promote into
+		$this->assertSame(1_700_000_000 - 900, $policy->cutoff(0, 1_700_000_000));
+	}
+
+	#[Test]
+	#[TestDox('a twenty level ladder promotes every level but its last')]
+	#[Group('strata/compaction')]
+	public function twentyLevelLadderPromotesAllButTheTop(): void
+	{
+		$levels = [];
+
+		for ($depth = 0; $depth < 20; $depth++) {
+			$levels[] = ['window' => 15 * 2 ** $depth, 'keep' => 3600 * ($depth + 1)];
+		}
+
+		$policy = new LevelPolicy($levels);
+
+		$this->assertSame(20, $policy->depth());
+		$this->assertSame(15 * 2 ** 19, $policy->window(19));
+
+		for ($depth = 0; $depth < 19; $depth++) {
+			$this->assertSame($depth + 1, $policy->promotes($depth));
+		}
+
+		$this->assertNull($policy->promotes(19));
+	}
+
+	#[Test]
+	#[TestDox('a window wider than the retention below it is due the moment the window closes')]
+	#[Group('strata/compaction')]
+	public function windowWiderThanItsRetentionIsDueAtOnce(): void
+	{
+		$policy = new LevelPolicy([
+			['window' => 86_400, 'keep' => 60],
+			['window' => 604_800, 'keep' => 0],
+		]);
+
+		// the window is a day and it is kept a minute, so it is due before the day is over
+		$this->assertTrue($policy->isDueForRollup(1_700_000_000, 0, 1_700_000_060));
+		$this->assertFalse($policy->isDueForRollup(1_700_000_000, 0, 1_700_000_059));
+	}
+
+	#[Test]
+	#[TestDox('the first window starts at the epoch and the largest second does not overflow')]
+	#[Group('strata/compaction')]
+	public function windowBoundsAtBothEnds(): void
+	{
+		$policy = new LevelPolicy();
+
+		$this->assertSame(0, $policy->windowStart(0, 0));
+		$this->assertSame(0, $policy->windowStart(14, 0));
+		$this->assertSame(15, $policy->windowStart(15, 0));
+
+		$top = $policy->windowStart(PHP_INT_MAX, 0);
+
+		$this->assertSame(intdiv(PHP_INT_MAX, 15) * 15, $top);
+		$this->assertLessThanOrEqual(PHP_INT_MAX, $top);
+	}
+
+	#endregion
 }

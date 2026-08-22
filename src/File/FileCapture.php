@@ -12,6 +12,7 @@ use Drupal\strata\Journal\JournalOp;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Journal\Verb;
 use Drupal\Core\State\StateInterface;
+use JsonException;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -218,10 +219,14 @@ final class FileCapture
 	 *   What changed, which the label reports.
 	 * @param int|null $actor
 	 *   Drupal user id, or NULL.
+	 *
+	 * @throws JsonException
+	 *   Never in practice, since both values are digest-derived ASCII. Declared rather than cast away
+	 *   so no payload in this module is ever `(string) false`, which is silently the empty string.
 	 */
 	private function append(FileMap $map, string $key, FileMapDiff $diff, ?int $actor): void
 	{
-		$payload = (string) json_encode(['map' => $key, 'address' => $map->address()]);
+		$payload = json_encode(['map' => $key, 'address' => $map->address()], JSON_THROW_ON_ERROR);
 
 		$this->journal->append(
 			new JournalOp(

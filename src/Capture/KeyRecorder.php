@@ -80,12 +80,7 @@ final class KeyRecorder
 	 */
 	public function written(Realm $realm, string $subject, mixed $value, bool $existed): void
 	{
-		$this->record(
-			$realm,
-			$subject,
-			$existed ? Verb::UPDATE : Verb::CREATE,
-			PayloadCodec::encode($realm, $value),
-		);
+		$this->record($realm, $subject, $existed ? Verb::UPDATE : Verb::CREATE, $value, true);
 	}
 
 	/**
@@ -98,7 +93,7 @@ final class KeyRecorder
 	 */
 	public function deleted(Realm $realm, string $subject): void
 	{
-		$this->record($realm, $subject, Verb::DELETE, null);
+		$this->record($realm, $subject, Verb::DELETE, null, false);
 	}
 
 	/**
@@ -118,12 +113,16 @@ final class KeyRecorder
 	 */
 	public function renamed(Realm $realm, string $from, string $to, mixed $value): void
 	{
-		$this->record($realm, $to, Verb::RENAME, PayloadCodec::encode($realm, $value), $from);
-		$this->record($realm, $from, Verb::DELETE, null);
+		$this->record($realm, $to, Verb::RENAME, $value, true, $from);
+		$this->record($realm, $from, Verb::DELETE, null, false);
 	}
 
 	/**
 	 * Appends one operation.
+	 *
+	 * The value is encoded inside the try, not passed in already encoded, because PayloadCodec
+	 * refuses a value JSON cannot represent and a refusal thrown from the argument list would
+	 * escape past this catch and break the write that caused the capture.
 	 *
 	 * @param Realm $realm
 	 *   The realm.
@@ -131,8 +130,10 @@ final class KeyRecorder
 	 *   The subject key.
 	 * @param Verb $verb
 	 *   What happened.
-	 * @param string|null $payload
-	 *   The serialized value, or NULL for a delete.
+	 * @param mixed $value
+	 *   The value written, ignored when $hasValue is FALSE.
+	 * @param bool $hasValue
+	 *   FALSE for a delete, which carries no payload.
 	 * @param string|null $from
 	 *   The key it was renamed from, or NULL.
 	 */
@@ -140,7 +141,8 @@ final class KeyRecorder
 		Realm $realm,
 		string $subject,
 		Verb $verb,
-		?string $payload,
+		mixed $value,
+		bool $hasValue,
 		?string $from = null,
 	): void {
 		if (!$this->scope->covers($realm)) {
@@ -148,6 +150,8 @@ final class KeyRecorder
 		}
 
 		try {
+			$payload = $hasValue ? PayloadCodec::encode($realm, $value) : null;
+
 			$this->journal->append(
 				new JournalOp(
 					0,

@@ -18,12 +18,14 @@ use Drupal\strata\Crypto\XChaCha20Poly1305Cipher;
 use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
+#[CoversClass(FrameRecord::class)]
 #[CoversClass(ObjectStore::class)]
 class ObjectStoreTest extends TestCase
 {
@@ -512,6 +514,187 @@ class ObjectStoreTest extends TestCase
 			$this->assertGreaterThan(0, $record->storedSize);
 			$this->assertNotNull($record->pack);
 		}
+	}
+
+	#endregion
+
+	#region Frame Record Invariants
+
+	/**
+	 * @return array<string, array{array<string, mixed>, string}>
+	 */
+	public static function incoherentRecordProvider(): array
+	{
+		return [
+			'an address that is not a digest' => [['hash' => 'nope'], 'valid content address'],
+			'an uppercase address' => [
+				['hash' => 'AB' . substr(str_repeat('cd', 32), 2)],
+				'valid content address',
+			],
+			'no codec' => [['codec' => ''], 'must name the codec and cipher'],
+			'no cipher' => [['cipher' => ''], 'must name the codec and cipher'],
+			'a negative raw size' => [['rawSize' => -1], 'frame size cannot be negative'],
+			'a negative stored size' => [['storedSize' => -1], 'frame size cannot be negative'],
+			'a negative offset' => [['offset' => -1], 'frame offset cannot be negative'],
+			'a negative reference count' => [
+				['references' => -1],
+				'reference count cannot be negative',
+			],
+			'an offset with no pack' => [['offset' => 64], 'starts at offset zero by definition'],
+			'a delta parent that is not a digest' => [
+				['deltaParent' => 'nope', 'deltaDepth' => 1],
+				'delta parent must be a valid content address',
+			],
+			'a depth with no delta parent' => [
+				['deltaDepth' => 3],
+				'anchor and sits at depth zero',
+			],
+			'a delta parent at depth zero' => [
+				['deltaParent' => 'PARENT', 'deltaDepth' => 0],
+				'at least one link into the chain',
+			],
+		];
+	}
+
+	#[Test]
+	#[TestDox('a frame record with $_dataName is refused rather than indexed')]
+	#[Group('strata/cas')]
+	#[DataProvider('incoherentRecordProvider')]
+	public function incoherentFrameRecordsAreRefused(array $overrides, string $message): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage($message);
+
+		self::record($overrides);
+	}
+
+	#[Test]
+	#[TestDox('a standalone anchor frame and a packed delta frame are both coherent')]
+	#[Group('strata/cas')]
+	public function bothFrameShapesAreAccepted(): void
+	{
+		$anchor = self::record();
+
+		$this->assertFalse($anchor->isDelta());
+		$this->assertSame(0, $anchor->offset);
+
+		$delta = self::record([
+			'pack' => Hash::of('a pack'),
+			'offset' => 4_096,
+			'deltaParent' => 'PARENT',
+			'deltaDepth' => 1,
+		]);
+
+		$this->assertTrue($delta->isDelta());
+		$this->assertSame(4_096, $delta->offset);
+	}
+
+	#[Test]
+	#[TestDox('a record with zero sizes and no references is coherent, since a frame can be empty')]
+	#[Group('strata/cas')]
+	public function zeroSizedRecordIsCoherent(): void
+	{
+		$record = self::record(['rawSize' => 0, 'storedSize' => 0, 'references' => 0]);
+
+		$this->assertSame(0, $record->rawSize);
+		$this->assertSame(0, $record->references);
+	}
+
+	#[Test]
+	#[TestDox('fromArray(jsonSerialize()) is the identity for a fully populated record')]
+	#[Group('strata/cas')]
+	public function frameRecordRoundTrips(): void
+	{
+		$record = self::record([
+			'dictionary' => 'entity/v1',
+			'pack' => Hash::of('a pack'),
+			'offset' => 4_096,
+			'references' => 7,
+			'created' => 1_755_000_000,
+			'deltaParent' => 'PARENT',
+			'deltaDepth' => 2,
+		]);
+
+		$this->assertEquals($record, FrameRecord::fromArray($record->jsonSerialize()));
+	}
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public static function missingRecordKeyProvider(): array
+	{
+		return [
+			'no hash' => ['hash'],
+			'no codec' => ['codec'],
+			'no cipher' => ['cipher'],
+		];
+	}
+
+	#[Test]
+	#[TestDox('fromArray() refuses a row with $_dataName rather than inventing one')]
+	#[Group('strata/cas')]
+	#[DataProvider('missingRecordKeyProvider')]
+	public function fromArrayRefusesMissingRecordKeys(string $missing): void
+	{
+		$data = self::record()->jsonSerialize();
+		unset($data[$missing]);
+
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage(sprintf('A frame record is missing "%s"', $missing));
+
+		FrameRecord::fromArray($data);
+	}
+
+	/**
+	 * One frame record, with named fields overridden.
+	 *
+	 * A "PARENT" delta parent is replaced with a real digest, so a case can name one without
+	 * repeating a hash literal.
+	 *
+	 * @param array<string, mixed> $overrides
+	 *   Constructor parameter names keyed to their values.
+	 *
+	 * @return FrameRecord
+	 *   The record.
+	 */
+	private static function record(array $overrides = []): FrameRecord
+	{
+		$values = array_merge(
+			[
+				'hash' => Hash::of('a frame'),
+				'rawSize' => 16_384,
+				'storedSize' => 4_096,
+				'codec' => 'zstd',
+				'cipher' => 'xchacha20poly1305',
+				'dictionary' => null,
+				'pack' => null,
+				'offset' => 0,
+				'references' => 1,
+				'created' => 0,
+				'deltaParent' => null,
+				'deltaDepth' => 0,
+			],
+			$overrides,
+		);
+
+		if ($values['deltaParent'] === 'PARENT') {
+			$values['deltaParent'] = Hash::of('a parent frame');
+		}
+
+		return new FrameRecord(
+			$values['hash'],
+			$values['rawSize'],
+			$values['storedSize'],
+			$values['codec'],
+			$values['cipher'],
+			$values['dictionary'],
+			$values['pack'],
+			$values['offset'],
+			$values['references'],
+			$values['created'],
+			$values['deltaParent'],
+			$values['deltaDepth'],
+		);
 	}
 
 	#endregion
