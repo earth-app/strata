@@ -6,6 +6,7 @@ namespace Drupal\strata\Tree;
 
 use Drupal\strata\Cas\Hash;
 use InvalidArgumentException;
+use JsonException;
 use JsonSerializable;
 
 /**
@@ -128,10 +129,15 @@ final class Commit implements JsonSerializable
 	 *
 	 * @return string
 	 *   A 64-character lowercase hex digest.
+	 *
+	 * @throws JsonException
+	 *   When the label or the metadata holds a string JSON cannot represent. `(string) false` would
+	 *   otherwise address every such commit as `Hash::of('')`, so two unrelated commits would be one
+	 *   commit and overwrite each other.
 	 */
 	public function id(): string
 	{
-		return Hash::of((string) json_encode($this->jsonSerialize()));
+		return Hash::of(json_encode($this->jsonSerialize(), JSON_THROW_ON_ERROR));
 	}
 
 	/**

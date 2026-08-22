@@ -8,6 +8,7 @@ use Drupal\strata\Cas\Hash;
 use Drupal\strata\Storage\StorageProviderInterface;
 use Generator;
 use InvalidArgumentException;
+use JsonException;
 use RuntimeException;
 
 /**
@@ -297,10 +298,14 @@ final class CommitLog
 	 *
 	 * @throws RuntimeException
 	 *   When the write fails.
+	 * @throws JsonException
+	 *   When the label or the metadata holds a string JSON cannot represent. `(string) false` would
+	 *   otherwise address every such commit as `Hash::of('')`, so two unrelated commits would be one
+	 *   object that each overwrites.
 	 */
 	public function write(Commit $commit): string
 	{
-		$bytes = (string) json_encode($commit);
+		$bytes = json_encode($commit, JSON_THROW_ON_ERROR);
 		$id = Hash::of($bytes);
 		$key = Hash::key($id, self::PREFIX);
 

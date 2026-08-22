@@ -6,6 +6,7 @@ namespace Drupal\strata\Capture;
 
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Restore\Replayer;
+use JsonException;
 
 /**
  * Encodes and decodes an operation's payload, per realm.
@@ -54,6 +55,11 @@ final class PayloadCodec
 	 *
 	 * @return string
 	 *   The payload bytes.
+	 *
+	 * @throws JsonException
+	 *   When a JSON realm holds a string that is not valid UTF-8. `(string) false` would otherwise
+	 *   store an empty payload that decodes to NULL, so the operation would claim to carry a value
+	 *   it does not.
 	 */
 	public static function encode(Realm $realm, mixed $value): string
 	{
@@ -61,7 +67,7 @@ final class PayloadCodec
 			return serialize($value);
 		}
 
-		return (string) json_encode($value);
+		return json_encode($value, JSON_THROW_ON_ERROR);
 	}
 
 	/**

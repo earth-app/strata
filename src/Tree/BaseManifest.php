@@ -6,6 +6,7 @@ namespace Drupal\strata\Tree;
 
 use Drupal\strata\Cas\Hash;
 use InvalidArgumentException;
+use JsonException;
 use JsonSerializable;
 use RuntimeException;
 
@@ -165,10 +166,14 @@ final class BaseManifest implements JsonSerializable
 	 *
 	 * @return string
 	 *   JSON.
+	 *
+	 * @throws JsonException
+	 *   When a subject is not valid UTF-8. `(string) false` would otherwise write an empty anchor
+	 *   addressed as `Hash::of('')`, and every commit between two anchors inherits that address.
 	 */
 	public function encode(): string
 	{
-		return (string) json_encode($this->jsonSerialize());
+		return json_encode($this->jsonSerialize(), JSON_THROW_ON_ERROR);
 	}
 
 	/**

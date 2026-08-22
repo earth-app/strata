@@ -6,6 +6,7 @@ namespace Drupal\strata\File;
 
 use Drupal\strata\Cas\Hash;
 use InvalidArgumentException;
+use JsonException;
 use JsonSerializable;
 use RuntimeException;
 
@@ -198,10 +199,14 @@ final class FileMap implements JsonSerializable
 	 *
 	 * @return string
 	 *   JSON.
+	 *
+	 * @throws JsonException
+	 *   When the path holds bytes that are not valid UTF-8, which a filename can. `(string) false`
+	 *   would otherwise write an empty map addressed as `Hash::of('')`.
 	 */
 	public function encode(): string
 	{
-		return (string) json_encode($this->jsonSerialize());
+		return json_encode($this->jsonSerialize(), JSON_THROW_ON_ERROR);
 	}
 
 	/**

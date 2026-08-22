@@ -8,6 +8,7 @@ use Drupal\strata\Cas\Hash;
 use Drupal\strata\Codec\CodecRegistry;
 use Drupal\strata\Crypto\CipherInterface;
 use Drupal\strata\Storage\StorageProviderInterface;
+use JsonException;
 use RuntimeException;
 
 /**
@@ -75,6 +76,10 @@ final class SegmentWriter
 	 *
 	 * @throws RuntimeException
 	 *   When the manifest is empty, or the write fails.
+	 * @throws JsonException
+	 *   When the manifest holds a string JSON cannot represent. JournalOp refuses such a string on
+	 *   capture, so reaching this is a bug rather than bad input; without it `(string) false` would
+	 *   seal an empty object under `Hash::of('')` and the flush would report success.
 	 */
 	public function write(SegmentManifest $manifest, ?int $second = null): string
 	{
@@ -82,7 +87,7 @@ final class SegmentWriter
 			throw new RuntimeException('An empty segment is not written');
 		}
 
-		$bytes = (string) json_encode($manifest);
+		$bytes = json_encode($manifest, JSON_THROW_ON_ERROR);
 		$codec = $this->codecs->writer();
 		$digest = Hash::of($bytes);
 		$key = self::key($manifest, $digest, $second);
