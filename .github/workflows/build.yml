@@ -39,6 +39,8 @@ jobs:
           done
           exit 1
 
+      - run: php tests/drupal-root.php
+
       - run: ./vendor/bin/phpcs
 
       - run: ./vendor/bin/phpstan analyse --memory-limit=1G
