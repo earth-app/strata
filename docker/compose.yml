@@ -35,5 +35,44 @@ services:
         echo strata-minio-ready
     restart: 'no'
 
+  # azure blob emulator. the account name and key are azurite's published well-known pair, so they
+  # are not a secret; the container itself is created by `./startup.sh --provider=azure`
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0@sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37
+    command: ['azurite-blob', '--blobHost', '0.0.0.0', '--skipApiVersionCheck']
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '10000']
+      interval: 2s
+      timeout: 2s
+      retries: 40
+    ports:
+      - '127.0.0.1:10000:10000' # blob service
+    volumes:
+      - azurite-data:/data
+
+  # google cloud storage emulator, json api only, which is the api strata_gcs speaks
+  gcs:
+    image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
+    command:
+      - -scheme
+      - http
+      - -host
+      - 0.0.0.0
+      - -port
+      - '4443'
+      - -public-host
+      - host.docker.internal:4443
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '4443']
+      interval: 2s
+      timeout: 2s
+      retries: 40
+    ports:
+      - '127.0.0.1:4443:4443' # json api
+    volumes:
+      - gcs-data:/storage
+
 volumes:
   minio-data:
+  azurite-data:
+  gcs-data:

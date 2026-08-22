@@ -11,9 +11,22 @@ COMPOSE_FILE="$SRC_PATH/docker/compose.yml"
 S3_ENDPOINT="http://host.docker.internal:9000"
 S3_ENDPOINT_HOST="http://127.0.0.1:9000"
 S3_BUCKET="strata-backups"
+S3_REPLICA="strata-replica"
 S3_REGION="us-east-1"
 S3_KEY_ID="strata"
 S3_SECRET="stratatest"
+
+# azurite, whose account name and key are the published well-known pair and not a secret
+AZURE_SERVICE_URL="http://host.docker.internal:10000/devstoreaccount1"
+AZURE_SERVICE_URL_HOST="http://127.0.0.1:10000/devstoreaccount1"
+AZURE_ACCOUNT="devstoreaccount1"
+AZURE_CONTAINER="strata-backups"
+AZURE_KEY="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+
+# fake-gcs-server, which speaks the json api and wants no credentials
+GCS_API_URL="http://host.docker.internal:4443"
+GCS_API_URL_HOST="http://127.0.0.1:4443"
+GCS_BUCKET="strata-backups"
 
 usage() {
 	cat << 'USAGE'
@@ -21,12 +34,30 @@ Usage: ./startup.sh [command] [options]
 
 Build the playground (the default when no command is given):
 
-  ./startup.sh [--db=mariadb|postgres|sqlite] [--fresh] [--no-s3] [--no-codecs]
+  ./startup.sh [--provider=s3|azure|gcs|local] [--db=mariadb|postgres|sqlite]
+               [--tiers] [--fresh] [--no-codecs] [--no-ui]
 
+  --provider=  which object store to run against; defaults to s3
+                 s3     minio, which is also how r2 and every s3-compatible endpoint behave
+                 azure  azurite, the azure blob emulator, over the native blob rest api
+                 gcs    fake-gcs-server, over the native json api
+                 local  the filesystem, no container at all
   --db=        database ddev runs; defaults to mariadb
+  --tiers      configure a two-bucket ladder on minio, the near one plus a replica
   --fresh      delete the existing site and rebuild it from scratch
-  --no-s3      skip the minio container and use the local filesystem provider
   --no-codecs  skip building ext-zstd and ext-brotli into the web container
+  --no-ui      install only the engine, without strata_ui, strata_files or strata_notify
+  --no-s3      an older name for --provider=local
+
+Backblaze B2 has no emulator, so there is no simulated lane for it. Point `b2.api_url` at a
+real account, or run `modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php` with credentials.
+
+Every run creates four accounts, one per permission level, all with the password `demo`:
+
+  strata-admin     administer strata
+  strata-operator  rollback, repair and quarantine, but not storage credentials
+  strata-auditor   timeline, diffs, payloads, health and cost estimates
+  strata-viewer    the timeline and nothing else
 
 Drive it. Each command needs the site to exist already.
 
@@ -71,8 +102,10 @@ USAGE
 
 DB="mariadb"
 FRESH=0
-USE_S3=1
+PROVIDER="s3"
+USE_TIERS=0
 USE_CODECS=1
+USE_UI=1
 COMMAND="build"
 SERVE_PORT="8087"
 STOP=0
@@ -98,8 +131,11 @@ for arg in "$@"; do
 	case "$arg" in
 		--db=*) DB="${arg#*=}" ;;
 		--fresh) FRESH=1 ;;
-		--no-s3) USE_S3=0 ;;
+		--provider=*) PROVIDER="${arg#*=}" ;;
+		--tiers) USE_TIERS=1 ;;
+		--no-s3) PROVIDER="local" ;;
 		--no-codecs) USE_CODECS=0 ;;
+		--no-ui) USE_UI=0 ;;
 		--scale=*) SCALE="${arg#*=}" ;;
 		--rewrites=*) REWRITES="${arg#*=}" ;;
 		--level=*) LEVEL="${arg#*=}" ;;
@@ -130,6 +166,24 @@ case "$DB" in
 		exit 1
 		;;
 esac
+
+# which compose service backs each provider, and whether one is needed at all
+case "$PROVIDER" in
+	s3) PROVIDER_SERVICE="minio" ;;
+	azure) PROVIDER_SERVICE="azurite" ;;
+	gcs) PROVIDER_SERVICE="gcs" ;;
+	local) PROVIDER_SERVICE="" ;;
+	*)
+		echo ">>> Unknown provider: $PROVIDER"
+		echo ">>> Choose one of s3, azure, gcs or local"
+		exit 1
+		;;
+esac
+
+if [ "$USE_TIERS" = "1" ] && [ "$PROVIDER" != "s3" ]; then
+	echo ">>> --tiers needs --provider=s3; only minio is given more than one bucket here"
+	exit 1
+fi
 
 need() {
 	command -v "$1" > /dev/null 2>&1 || {
@@ -317,23 +371,34 @@ if [ "$FRESH" = "1" ] && [ -d "$SITE_DIR" ]; then
 	rm -rf "$SITE_DIR"
 fi
 
-#region S3
+#region Object Store
 
-if [ "$USE_S3" = "1" ]; then
+if [ -n "$PROVIDER_SERVICE" ]; then
 	need docker
 
-	echo ">>> Starting minio from $COMPOSE_FILE"
+	echo ">>> Starting $PROVIDER_SERVICE from $COMPOSE_FILE"
 
 	if ! docker info > /dev/null 2>&1; then
 		echo ">>> Docker is not running. Start Docker Desktop and re-run."
 		exit 1
 	fi
 
-	# only the long-running service is waited on; the one-shot is run to completion below
-	docker compose -f "$COMPOSE_FILE" up -d --wait minio
-	docker compose -f "$COMPOSE_FILE" run --rm minio-init > /dev/null
+	docker compose -f "$COMPOSE_FILE" up -d --wait "$PROVIDER_SERVICE"
 
-	echo ">>> minio ready: $S3_ENDPOINT_HOST (console http://127.0.0.1:9001, strata / stratatest)"
+	# minio gets its buckets from a one-shot; `up --wait` calls an exited container a failure even
+	# at exit zero, so it is run to completion instead
+	if [ "$PROVIDER" = "s3" ]; then
+		docker compose -f "$COMPOSE_FILE" run --rm minio-init > /dev/null
+		echo ">>> minio ready: $S3_ENDPOINT_HOST (console http://127.0.0.1:9001, strata / stratatest)"
+	fi
+
+	if [ "$PROVIDER" = "azure" ]; then
+		echo ">>> azurite ready: $AZURE_SERVICE_URL_HOST"
+	fi
+
+	if [ "$PROVIDER" = "gcs" ]; then
+		echo ">>> fake-gcs-server ready: $GCS_API_URL_HOST"
+	fi
 fi
 
 #endregion
@@ -416,6 +481,19 @@ copy_module() {
 	rm -f "web/modules/custom/$PROJECT_NAME/package.json"
 }
 
+# the UI is what makes the timeline, the diff viewer and the permission levels worth looking at, so
+# it is on unless asked otherwise. strata_redis is left out: it needs drupal/redis and ext-redis
+enable_submodules() {
+	if [ "$USE_UI" = "0" ]; then
+		echo ">>> Installing the engine alone"
+
+		return 0
+	fi
+
+	ddev drush -y en strata_ui strata_files strata_notify > /dev/null 2>&1 \
+		|| echo ">>> Some submodules would not enable; see ddev drush pm:list --filter=strata"
+}
+
 if [ ! -d "$SITE_DIR" ]; then
 	echo ">>> Creating a new Drupal site in $SITE_DIR"
 	echo ">>> Using module at $SRC_PATH"
@@ -448,6 +526,7 @@ if [ ! -d "$SITE_DIR" ]; then
 	ddev drush -y en key
 	ddev drush cr
 	ddev drush -y en "$PROJECT_NAME"
+	enable_submodules
 else
 	echo ">>> Reusing the site at $SITE_DIR"
 	echo ">>> Using module at $SRC_PATH"
@@ -464,6 +543,7 @@ else
 	ddev drush cr
 	ddev drush -y updb
 	ddev drush -y en "$PROJECT_NAME"
+	enable_submodules
 fi
 
 #endregion
@@ -488,24 +568,113 @@ ddev drush -y config:set strata.settings site_id "$PROJECT_NAME-local"
 ddev drush -y config:set strata.settings key strata_encryption
 ddev drush -y config:set strata.settings flush.max_ops 5
 
-if [ "$USE_S3" = "1" ]; then
-	ddev drush -y en strata_s3 > /dev/null 2>&1 || true
-	ddev drush -y config:set strata.settings provider s3
-	ddev drush -y config:set strata.settings s3.endpoint "$S3_ENDPOINT"
-	ddev drush -y config:set strata.settings s3.bucket "$S3_BUCKET"
-	ddev drush -y config:set strata.settings s3.region "$S3_REGION"
-	ddev drush -y config:set strata.settings s3.access_key_id "$S3_KEY_ID"
-	ddev drush -y config:set strata.settings s3.secret_access_key "$S3_SECRET"
-	ddev drush -y config:set strata.settings s3.path_style 1
-else
-	ddev drush -y config:set strata.settings provider local
+ddev drush -y config:set strata.settings provider "$PROVIDER"
 
-	# a real directory rather than private://, which only exists once file_private_path is set
-	ddev drush -y config:set strata.settings local_path '/var/www/html/private/strata'
-	ddev exec mkdir -p /var/www/html/private/strata
+case "$PROVIDER" in
+	s3)
+		ddev drush -y en strata_s3 > /dev/null 2>&1 || true
+		ddev drush -y config:set strata.settings s3.endpoint "$S3_ENDPOINT"
+		ddev drush -y config:set strata.settings s3.bucket "$S3_BUCKET"
+		ddev drush -y config:set strata.settings s3.region "$S3_REGION"
+		ddev drush -y config:set strata.settings s3.access_key_id "$S3_KEY_ID"
+		ddev drush -y config:set strata.settings s3.secret_access_key "$S3_SECRET"
+		ddev drush -y config:set strata.settings s3.path_style 1
+		;;
+	azure)
+		ddev drush -y en strata_azure > /dev/null 2>&1 || true
+		ddev drush -y config:set strata.settings azure.account "$AZURE_ACCOUNT"
+		ddev drush -y config:set strata.settings azure.container "$AZURE_CONTAINER"
+		ddev drush -y config:set strata.settings azure.account_key "$AZURE_KEY"
+		ddev drush -y config:set strata.settings azure.service_url "$AZURE_SERVICE_URL"
+		;;
+	gcs)
+		ddev drush -y en strata_gcs > /dev/null 2>&1 || true
+		ddev drush -y config:set strata.settings gcs.bucket "$GCS_BUCKET"
+		ddev drush -y config:set strata.settings gcs.api_url "$GCS_API_URL"
+
+		# fake-gcs-server wants no credentials, and a static token is the shape that says so
+		ddev drush -y config:set strata.settings gcs.access_token 'emulator'
+		;;
+	local)
+		# a real directory rather than private://, which only exists once file_private_path is set
+		ddev drush -y config:set strata.settings local_path '/var/www/html/private/strata'
+		ddev exec mkdir -p /var/www/html/private/strata
+		;;
+esac
+
+if [ "$USE_TIERS" = "1" ]; then
+	echo ">>> Putting history on a two-bucket ladder"
+
+	# from_age is in seconds; the middle tier keeps its copy below so it reads as a replica
+	ddev drush -y php:eval '
+	Drupal::configFactory()->getEditable("strata.settings")
+	  ->set("tiers.enabled", true)
+	  ->set("tiers.verify_copies", true)
+	  ->set("tiers.levels", [
+	    ["name" => "hot", "provider" => "s3", "location" => "'"$S3_BUCKET"'", "from_age" => 0],
+	    ["name" => "warm", "provider" => "s3", "location" => "'"$S3_REPLICA"'", "from_age" => 60,
+	     "retain_below" => true],
+	  ])
+	  ->save();
+	print "ladder configured\n";
+	'
 fi
 
 ddev drush cr
+
+echo
+echo ">>> Provisioning the object store"
+ddev drush php:script provision.php --script-path="$SCRIPT_PATH" || true
+
+#endregion
+
+#region Roles
+
+echo
+echo ">>> Creating one account per permission level"
+
+# the point is that these are separate grants: seeing the timeline reaches no rollback route, and
+# rolling back content does not reach storage credentials
+ddev drush -y php:eval '
+$roles = [
+  "strata_admin" => ["Strata Admin", ["administer strata"]],
+  "strata_operator" => ["Strata Operator", [
+    "view strata timeline", "view strata diffs", "view strata health",
+    "create strata snapshot", "rollback strata content", "rollback strata config",
+    "repair strata", "quarantine strata", "branch strata config", "merge strata config",
+  ]],
+  "strata_auditor" => ["Strata Auditor", [
+    "view strata timeline", "view strata diffs", "view strata payloads",
+    "view strata health", "view strata cost estimates",
+  ]],
+  "strata_viewer" => ["Strata Viewer", ["view strata timeline"]],
+];
+$available = array_keys(Drupal::service("user.permissions")->getPermissions());
+
+foreach ($roles as $id => [$label, $grants]) {
+  $role = Drupal\user\Entity\Role::load($id)
+    ?? Drupal\user\Entity\Role::create(["id" => $id, "label" => $label]);
+
+  foreach ($grants as $grant) {
+    if (in_array($grant, $available, true)) {
+      $role->grantPermission($grant);
+    }
+    else {
+      printf("  skipped %s, which this build does not declare\n", $grant);
+    }
+  }
+
+  $role->save();
+
+  $name = str_replace("_", "-", $id);
+  $user = user_load_by_name($name) ?: Drupal\user\Entity\User::create(["name" => $name]);
+  $user->setPassword("demo")->setEmail($name . "@example.com")->activate();
+  $user->addRole($id);
+  $user->save();
+
+  printf("  %-16s %d permissions\n", $name, count($role->getPermissions()));
+}
+'
 
 #endregion
 
@@ -583,13 +752,46 @@ echo "             http://127.0.0.1:8788"
 echo "Admin:       admin / admin"
 echo "Project dir: $SITE_DIR"
 
-if [ "$USE_S3" = "1" ]; then
-	echo "MinIO API:   $S3_ENDPOINT_HOST"
-	echo "MinIO UI:    http://127.0.0.1:9001  (strata / stratatest)"
-	echo "Bucket:      $S3_BUCKET"
+echo "Provider:    $PROVIDER"
+
+case "$PROVIDER" in
+	s3)
+		echo "MinIO API:   $S3_ENDPOINT_HOST"
+		echo "MinIO UI:    http://127.0.0.1:9001  (strata / stratatest)"
+		echo "Bucket:      $S3_BUCKET"
+		[ "$USE_TIERS" = "1" ] && echo "Replica:     $S3_REPLICA"
+		;;
+	azure)
+		echo "Azurite:     $AZURE_SERVICE_URL_HOST"
+		echo "Container:   $AZURE_CONTAINER"
+		;;
+	gcs)
+		echo "Fake GCS:    $GCS_API_URL_HOST/storage/v1/b"
+		echo "Bucket:      $GCS_BUCKET"
+		;;
+	local)
+		echo "Directory:   /var/www/html/private/strata (inside the web container)"
+		;;
+esac
+
+if [ "$USE_UI" = "1" ]; then
+	cat << 'ACCOUNTS'
+Accounts:    admin / admin, and one per permission level, all with the password `demo`
+               strata-admin     administer strata
+               strata-operator  rollback, repair and quarantine
+               strata-auditor   timeline, diffs, payloads, health, estimates
+               strata-viewer    the timeline and nothing else
+Reports:     /admin/reports/strata/timeline, /graphs, /diff, /health
+Settings:    /admin/config/system/strata/storage
+ACCOUNTS
 fi
 
 cat << 'NEXT'
+
+Try another object store. The site is rebuilt against it; the old bucket is left alone:
+  ./startup.sh --provider=azure            # azurite, over the native blob rest api
+  ./startup.sh --provider=gcs              # fake-gcs-server, over the json api
+  ./startup.sh --provider=s3 --tiers       # a two-bucket ladder with a replica
 
 Drive it:
   ./startup.sh traffic --scale=medium      # a site somebody uses, sealed as it goes
