@@ -86,11 +86,25 @@ Three lanes with different budgets:
 | Functional | `tests/src/Functional` | A browser and a live backend                   |
 
 The Kernel lane runs under paratest with `--functional --max-batch-size 20`, which splits by test
-method rather than by class. Parallelism is safe because every kernel test gets its own random table
-prefix, so workers share a database without sharing a schema. CI splits the same suite four ways
-through `ShardPlanner`, whose plan is a pure function of `phpunit --list-tests` and therefore needs no
-coordination between jobs. `bun run test:kernel:serial` is the escape hatch for a failure that only
-appears in order.
+method rather than by class. Workers share a database without sharing a schema, because every kernel
+test gets its own random table prefix. CI splits the same suite four ways through `ShardPlanner`,
+whose plan is a pure function of `phpunit --list-tests` and therefore needs no coordination between
+jobs. `bun run test:kernel:serial` is the escape hatch for a failure that only appears in order.
+
+**A table prefix isolates a schema, not the database.** Anything global to the database is still
+shared, and PostgreSQL has one of those on the kernel path: core's pgsql install tasks run
+`CREATE EXTENSION IF NOT EXISTS pg_trgm` in **every** `setUp()`, and that statement is not atomic. On
+a fresh database every worker in the first wave sees it missing, every one issues `CREATE`, and the
+losers get `duplicate key value violates unique constraint "pg_extension_name_index"` - which core
+catches and reports as "Failed to run installer database tasks", so it reads like a Strata failure
+inside `setUp()` rather than a race. Measured 2026-08-22: extension dropped plus eight workers gives
+7 failures out of 85; the identical command with it present gives 85 passing.
+
+It is **first-run-only**, which is what makes it dangerous: the winner creates the extension, so every
+later run on that container passes and the bug is invisible locally while CI fails on every fresh
+database. `docker/postgres-init/pg_trgm.sql` creates it at first init and the `restore` job in
+`build.yml` creates it before the workers start. A new database-global dependency needs the same
+treatment.
 
 Every test carries `#[Test]`, `#[TestDox('a lowercase sentence describing the behaviour')]` and
 `#[Group('strata/<area>')]`. Method names are bare camelCase with no `test` prefix. Test methods get

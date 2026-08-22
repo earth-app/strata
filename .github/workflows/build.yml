@@ -183,6 +183,15 @@ jobs:
           coverage: none
           tools: composer:v2
 
+      - name: Create pg_trgm Ahead of the Workers
+        if: matrix.db == 'pgsql'
+        run: |
+          php -r '
+            $pdo = new PDO("pgsql:host=127.0.0.1;port=5432;dbname=strata", "postgres", "strata");
+            $pdo->exec("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+            echo "pg_trgm is present\n";
+          '
+
       - name: Start MinIO
         run: |
           docker run -d --name strata-minio -p 9000:9000 \
