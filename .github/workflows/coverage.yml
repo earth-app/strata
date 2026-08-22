@@ -19,7 +19,7 @@ jobs:
       matrix:
         suite: [unit, functional]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -30,9 +30,10 @@ jobs:
           php-version: '8.3'
           extensions: sodium, zlib, zstd, brotli, json, pdo_sqlite, dom, gd
           coverage: pcov
+          ini-values: 'pcov.initial.files=25000,pcov.initial.memory=33554432'
           tools: composer:v2
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.composer/cache
           key: composer-coverage-${{ hashFiles('composer.json') }}
@@ -70,19 +71,48 @@ jobs:
           SIMPLETEST_BASE_URL: http://localhost:8087
           SIMPLETEST_DB: sqlite://localhost/sites/default/files/.ht.functional.sqlite
 
-      - uses: codecov/codecov-action@v5
+      - name: Upload Coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v7
         with:
-          files: coverage/${{ matrix.suite }}.clover.xml
-          flags: ${{ matrix.suite }}
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: earth-app/strata
           fail_ci_if_error: false
-
-      - uses: codecov/test-results-action@v1
-        if: always()
-        with:
-          files: coverage/${{ matrix.suite }}.junit.xml
+          report_type: coverage
           flags: ${{ matrix.suite }}
+          files: coverage/${{ matrix.suite }}.clover.xml
+
+      - name: Upload Test Results to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v7
+        with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: earth-app/strata
+          fail_ci_if_error: false
+          report_type: test_results
+          flags: ${{ matrix.suite }}
+          files: coverage/${{ matrix.suite }}.junit.xml
+
+      - name: Archive Coverage
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.suite }}
+          path: coverage/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Coverage to Job Summary
+        if: success() || failure()
+        run: |
+          echo "## Suite Coverage (${{ matrix.suite }})" >> $GITHUB_STEP_SUMMARY
+          if [ -f "coverage/${{ matrix.suite }}.coverage.txt" ]; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat "coverage/${{ matrix.suite }}.coverage.txt" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No report was produced; the run refused to measure.' >> $GITHUB_STEP_SUMMARY
+          fi
 
   kernel:
     name: Kernel Coverage (Shard ${{ matrix.shard }})
@@ -92,7 +122,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -103,9 +133,10 @@ jobs:
           php-version: '8.3'
           extensions: sodium, zlib, zstd, brotli, json, pdo_sqlite, dom, gd
           coverage: pcov
+          ini-values: 'pcov.initial.files=25000,pcov.initial.memory=33554432'
           tools: composer:v2
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.composer/cache
           key: composer-coverage-${{ hashFiles('composer.json') }}
@@ -125,16 +156,33 @@ jobs:
 
       - run: bun run test:coverage:kernel:shard
 
-      - uses: codecov/codecov-action@v5
+      - name: Upload Coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v7
         with:
-          files: coverage/kernel.clover.xml
-          flags: kernel
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: earth-app/strata
           fail_ci_if_error: false
-
-      - uses: codecov/test-results-action@v1
-        if: always()
-        with:
-          files: coverage/kernel.junit.xml
+          report_type: coverage
           flags: kernel
+          files: coverage/kernel.clover.xml
+
+      - name: Upload Test Results to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v7
+        with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: earth-app/strata
+          fail_ci_if_error: false
+          report_type: test_results
+          flags: kernel
+          files: coverage/kernel.junit.xml
+
+      - name: Archive Coverage
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-kernel-shard-${{ matrix.shard }}
+          path: coverage/
+          retention-days: 30
+          if-no-files-found: error
