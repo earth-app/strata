@@ -24,8 +24,12 @@ use Drupal\strata\Journal\Verb;
  * attribute a change to the wrong subject, which is worse than not recording it: the reconciler's
  * watermark notices an unrecorded change, and nothing notices one recorded against the wrong table.
  *
- * The query string arrives after table prefixing and brace substitution, so table names here are
- * the real ones the database sees.
+ * **The query string arrives after table prefixing, so the prefix has to come back off.** A site
+ * with `$databases['default']['default']['prefix']` set runs `INSERT INTO foo_widget`, and recording
+ * that verbatim breaks two things at once: the subject a restore looks for carries a deployment
+ * detail that can change under it, and `CaptureScope::coversTable()` stops recognising this module's
+ * own tables, so journaling a write becomes a write that gets journaled. The prefix is therefore
+ * passed in and stripped here, where the table name is decided.
  *
  * @see EventSubscriber\StatementCaptureSubscriber
  * @see Reconciler
@@ -133,12 +137,15 @@ final class SqlStatement
 	 *
 	 * @param string $sql
 	 *   The statement.
+	 * @param string $prefix
+	 *   The connection's table prefix, removed from the name so the subject is the logical table
+	 *   rather than the physical one.
 	 *
 	 * @return self|null
 	 *   The classification, or NULL when the statement is a read or its target cannot be read out of
 	 *   it with certainty.
 	 */
-	public static function parse(string $sql): ?self
+	public static function parse(string $sql, string $prefix = ''): ?self
 	{
 		$offset = self::skipBlanks($sql, 0);
 		$keyword = self::word($sql, $offset);
@@ -149,7 +156,7 @@ final class SqlStatement
 
 		[$name, $offset] = $keyword;
 
-		return match ($name) {
+		$statement = match ($name) {
 			'INSERT', 'REPLACE', 'MERGE', 'UPSERT' => self::rows(
 				$sql,
 				$offset,
@@ -162,6 +169,17 @@ final class SqlStatement
 			'TRUNCATE' => self::rows($sql, $offset, Verb::TRUNCATE, $name, ['TABLE']),
 			'CREATE', 'ALTER', 'DROP', 'RENAME' => self::structure($sql, $offset, $name),
 		};
+
+		if ($statement === null || $prefix === '' || !str_starts_with($statement->table, $prefix)) {
+			return $statement;
+		}
+
+		return new self(
+			$statement->verb,
+			$statement->realm,
+			substr($statement->table, strlen($prefix)),
+			$statement->keyword,
+		);
 	}
 
 	/**

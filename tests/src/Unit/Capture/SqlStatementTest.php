@@ -306,4 +306,71 @@ class SqlStatementTest extends TestCase
 	}
 
 	#endregion
+
+	#region Table Prefix
+
+	#[Test]
+	#[TestDox('the connection prefix comes off the table a statement names')]
+	#[Group('strata/capture')]
+	public function prefixIsRemoved(): void
+	{
+		$statement = SqlStatement::parse(
+			'INSERT INTO drupal_node_field_data (nid) VALUES (:a)',
+			'drupal_',
+		);
+
+		$this->assertNotNull($statement);
+		$this->assertSame('node_field_data', $statement->table);
+		$this->assertSame('node_field_data', $statement->subject());
+	}
+
+	#[Test]
+	#[TestDox('the prefix comes off a schema change as well as a row change')]
+	#[Group('strata/capture')]
+	public function prefixIsRemovedFromDdl(): void
+	{
+		$statement = SqlStatement::parse('ALTER TABLE drupal_demo ADD COLUMN extra INT', 'drupal_');
+
+		$this->assertNotNull($statement);
+		$this->assertSame('demo', $statement->table);
+		$this->assertSame(Realm::SCHEMA, $statement->realm);
+	}
+
+	#[Test]
+	#[TestDox("this module's own tables are recognisable again once the prefix is off")]
+	#[Group('strata/capture')]
+	public function ownTableIsRecognisableAfterStripping(): void
+	{
+		$statement = SqlStatement::parse(
+			'INSERT INTO test123strata_journal (sequence) VALUES (:a)',
+			'test123',
+		);
+
+		$this->assertNotNull($statement);
+		$this->assertStringStartsWith('strata_', $statement->table);
+	}
+
+	#[Test]
+	#[TestDox('a table that does not carry the prefix is left as it was')]
+	#[Group('strata/capture')]
+	public function tableWithoutThePrefixIsUntouched(): void
+	{
+		$statement = SqlStatement::parse('UPDATE other_widget SET a = :b', 'drupal_');
+
+		$this->assertNotNull($statement);
+		$this->assertSame('other_widget', $statement->table);
+	}
+
+	#[Test]
+	#[TestDox('no prefix configured leaves every name exactly as the statement wrote it')]
+	#[Group('strata/capture')]
+	public function noPrefixLeavesTheNameAlone(): void
+	{
+		$statement = SqlStatement::parse('UPDATE drupal_node_field_data SET title = :a');
+
+		$this->assertNotNull($statement);
+		$this->assertSame('drupal_node_field_data', $statement->table);
+	}
+
+	#endregion
 }

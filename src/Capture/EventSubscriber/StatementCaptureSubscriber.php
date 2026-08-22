@@ -43,6 +43,12 @@ use Throwable;
  * under 10 us per mutation, about 0.6 ms on a 200-query request. `strata:calibrate` measures it on
  * the real host and the settings form shows that number next to the switch.
  *
+ * **The connection's table prefix comes off before anything else looks at the name.** The SQL a
+ * statement event carries is already prefixed, and a prefix is a `settings.php` detail that can
+ * differ between the site a backup came from and the site it goes back to. It also hides this
+ * module's own tables from CaptureScope::coversTable(), which would make journaling a write a write
+ * that gets journaled.
+ *
  * **The gap this has, stated plainly.** Statement events are per-connection and off by default, so
  * they are enabled on the first request event this subscriber sees. Queries that run before that -
  * bootstrap, routing, session - are not captured. That is what the reconciler's watermark is for: a
@@ -269,7 +275,7 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 			return;
 		}
 
-		$statement = SqlStatement::parse($event->queryString);
+		$statement = SqlStatement::parse($event->queryString, $this->database->getPrefix());
 
 		if ($statement === null) {
 			return;
