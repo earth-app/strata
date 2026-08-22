@@ -101,13 +101,23 @@ final class Capabilities implements JsonSerializable
 	/**
 	 * The largest object this endpoint can store at all.
 	 *
+	 * The multipart product is saturated rather than left to overflow: the part limits come from a
+	 * probe reading whatever the endpoint said, and `maxPartSize * maxParts` past PHP_INT_MAX becomes
+	 * a float, which this return type would reject with a bare TypeError.
+	 *
 	 * @return int
-	 *   Bytes, counting multipart when it is available.
+	 *   Bytes, counting multipart when it is available; PHP_INT_MAX when the product is larger than
+	 *   an int can hold, which no object can reach anyway.
 	 */
 	public function maxObjectSize(): int
 	{
 		if (!$this->multipart) {
 			return $this->maxSinglePut;
+		}
+
+		// tested by division rather than by multiplying into a float, which loses precision past 2^53
+		if ($this->maxParts > 0 && $this->maxPartSize > intdiv(PHP_INT_MAX, $this->maxParts)) {
+			return PHP_INT_MAX;
 		}
 
 		return $this->maxPartSize * $this->maxParts;

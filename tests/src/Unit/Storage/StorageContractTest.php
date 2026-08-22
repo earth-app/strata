@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Unit\Storage;
 
 use Drupal\strata\Storage\ByteRange;
+use Drupal\strata\Storage\Capabilities;
 use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 use Drupal\strata\Storage\Plugin\Strata\Storage\NullStorage;
 use Drupal\strata\Storage\StorageProviderInterface;
@@ -17,6 +18,8 @@ use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
+#[CoversClass(ByteRange::class)]
+#[CoversClass(Capabilities::class)]
 #[CoversClass(LocalStorage::class)]
 #[CoversClass(NullStorage::class)]
 class StorageContractTest extends TestCase
@@ -604,6 +607,136 @@ class StorageContractTest extends TestCase
 			['objects' => 0, 'bytes' => 0, 'writes' => 0, 'deletes' => 0, 'largest' => 0],
 			$store->statistics(),
 		);
+	}
+
+	#endregion
+
+	#region Size Ceilings
+
+	#[Test]
+	#[TestDox('a local store has no multipart, so its ceiling is the single put it accepts')]
+	#[Group('strata/storage')]
+	public function localCeilingIsTheSinglePut(): void
+	{
+		$capabilities = Capabilities::local();
+
+		$this->assertFalse($capabilities->multipart);
+		$this->assertSame(PHP_INT_MAX, $capabilities->maxObjectSize());
+		$this->assertTrue($capabilities->canStore(PHP_INT_MAX));
+		$this->assertFalse($capabilities->requiresMultipart(PHP_INT_MAX));
+	}
+
+	#[Test]
+	#[TestDox('multipart is required one byte over the single put and not one byte under it')]
+	#[Group('strata/storage')]
+	public function multipartBeginsOneByteOverTheSinglePut(): void
+	{
+		$capabilities = new Capabilities(multipart: true, maxSinglePut: 5_368_709_120);
+
+		$this->assertFalse($capabilities->requiresMultipart(5_368_709_119));
+		$this->assertFalse($capabilities->requiresMultipart(5_368_709_120));
+		$this->assertTrue($capabilities->requiresMultipart(5_368_709_121));
+		$this->assertFalse($capabilities->requiresMultipart(0));
+	}
+
+	#[Test]
+	#[TestDox('an object over the multipart ceiling cannot be stored, and one at it can')]
+	#[Group('strata/storage')]
+	public function ceilingIsThePartSizeTimesThePartCount(): void
+	{
+		$capabilities = new Capabilities(
+			multipart: true,
+			maxPartSize: 5_368_709_120,
+			maxParts: 10_000,
+		);
+		$ceiling = 5_368_709_120 * 10_000;
+
+		$this->assertSame($ceiling, $capabilities->maxObjectSize());
+		$this->assertTrue($capabilities->canStore($ceiling));
+		$this->assertFalse($capabilities->canStore($ceiling + 1));
+		$this->assertFalse($capabilities->canStore(PHP_INT_MAX));
+	}
+
+	#[Test]
+	#[TestDox('a part product past the integer ceiling is pinned rather than raising a type error')]
+	#[Group('strata/storage')]
+	public function ceilingSaturatesInsteadOfOverflowing(): void
+	{
+		// the part limits come from a probe, so an endpoint reporting nonsense must not fatal
+		$capabilities = new Capabilities(
+			multipart: true,
+			maxPartSize: PHP_INT_MAX,
+			maxParts: 10_000,
+		);
+
+		$this->assertSame(PHP_INT_MAX, $capabilities->maxObjectSize());
+		$this->assertTrue($capabilities->canStore(PHP_INT_MAX));
+
+		// a product above 2^53 stays exact, which multiplying through a float would not
+		$this->assertSame(
+			1_000_000_000_001 * 10_000,
+			(new Capabilities(
+				multipart: true,
+				maxPartSize: 1_000_000_000_001,
+				maxParts: 10_000,
+			))->maxObjectSize(),
+		);
+	}
+
+	#[Test]
+	#[TestDox('a part size never falls below the minimum or rises above the maximum')]
+	#[Group('strata/storage')]
+	public function partSizeStaysInsideTheEndpointLimits(): void
+	{
+		$capabilities = new Capabilities(
+			multipart: true,
+			minPartSize: 5_242_880,
+			maxPartSize: 5_368_709_120,
+			maxParts: 10_000,
+		);
+
+		$this->assertSame(5_242_880, $capabilities->partSizeFor(0));
+		$this->assertSame(5_242_880, $capabilities->partSizeFor(1));
+		$this->assertSame(5_368_709_120, $capabilities->partSizeFor(PHP_INT_MAX));
+
+		// a part count of zero would divide by zero without the max(1) guard
+		$this->assertSame(
+			5_242_880,
+			(new Capabilities(multipart: true, maxParts: 0))->partSizeFor(1_000),
+		);
+	}
+
+	#[Test]
+	#[TestDox('an endpoint with no batch delete deletes one key at a time')]
+	#[Group('strata/storage')]
+	public function batchSizeFallsBackToOne(): void
+	{
+		$this->assertSame(1, (new Capabilities(batchDelete: false))->deleteBatchSize());
+		$this->assertSame(
+			1,
+			(new Capabilities(batchDelete: true, maxBatchDelete: 0))->deleteBatchSize(),
+		);
+		$this->assertSame(
+			1_000,
+			(new Capabilities(batchDelete: true, maxBatchDelete: 1_000))->deleteBatchSize(),
+		);
+	}
+
+	#[Test]
+	#[TestDox('a probe refines the set it was given and ignores a name it does not know')]
+	#[Group('strata/storage')]
+	public function probeRefinesRatherThanReplaces(): void
+	{
+		$refined = Capabilities::local()->with([
+			'multipart' => true,
+			'maxParts' => 42,
+			'somethingANewerReleaseAdded' => true,
+		]);
+
+		$this->assertTrue($refined->multipart);
+		$this->assertSame(42, $refined->maxParts);
+		$this->assertTrue($refined->batchDelete, 'an unnamed flag keeps the value it had');
+		$this->assertSame($refined->jsonSerialize()['maxParts'], 42);
 	}
 
 	#endregion
