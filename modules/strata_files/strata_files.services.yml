@@ -9,7 +9,7 @@ services:
   Drupal\strata_files\Hook\ManagedFileCapture:
     class: Drupal\strata_files\Hook\ManagedFileCapture
     arguments:
-      - '@strata_files.capture'
+      - '@strata.engine'
       - '@strata.capture_scope'
       - '@current_user'
       - '@file_system'

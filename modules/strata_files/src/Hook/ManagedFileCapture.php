@@ -9,6 +9,7 @@ use Drupal\Core\Hook\Attribute\Hook;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\file\FileInterface;
 use Drupal\strata\Capture\CaptureScope;
+use Drupal\strata\Engine;
 use Drupal\strata\File\FileCapture;
 use Drupal\strata\Journal\Realm;
 use Psr\Log\LoggerInterface;
@@ -26,15 +27,28 @@ use Throwable;
  * it would fill the file realm with uploads nobody kept. The insert of a temporary file is ignored and
  * the update that makes it permanent is what captures it.
  *
+ * **The engine arrives rather than the capture, and that is load bearing.** Building a FileCapture
+ * assembles the storage provider, which refuses when nothing is configured yet. Drupal's hook system
+ * resolves this class from the container before `hook_file_insert` is invoked and outside any
+ * try/catch of its own, so a constructor argument that refused would fail every file save on the
+ * site rather than being logged. The capture is therefore resolved on first use, inside the same
+ * guard that already keeps a failed capture from breaking the save.
+ *
  * @see FileCapture
  */
 final class ManagedFileCapture
 {
 	/**
+	 * The capture, once a file has needed one.
+	 */
+	private ?FileCapture $capture = null;
+
+	/**
 	 * Constructs the capture.
 	 *
-	 * @param FileCapture $capture
-	 *   Stores the file as blocks.
+	 * @param Engine $engine
+	 *   Builds the block store on first use. Deliberately not the capture itself; see the class
+	 *   docblock.
 	 * @param CaptureScope $scope
 	 *   Decides whether the file realm is captured.
 	 * @param AccountProxyInterface $currentUser
@@ -45,7 +59,7 @@ final class ManagedFileCapture
 	 *   Records a capture that could not run.
 	 */
 	public function __construct(
-		private readonly FileCapture $capture,
+		private readonly Engine $engine,
 		private readonly CaptureScope $scope,
 		private readonly AccountProxyInterface $currentUser,
 		private readonly FileSystemInterface $files,
@@ -96,14 +110,25 @@ final class ManagedFileCapture
 		}
 
 		try {
-			// a capture never breaks the save that caused it
-			$this->capture->capture($path, $uri, $this->actor());
+			// a capture never breaks the save that caused it, and assembling the store is part of it
+			$this->capture()->capture($path, $uri, $this->actor());
 		} catch (Throwable $error) {
 			$this->logger->error('Strata could not capture %file: %message', [
 				'%file' => $uri,
 				'%message' => $error->getMessage(),
 			]);
 		}
+	}
+
+	/**
+	 * The capture, resolved once.
+	 *
+	 * @return FileCapture
+	 *   The capture.
+	 */
+	private function capture(): FileCapture
+	{
+		return $this->capture ??= $this->engine->fileCapture();
 	}
 
 	/**

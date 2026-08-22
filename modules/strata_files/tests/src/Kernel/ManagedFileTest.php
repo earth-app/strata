@@ -194,6 +194,20 @@ class ManagedFileTest extends KernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('a file save survives a store that cannot be assembled')]
+	#[Group('strata/file')]
+	public function fileSaveSurvivesAnUnassembledStore(): void
+	{
+		$this->config('strata.settings')->set('local_path', '')->save();
+		$this->engine()->reset();
+
+		$file = $this->managed('orphan.bin', str_repeat('block content ', 100));
+
+		$this->assertNotNull($file->id(), 'the save Drupal was doing completed');
+		$this->assertSame([], $this->subjects(), 'nothing was captured');
+	}
+
+	#[Test]
 	#[TestDox('editing a managed file stores only what changed')]
 	#[Group('strata/file')]
 	public function editingStoresOnlyTheChange(): void
