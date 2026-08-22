@@ -91,6 +91,87 @@ class InstallTest extends StrataKernelTestBase
 
 	#endregion
 
+	#region Updates
+
+	#[Test]
+	#[TestDox('widening the journal sequence keeps the operations already waiting in it')]
+	#[Group('strata/install')]
+	public function wideningTheSequenceKeepsPendingWork(): void
+	{
+		$this->narrowTheSequence();
+		$this->appendJournalRow('entity/node:1');
+
+		strata_update_11103();
+
+		$this->assertSame(
+			1,
+			(int) $this->container
+				->get('database')
+				->select('strata_journal', 'j')
+				->countQuery()
+				->execute()
+				?->fetchField(),
+			'the column was widened in place, so nothing pending was dropped',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a widened journal sequence holds a value a 32-bit key could not')]
+	#[Group('strata/install')]
+	public function theWidenedSequenceHoldsALargeKey(): void
+	{
+		$this->narrowTheSequence();
+
+		strata_update_11103();
+
+		$this->appendJournalRow('entity/node:2', PHP_INT_MAX);
+
+		$this->assertSame(
+			PHP_INT_MAX,
+			(int) $this->container
+				->get('database')
+				->select('strata_journal', 'j')
+				->fields('j', ['sequence'])
+				->execute()
+				?->fetchField(),
+		);
+	}
+
+	#[Test]
+	#[TestDox('trimming everything is accepted rather than refused as out of range')]
+	#[Group('strata/install')]
+	public function trimmingEverythingIsAccepted(): void
+	{
+		$this->narrowTheSequence();
+		$this->appendJournalRow('entity/node:3');
+
+		strata_update_11103();
+
+		// PHP_INT_MAX is how a caller says "everything", and against a 32-bit column PostgreSQL
+		// refuses the statement outright while MySQL and SQLite coerce it silently
+		$removed = $this->container->get('strata.journal')->trim(PHP_INT_MAX);
+
+		$this->assertSame(1, $removed);
+		$this->assertSame(0, $this->container->get('strata.journal')->pending());
+	}
+
+	#[Test]
+	#[TestDox('the update is safe to run twice, since a site can re-run a failed batch')]
+	#[Group('strata/install')]
+	public function theUpdateIsRepeatable(): void
+	{
+		$this->narrowTheSequence();
+
+		strata_update_11103();
+		strata_update_11103();
+
+		$this->appendJournalRow('entity/node:4', PHP_INT_MAX);
+
+		$this->assertSame(1, $this->container->get('strata.journal')->pending());
+	}
+
+	#endregion
+
 	#region Configuration
 
 	#[Test]
@@ -195,6 +276,128 @@ class InstallTest extends StrataKernelTestBase
 		$this->assertSame([], (array) strata_requirements('update'));
 	}
 
+	#[Test]
+	#[TestDox('the status report names the store the site writes to')]
+	#[Group('strata/install')]
+	public function requirementsReportTheStore(): void
+	{
+		$requirements = (array) strata_requirements('runtime');
+
+		$this->assertArrayHasKey('strata_storage', $requirements);
+		$this->assertArrayHasKey('severity', $requirements['strata_storage']);
+	}
+
+	#[Test]
+	#[TestDox('a writable local directory is reported as usable')]
+	#[Group('strata/install')]
+	public function aWritableLocalDirectoryIsUsable(): void
+	{
+		$path = $this->siteDirectory . '/strata-requirement';
+		mkdir($path, 0777, true);
+
+		$this->settings()->set('provider', 'local')->set('local_path', $path)->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::OK, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('a stream wrapper the site does not have is named rather than probed')]
+	#[Group('strata/install')]
+	public function anUnconfiguredStreamWrapperIsNamed(): void
+	{
+		// the shipped default; is_dir() on an unregistered wrapper raises a warning instead of
+		// answering, and this runs on the status report
+		$this->settings()->set('provider', 'local')->set('local_path', 'private://strata')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+		$this->assertArrayHasKey('description', $requirement);
+	}
+
+	#[Test]
+	#[TestDox('a local directory that is not there is an error rather than a silent first flush')]
+	#[Group('strata/install')]
+	public function aMissingLocalDirectoryIsAnError(): void
+	{
+		$this->settings()
+			->set('provider', 'local')
+			->set('local_path', $this->siteDirectory . '/never-created')
+			->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('the local provider with no directory set is an error, not an empty value')]
+	#[Group('strata/install')]
+	public function localWithNoDirectoryIsAnError(): void
+	{
+		$this->settings()->set('provider', 'local')->set('local_path', '')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('choosing no provider at all is reported as nothing being backed up')]
+	#[Group('strata/install')]
+	public function noProviderChosenIsReported(): void
+	{
+		$this->settings()->set('provider', '')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Warning, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('the null provider is reported as keeping nothing, since it looks like it works')]
+	#[Group('strata/install')]
+	public function theNullProviderIsReportedAsKeepingNothing(): void
+	{
+		$this->settings()->set('provider', 'null')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Warning, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('a provider nothing registered is reported unreachable rather than raising')]
+	#[Group('strata/install')]
+	public function anUnregisteredProviderIsReportedNotRaised(): void
+	{
+		// strata_s3 is not enabled in this lane, so nothing answers to the id
+		$this->settings()->set('provider', 's3')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+		$this->assertArrayHasKey('description', $requirement);
+	}
+
+	#[Test]
+	#[TestDox('the status report answers with encryption on and no key chosen')]
+	#[Group('strata/install')]
+	public function requirementsDoNotAssembleTheEngine(): void
+	{
+		// the shipped default, and the reason this cannot be routed through strata.engine: assembling
+		// the store refuses without a key, which would report a key problem where a bucket was asked
+		// about - or take the status page down entirely
+		$this->assertSame('', (string) $this->settings()->get('key'));
+
+		$requirements = (array) strata_requirements('runtime');
+
+		$this->assertArrayHasKey('strata_storage', $requirements);
+		$this->assertArrayHasKey('strata_codecs', $requirements);
+	}
+
 	#endregion
 
 	#region The engine, inside Drupal
@@ -258,6 +461,53 @@ class InstallTest extends StrataKernelTestBase
 		$this->assertStringContainsString($this->siteDirectory, $this->storeRoot);
 		$this->assertTrue($this->provider()->isReachable());
 		$this->assertSame('payload', $this->provider()->get('probe'));
+	}
+
+	#endregion
+
+	#region Fixtures
+
+	/**
+	 * Rebuilds the journal table with the 32-bit sequence a pre-update site has.
+	 */
+	private function narrowTheSequence(): void
+	{
+		$schema = $this->container->get('database')->schema();
+		$definition = $this->strataSchema()['strata_journal'];
+
+		unset($definition['fields']['sequence']['size']);
+
+		$schema->dropTable('strata_journal');
+		$schema->createTable('strata_journal', $definition);
+	}
+
+	/**
+	 * Writes one journal row straight to the table.
+	 *
+	 * Bypasses the journal so a row can be given an explicit sequence, which is the whole point of
+	 * the width the update changes.
+	 *
+	 * @param string $subject
+	 *   The subject the row records.
+	 * @param int|null $sequence
+	 *   An explicit sequence, or NULL to let the column assign one.
+	 */
+	private function appendJournalRow(string $subject, ?int $sequence = null): void
+	{
+		$fields = [
+			'microtime' => 1_755_000_000_000_000,
+			'realm' => 'entity',
+			'subject' => $subject,
+			'verb' => 'update',
+			'payload_length' => 0,
+			'label' => 'a captured write',
+		];
+
+		if ($sequence !== null) {
+			$fields['sequence'] = $sequence;
+		}
+
+		$this->container->get('database')->insert('strata_journal')->fields($fields)->execute();
 	}
 
 	#endregion
