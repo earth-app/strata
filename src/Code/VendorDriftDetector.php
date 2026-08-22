@@ -98,7 +98,8 @@ final class VendorDriftDetector
 
 		ksort($entries);
 
-		return Hash::of((string) json_encode($entries));
+		// a path is bytes on posix, and a bare cast would fingerprint every such tree as Hash::of('')
+		return Hash::ofData($entries);
 	}
 
 	/**

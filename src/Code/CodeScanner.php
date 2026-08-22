@@ -224,7 +224,8 @@ final class CodeScanner
 
 		ksort($digests);
 
-		return Hash::of((string) json_encode($digests));
+		// a path is bytes on posix, and a bare cast would digest every such tree to Hash::of('')
+		return Hash::ofData($digests);
 	}
 
 	/**

@@ -15,6 +15,7 @@ use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\JournalOp;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Journal\Verb;
+use JsonException;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -355,7 +356,9 @@ final class Reconciler
 
 		$rows = $query->execute()?->fetchAll(FetchAs::Associative) ?? [];
 
-		return $rows === [] ? '' : Hash::of((string) json_encode($rows));
+		// Hash::ofData() and not Hash::of(json_encode()): a BLOB or a binary key digests to
+		// Hash::of('') under a bare cast, so two different readings compare equal and this is blind
+		return $rows === [] ? '' : Hash::ofData($rows);
 	}
 
 	/**
@@ -575,7 +578,7 @@ final class Reconciler
 			$captured = 0;
 
 			foreach ($rows as $row) {
-				$captured += $this->appendRow($table, $key, $row) ? 1 : 0;
+				$captured += $this->appendRow($table, $key, $row, $problems) ? 1 : 0;
 			}
 
 			return $captured;
@@ -589,24 +592,45 @@ final class Reconciler
 	/**
 	 * Appends one row as a captured operation.
 	 *
+	 * A row holding bytes that are not valid UTF-8 - a BLOB column, a binary primary key - cannot be
+	 * described in JSON, and the reading's fresh watermark is already stored by the time this runs.
+	 * So a row that cannot be encoded is reported rather than appended: appending
+	 * `(string) json_encode($row)` would file an operation whose payload is empty, whose address is
+	 * `Hash::of('')` and whose length is zero, and the drift would never be looked at again.
+	 *
 	 * @param string $table
 	 *   The table name.
 	 * @param string $key
 	 *   The primary key column.
 	 * @param array<string, mixed> $row
 	 *   The row.
+	 * @param list<string> $problems
+	 *   Collects a line when the row cannot be captured.
 	 *
 	 * @return bool
 	 *   TRUE when the row was appended.
 	 */
-	private function appendRow(string $table, string $key, array $row): bool
+	private function appendRow(string $table, string $key, array $row, array &$problems): bool
 	{
 		if (!array_key_exists($key, $row)) {
 			return false;
 		}
 
-		$payload = (string) json_encode($row);
 		$subject = sprintf('%s:%s=%s', $table, $key, (string) $row[$key]);
+
+		try {
+			$payload = json_encode($row, JSON_THROW_ON_ERROR);
+		} catch (JsonException) {
+			// the offending bytes can be the key itself, so it is percent-encoded into the message
+			$problems[] = sprintf(
+				'%s: the row where %s is %s holds bytes JSON cannot describe, so it was not captured',
+				$table,
+				$key,
+				rawurlencode((string) $row[$key]),
+			);
+
+			return false;
+		}
 
 		try {
 			$this->journal->append(

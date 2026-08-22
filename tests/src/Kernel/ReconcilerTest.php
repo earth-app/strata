@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Kernel;
 
+use Drupal\Core\Database\Statement\FetchAs;
 use Drupal\strata\Capture\Reconciler;
+use Drupal\strata\Cas\Hash;
 use Drupal\strata\Engine;
 use Drupal\strata\Health\Finding;
 use Drupal\strata\Journal\JournalInterface;
@@ -250,6 +252,51 @@ class ReconcilerTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('an in-place update is caught even when the row holds bytes json cannot describe')]
+	#[Group('strata/capture')]
+	public function inPlaceUpdateOfBinaryRowIsCaught(): void
+	{
+		$id = $this->insertWidget("before \xC3\x28");
+		$this->reconciler()->reconcile([self::TABLE]);
+
+		// both readings digested to Hash::of('') before the fallback, so this compared equal
+		$this->container
+			->get('database')
+			->update(self::TABLE)
+			->fields(['label' => "after \xFF\xFE"])
+			->condition('wid', $id)
+			->execute();
+
+		$report = $this->reconciler()->reconcile([self::TABLE], 100, false);
+
+		$this->assertSame(1, $report->drifted);
+		$this->assertStringContainsString('sampled rows differ', $report->drift[self::TABLE]);
+	}
+
+	#[Test]
+	#[TestDox('a digest a previous release stored stays valid, so an upgrade is not a drift storm')]
+	#[Group('strata/capture')]
+	public function jsonDigestsAreUnchanged(): void
+	{
+		$this->insertWidget('plain ascii');
+		$this->reconciler()->reconcile([self::TABLE]);
+
+		$stored = $this->reconciler()->stored(self::TABLE);
+		$this->assertNotNull($stored);
+
+		// the same sample a release before the fallback took: columns sorted, ordered by the key
+		$rows = $this->container
+			->get('database')
+			->select(self::TABLE, 't')
+			->fields('t', ['changed', 'label', 'wid'])
+			->orderBy('t.wid')
+			->execute()
+			?->fetchAll(FetchAs::Associative);
+
+		$this->assertSame(Hash::of((string) json_encode($rows)), $stored->digest);
+	}
+
+	#[Test]
 	#[TestDox('an insert paired with deleting an older row is caught by the highest key')]
 	#[Group('strata/capture')]
 	public function insertWithOlderDeleteIsCaught(): void
@@ -376,6 +423,36 @@ class ReconcilerTest extends StrataKernelTestBase
 		}
 
 		$this->fail('the drifted row was not captured');
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a row holding bytes json cannot describe is reported, not captured as an empty payload',
+		),
+	]
+	#[Group('strata/capture')]
+	public function unencodableRowIsReportedRatherThanCapturedEmpty(): void
+	{
+		$this->reconciler()->reconcile([self::TABLE]);
+		$id = $this->insertWidget("caf\xE9 blob \xC3\x28");
+
+		$report = $this->reconciler()->reconcile([self::TABLE], 100, true);
+
+		$this->assertSame(1, $report->drifted);
+		$this->assertSame(0, $report->captured);
+		$this->assertStringContainsString(
+			sprintf('the row where wid is %d holds bytes JSON cannot describe', $id),
+			implode(' ', $report->problems),
+		);
+
+		// the fresh watermark is already stored, so an empty payload here would be permanent loss
+		foreach ($this->journal()->read(100) as $entry) {
+			$this->assertNotSame(
+				sprintf('%s:wid=%d', self::TABLE, $id),
+				$entry['operation']->subject,
+			);
+		}
 	}
 
 	#[Test]
