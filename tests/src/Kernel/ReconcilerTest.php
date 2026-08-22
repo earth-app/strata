@@ -80,6 +80,11 @@ class ReconcilerTest extends StrataKernelTestBase
 
 	/**
 	 * Creates a table with a single-column key and a changed timestamp.
+	 *
+	 * `payload` is a blob rather than another varchar because that is the only column type that can
+	 * hold bytes JSON cannot describe. MySQL rejects an invalid UTF-8 sequence in a utf8mb4 varchar
+	 * outright, so the two binary cases below have nowhere else to put their bytes, and a blob is
+	 * where such a value lives on a real site anyway.
 	 */
 	private function createWidgetTable(): void
 	{
@@ -99,6 +104,7 @@ class ReconcilerTest extends StrataKernelTestBase
 					'default' => '',
 				],
 				'changed' => ['type' => 'int', 'not null' => true, 'default' => 0],
+				'payload' => ['type' => 'blob', 'not null' => false],
 			],
 			'primary key' => ['wid'],
 		]);
@@ -107,12 +113,12 @@ class ReconcilerTest extends StrataKernelTestBase
 	/**
 	 * Writes a row straight to the database, bypassing every capture hook.
 	 */
-	private function insertWidget(string $label, int $changed = 0): int
+	private function insertWidget(string $label, int $changed = 0, ?string $payload = null): int
 	{
 		return (int) $this->container
 			->get('database')
 			->insert(self::TABLE)
-			->fields(['label' => $label, 'changed' => $changed])
+			->fields(['label' => $label, 'changed' => $changed, 'payload' => $payload])
 			->execute();
 	}
 
@@ -256,14 +262,14 @@ class ReconcilerTest extends StrataKernelTestBase
 	#[Group('strata/capture')]
 	public function inPlaceUpdateOfBinaryRowIsCaught(): void
 	{
-		$id = $this->insertWidget("before \xC3\x28");
+		$id = $this->insertWidget('before', 0, "before \xC3\x28");
 		$this->reconciler()->reconcile([self::TABLE]);
 
 		// both readings digested to Hash::of('') before the fallback, so this compared equal
 		$this->container
 			->get('database')
 			->update(self::TABLE)
-			->fields(['label' => "after \xFF\xFE"])
+			->fields(['payload' => "after \xFF\xFE"])
 			->condition('wid', $id)
 			->execute();
 
@@ -288,7 +294,7 @@ class ReconcilerTest extends StrataKernelTestBase
 		$rows = $this->container
 			->get('database')
 			->select(self::TABLE, 't')
-			->fields('t', ['changed', 'label', 'wid'])
+			->fields('t', ['changed', 'label', 'payload', 'wid'])
 			->orderBy('t.wid')
 			->execute()
 			?->fetchAll(FetchAs::Associative);
@@ -435,7 +441,7 @@ class ReconcilerTest extends StrataKernelTestBase
 	public function unencodableRowIsReportedRatherThanCapturedEmpty(): void
 	{
 		$this->reconciler()->reconcile([self::TABLE]);
-		$id = $this->insertWidget("caf\xE9 blob \xC3\x28");
+		$id = $this->insertWidget('blob', 0, "caf\xE9 blob \xC3\x28");
 
 		$report = $this->reconciler()->reconcile([self::TABLE], 100, true);
 
