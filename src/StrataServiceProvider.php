@@ -49,6 +49,12 @@ final class StrataServiceProvider implements ServiceModifierInterface
 			return;
 		}
 
+		// wrapping the decorator in a second decorator would journal every write twice, and the
+		// duplicate would look like a real second operation rather than like a bug
+		if ($inner->getClass() === KeyValueCaptureFactory::class) {
+			return;
+		}
+
 		$container->setDefinition(self::INNER, $inner);
 
 		// a service closure, not a reference: core asks `keyvalue` for a store while this very
