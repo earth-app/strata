@@ -37,6 +37,11 @@ final class CaptureScope
 	private ?array $resolved = null;
 
 	/**
+	 * Whether the settings are being read right now.
+	 */
+	private bool $resolving = false;
+
+	/**
 	 * Constructs a scope.
 	 *
 	 * @param ConfigFactoryInterface $configFactory
@@ -182,13 +187,34 @@ final class CaptureScope
 	/**
 	 * The settings, resolved once.
 	 *
+	 * `??=` assigns after its right-hand side has run, so during a cold read the memo is still NULL.
+	 * A cold read of `strata.settings` misses `cache_config` and writes it back, that write is a
+	 * MERGE, and MERGE is a write keyword the statement tap acts on - which asks this object what it
+	 * covers, from inside the read that has not finished. The flag ends that walk rather than
+	 * recursing. What makes it unreachable today is that `StatementCaptureSubscriber::enable()`
+	 * resolves the scope before it enables the events, and that invariant lives in another class.
+	 *
 	 * @return array<string, mixed>
-	 *   The raw settings array.
+	 *   The raw settings array, or an empty one while a resolution is already in flight, which reads
+	 *   as "nothing is captured" and is the safe answer for a statement Strata itself caused.
 	 */
 	private function settings(): array
 	{
-		return $this->resolved ??= (array) $this->configFactory
-			->get('strata.settings')
-			->getRawData();
+		if ($this->resolved !== null) {
+			return $this->resolved;
+		}
+		if ($this->resolving) {
+			return [];
+		}
+
+		$this->resolving = true;
+
+		try {
+			return $this->resolved = (array) $this->configFactory
+				->get('strata.settings')
+				->getRawData();
+		} finally {
+			$this->resolving = false;
+		}
 	}
 }
