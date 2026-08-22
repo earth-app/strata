@@ -151,6 +151,22 @@ overhead on the host that will run them. Use its numbers, not the ones below.
 The top-level module is the engine. Each submodule is optional, and uninstalling one leaves stored
 history untouched.
 
+### Provider Maturity
+
+Every provider signs its own requests and is covered by unit tests over a mocked transport. What
+differs is how far each one has been driven against something that answers.
+
+| Provider              | Exercised against                                |
+| --------------------- | ------------------------------------------------ |
+| S3, S3-compatible, R2 | MinIO, in CI on every push                       |
+| Azure Blob Storage    | Azurite, when `STRATA_AZURE_ENDPOINT` is set     |
+| Google Cloud Storage  | fake-gcs-server, when `STRATA_GCS_BUCKET` is set |
+| Backblaze B2          | Nothing yet; B2 has no emulator                  |
+
+Run `drush strata:verify` after the first flush on any of them, which fetches and decodes everything
+the store holds, and read the report before trusting a schedule. On B2 that is the only evidence
+available.
+
 ## ⚙️ Configuration
 
 Settings live at `/admin/config/system/strata/`, one page per concern: Storage, Capture, Retention,
