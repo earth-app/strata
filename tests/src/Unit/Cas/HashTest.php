@@ -367,4 +367,76 @@ class HashTest extends TestCase
 	}
 
 	#endregion
+
+	#region Structures
+
+	#[Test]
+	#[TestDox('a structure JSON can carry digests exactly as a bare json_encode did')]
+	#[Group('strata/cas')]
+	public function jsonStructuresKeepTheirOldDigest(): void
+	{
+		$value = ['b' => 2, 'a' => ['nested' => true, 'text' => 'plain']];
+
+		// the property that lets this replace a bare cast without invalidating anything stored
+		$this->assertSame(Hash::of((string) json_encode($value)), Hash::ofData($value));
+	}
+
+	#[Test]
+	#[TestDox('two structures JSON cannot carry get different digests instead of sharing one')]
+	#[Group('strata/cas')]
+	public function binaryStructuresDoNotCollide(): void
+	{
+		$first = ['blob' => "\xC3\x28"];
+		$second = ['blob' => "\xFF\xFE"];
+
+		// under a bare cast both were Hash::of(''), which is what made every tripwire on this blind
+		$this->assertNotSame(Hash::ofData($first), Hash::ofData($second));
+		$this->assertNotSame(Hash::of(''), Hash::ofData($first));
+		$this->assertNotSame(Hash::of(''), Hash::ofData($second));
+	}
+
+	#[Test]
+	#[TestDox('a binary structure digests the same way twice, so a comparison means something')]
+	#[Group('strata/cas')]
+	public function binaryStructuresAreStable(): void
+	{
+		$value = ['key' => "\x00\xFF binary \xC3\x28", 'n' => 7];
+
+		$this->assertSame(Hash::ofData($value), Hash::ofData($value));
+		$this->assertSame(Hash::HEX_LENGTH, strlen(Hash::ofData($value)));
+	}
+
+	#[Test]
+	#[TestDox('order is part of the identity, since a caller sorts when it should not be')]
+	#[Group('strata/cas')]
+	public function orderChangesTheDigest(): void
+	{
+		$this->assertNotSame(
+			Hash::ofData(['a' => 1, 'b' => 2]),
+			Hash::ofData(['b' => 2, 'a' => 1]),
+		);
+	}
+
+	#[Test]
+	#[TestDox('an empty structure digests to the digest of its own encoding, not of nothing')]
+	#[Group('strata/cas')]
+	public function emptyStructureHasItsOwnDigest(): void
+	{
+		$this->assertSame(Hash::of('[]'), Hash::ofData([]));
+		$this->assertNotSame(Hash::of(''), Hash::ofData([]));
+	}
+
+	#[Test]
+	#[TestDox('a key applies to a structure the same way it applies to bytes')]
+	#[Group('strata/cas')]
+	public function keyedStructureDigestDiffers(): void
+	{
+		$value = ['a' => 1];
+		$key = str_pad('strata', 32, "\0");
+
+		$this->assertNotSame(Hash::ofData($value), Hash::ofData($value, $key));
+		$this->assertSame(Hash::of('{"a":1}', $key), Hash::ofData($value, $key));
+	}
+
+	#endregion
 }

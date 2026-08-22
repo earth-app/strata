@@ -189,6 +189,37 @@ final class Hash
 	}
 
 	/**
+	 * Digests a structure, whatever bytes it holds.
+	 *
+	 * For a digest that is compared and never read back: a watermark over sampled rows, a fingerprint
+	 * over a file tree, a deploy digest over per-file hashes. Such a digest only has to be
+	 * deterministic and binary-safe.
+	 *
+	 * JSON is tried first so a digest a previous release stored stays byte-identical and an upgrade
+	 * does not report a change that did not happen. `serialize()` is the fallback because
+	 * `json_encode()` returns FALSE for anything that is not valid UTF-8, and the callers of this
+	 * method all key on something the site controls - a database row, a filesystem path - which on
+	 * POSIX is bytes rather than text. `(string) false` is the empty string, so every such structure
+	 * used to digest to `Hash::of('')`, two different structures compared equal, and the tripwire
+	 * built on the comparison was blind rather than wrong.
+	 *
+	 * @param array<array-key, mixed> $value
+	 *   The structure to digest. Order matters, so sort it first if the caller's identity does not
+	 *   depend on the order it was built in.
+	 * @param string $key
+	 *   Optional keyed-hashing key, at most 64 bytes.
+	 *
+	 * @return string
+	 *   A 64-character lowercase hex digest.
+	 */
+	public static function ofData(array $value, #[SensitiveParameter] string $key = ''): string
+	{
+		$encoded = json_encode($value);
+
+		return self::of($encoded === false ? serialize($value) : $encoded, $key);
+	}
+
+	/**
 	 * Compares two digests without leaking where they differ.
 	 *
 	 * Accepts hex or raw on either side, so a digest read out of a manifest can be compared with
