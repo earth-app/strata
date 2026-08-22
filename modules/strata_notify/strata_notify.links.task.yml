@@ -1,4 +1,0 @@
-strata_notify.settings.tab:
-  title: 'Notifications'
-  route_name: strata_notify.settings
-  base_route: strata.settings.storage

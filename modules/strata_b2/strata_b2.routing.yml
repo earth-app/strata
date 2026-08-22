@@ -1,9 +1,0 @@
-strata_b2.settings:
-  path: '/admin/config/system/strata/b2'
-  defaults:
-    _form: Drupal\strata_b2\Form\B2SettingsForm
-    _title: 'Strata B2'
-  requirements:
-    _permission: 'manage strata storage+administer strata'
-  options:
-    _admin_route: TRUE

@@ -1,4 +1,0 @@
-strata_azure.settings.tab:
-  title: 'Azure'
-  route_name: strata_azure.settings
-  base_route: strata.settings.storage

@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="en" id="top-of-site">
+	<head>
+		<meta name="viewport" content="width=device-width,initial-scale=1">
+		<meta charset="utf-8"/>
+		<title>
+							earth-app/strata
+					</title>
+		<meta name="author" content=""/>
+		<meta name="description" content=""/>
+		<base href="../">
+
+		<link href="resources/css/bootstrap.min.css" rel="stylesheet" media="all"/>
+		<link href="resources/css/bootstrap-responsive.min.css" rel="stylesheet" media="all"/>
+		<link href="resources/css/style.css" rel="stylesheet" media="all"/>
+		<link href="resources/css/prism.min.css" rel="stylesheet" media="all"/>
+		<link href="resources/font/css/all.min.css" rel="stylesheet" media="all"/>
+		
+<link rel="apple-touch-icon" sizes="72x72" href="resources/images/apple-touch-icon-72x72.png"/>
+		<link rel="icon" type="image/png" href="../favicon.png"/>
+		<link rel="shortcut icon" href="../favicon.ico"/>
+		<link rel="apple-touch-icon" href="../favicon.png"/>
+	</head>
+	<body>
+
+		<nav class="navbar navbar-fixed-top navbar-inverse">
+			<div class="navbar-inner">
+				<div class="container">
+					<a class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
+						<i class="fa-solid fa-bars"></i>
+					</a>
+					<a class="brand" href="index.html">earth-app/strata</a>
+
+					<div class="nav-collapse navbar-responsive-collapse collapse">
+						<ul class="nav pull-right">
+															<li class="dropdown" id="api-menu">
+									<a href="#" class="dropdown-toggle" data-toggle="dropdown" aria-labelledby="api-menu">
+										API Documentation
+										<b class="caret"></b>
+									</a>
+									<ul class="dropdown-menu" role="menu" aria-labelledby="api-menu">
+																					<li><a href="namespaces/drupal.html"><abbr title="\Drupal">Drupal</abbr></a></li>
+																			</ul>
+								</li>
+																					<li class="dropdown">
+								<a href="#" class="dropdown-toggle" data-toggle="dropdown">
+									Reports
+									<b class="caret"></b>
+								</a>
+								<ul class="dropdown-menu" role="menu" aria-labelledby="dropdownMenu">
+									<li>
+										<a href="reports/errors.html">
+																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																												<i class="fa-solid fa-bug"></i>&#160;Errors
+											<span class="label label-important pull-right">0</span>
+										</a>
+									</li>
+									<li>
+										<a href="reports/markers.html">
+																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																												<i class="fa-solid fa-location-dot"></i>&#160;&#160;Markers
+											<span class="label label-warning pull-right">0</span>
+										</a>
+									</li>
+									<li>
+										<a href="reports/deprecated.html">
+																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																				<i class="fa-solid fa-file-circle-xmark"></i>&#160;Deprecated
+											<span class="label label-info pull-right">0</span>
+										</a>
+									</li>
+								</ul>
+							</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			<div class="go_to_top">
+				<a href="#top-of-site" style="color: inherit">Back To Top&#160;&#160;<i class="fa-solid fa-chevron-up"></i></a>
+			</div>
+		</nav>
+
+		<div id="___" class="container-fluid"> 	<section class="row-fluid">
+		<div class="span2 sidebar">
+								<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle " data-toggle="collapse" data-target="#namespace-1637323830"></a>
+								<a href="namespaces/default.html" style="margin-left: 30px; padding-left: 0">\</a>
+			</div>
+			<div id="namespace-1637323830" class="accordion-body collapse in">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1363335495"></a>
+								<a href="namespaces/drupal.html" style="margin-left: 30px; padding-left: 0">Drupal</a>
+			</div>
+			<div id="namespace-1363335495" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1508951623"></a>
+								<a href="namespaces/drupal-strata.html" style="margin-left: 30px; padding-left: 0">strata</a>
+			</div>
+			<div id="namespace-1508951623" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1787252042"></a>
+								<a href="namespaces/drupal-strata-access.html" style="margin-left: 30px; padding-left: 0">Access</a>
+			</div>
+			<div id="namespace-1787252042" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Access-RestoreAccess.html"><abbr title="\Drupal\strata\Access\RestoreAccess">RestoreAccess</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Access-StrataPermissions.html"><abbr title="\Drupal\strata\Access\StrataPermissions">StrataPermissions</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-566920405"></a>
+								<a href="namespaces/drupal-strata-anomaly.html" style="margin-left: 30px; padding-left: 0">Anomaly</a>
+			</div>
+			<div id="namespace-566920405" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Anomaly-Anomaly.html"><abbr title="\Drupal\strata\Anomaly\Anomaly">Anomaly</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Anomaly-AnomalyDetector.html"><abbr title="\Drupal\strata\Anomaly\AnomalyDetector">AnomalyDetector</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Anomaly-MetricSampler.html"><abbr title="\Drupal\strata\Anomaly\MetricSampler">MetricSampler</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Anomaly-Series.html"><abbr title="\Drupal\strata\Anomaly\Series">Series</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-635459986"></a>
+								<a href="namespaces/drupal-strata-archive.html" style="margin-left: 30px; padding-left: 0">Archive</a>
+			</div>
+			<div id="namespace-635459986" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Archive-ArchiveExporter.html"><abbr title="\Drupal\strata\Archive\ArchiveExporter">ArchiveExporter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Archive-ArchiveImporter.html"><abbr title="\Drupal\strata\Archive\ArchiveImporter">ArchiveImporter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Archive-ArchiveManifest.html"><abbr title="\Drupal\strata\Archive\ArchiveManifest">ArchiveManifest</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-534879130"></a>
+								<a href="namespaces/drupal-strata-branch.html" style="margin-left: 30px; padding-left: 0">Branch</a>
+			</div>
+			<div id="namespace-534879130" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Branch-Branch.html"><abbr title="\Drupal\strata\Branch\Branch">Branch</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-BranchIndex.html"><abbr title="\Drupal\strata\Branch\BranchIndex">BranchIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-BranchStore.html"><abbr title="\Drupal\strata\Branch\BranchStore">BranchStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-MergeBase.html"><abbr title="\Drupal\strata\Branch\MergeBase">MergeBase</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-MergeEntry.html"><abbr title="\Drupal\strata\Branch\MergeEntry">MergeEntry</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-MergePlan.html"><abbr title="\Drupal\strata\Branch\MergePlan">MergePlan</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-Merger.html"><abbr title="\Drupal\strata\Branch\Merger">Merger</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-MergeResult.html"><abbr title="\Drupal\strata\Branch\MergeResult">MergeResult</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Branch-ThreeWayMerge.html"><abbr title="\Drupal\strata\Branch\ThreeWayMerge">ThreeWayMerge</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1590399709"></a>
+								<a href="namespaces/drupal-strata-budget.html" style="margin-left: 30px; padding-left: 0">Budget</a>
+			</div>
+			<div id="namespace-1590399709" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Budget-BudgetAssessment.html"><abbr title="\Drupal\strata\Budget\BudgetAssessment">BudgetAssessment</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Budget-BudgetGuard.html"><abbr title="\Drupal\strata\Budget\BudgetGuard">BudgetGuard</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Budget-EscalationLadder.html"><abbr title="\Drupal\strata\Budget\EscalationLadder">EscalationLadder</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1017506905"></a>
+								<a href="namespaces/drupal-strata-capture.html" style="margin-left: 30px; padding-left: 0">Capture</a>
+			</div>
+			<div id="namespace-1017506905" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-87066570"></a>
+								<a href="namespaces/drupal-strata-capture-classifier.html" style="margin-left: 30px; padding-left: 0">Classifier</a>
+			</div>
+			<div id="namespace-87066570" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Capture-Classifier-KeyspaceSourceInterface.html"><abbr title="\Drupal\strata\Capture\Classifier\KeyspaceSourceInterface">KeyspaceSourceInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-ClassificationProfile.html"><abbr title="\Drupal\strata\Capture\Classifier\ClassificationProfile">ClassificationProfile</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-ClassificationRegistry.html"><abbr title="\Drupal\strata\Capture\Classifier\ClassificationRegistry">ClassificationRegistry</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-DatabaseKeyspaceSource.html"><abbr title="\Drupal\strata\Capture\Classifier\DatabaseKeyspaceSource">DatabaseKeyspaceSource</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-DiscoveryReport.html"><abbr title="\Drupal\strata\Capture\Classifier\DiscoveryReport">DiscoveryReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-EphemeralScope.html"><abbr title="\Drupal\strata\Capture\Classifier\EphemeralScope">EphemeralScope</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-Heuristics.html"><abbr title="\Drupal\strata\Capture\Classifier\Heuristics">Heuristics</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Classifier-KeyspaceDiscovery.html"><abbr title="\Drupal\strata\Capture\Classifier\KeyspaceDiscovery">KeyspaceDiscovery</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-257180545"></a>
+								<a href="namespaces/drupal-strata-capture-eventsubscriber.html" style="margin-left: 30px; padding-left: 0">EventSubscriber</a>
+			</div>
+			<div id="namespace-257180545" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Capture-EventSubscriber-ConfigCaptureSubscriber.html"><abbr title="\Drupal\strata\Capture\EventSubscriber\ConfigCaptureSubscriber">ConfigCaptureSubscriber</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-EventSubscriber-StatementCaptureSubscriber.html"><abbr title="\Drupal\strata\Capture\EventSubscriber\StatementCaptureSubscriber">StatementCaptureSubscriber</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Capture-CaptureScope.html"><abbr title="\Drupal\strata\Capture\CaptureScope">CaptureScope</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-EntityDelta.html"><abbr title="\Drupal\strata\Capture\EntityDelta">EntityDelta</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-KeyRecorder.html"><abbr title="\Drupal\strata\Capture\KeyRecorder">KeyRecorder</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-KeyValueCapture.html"><abbr title="\Drupal\strata\Capture\KeyValueCapture">KeyValueCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-KeyValueCaptureFactory.html"><abbr title="\Drupal\strata\Capture\KeyValueCaptureFactory">KeyValueCaptureFactory</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-PayloadCodec.html"><abbr title="\Drupal\strata\Capture\PayloadCodec">PayloadCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Reconciler.html"><abbr title="\Drupal\strata\Capture\Reconciler">Reconciler</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-ReconcileReport.html"><abbr title="\Drupal\strata\Capture\ReconcileReport">ReconcileReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-SqlStatement.html"><abbr title="\Drupal\strata\Capture\SqlStatement">SqlStatement</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-StateCapture.html"><abbr title="\Drupal\strata\Capture\StateCapture">StateCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-TableWrites.html"><abbr title="\Drupal\strata\Capture\TableWrites">TableWrites</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Capture-Watermark.html"><abbr title="\Drupal\strata\Capture\Watermark">Watermark</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-399007357"></a>
+								<a href="namespaces/drupal-strata-cas.html" style="margin-left: 30px; padding-left: 0">Cas</a>
+			</div>
+			<div id="namespace-399007357" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-241294783"></a>
+								<a href="namespaces/drupal-strata-cas-chunker.html" style="margin-left: 30px; padding-left: 0">Chunker</a>
+			</div>
+			<div id="namespace-241294783" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Cas-Chunker-ChunkerInterface.html"><abbr title="\Drupal\strata\Cas\Chunker\ChunkerInterface">ChunkerInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Cas-Chunker-FastCdcChunker.html"><abbr title="\Drupal\strata\Cas\Chunker\FastCdcChunker">FastCdcChunker</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Cas-FrameIndexInterface.html"><abbr title="\Drupal\strata\Cas\FrameIndexInterface">FrameIndexInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Cas-DatabaseFrameIndex.html"><abbr title="\Drupal\strata\Cas\DatabaseFrameIndex">DatabaseFrameIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-FrameEnvelope.html"><abbr title="\Drupal\strata\Cas\FrameEnvelope">FrameEnvelope</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-Framer.html"><abbr title="\Drupal\strata\Cas\Framer">Framer</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-FrameRecord.html"><abbr title="\Drupal\strata\Cas\FrameRecord">FrameRecord</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-Hash.html"><abbr title="\Drupal\strata\Cas\Hash">Hash</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-MemoryFrameIndex.html"><abbr title="\Drupal\strata\Cas\MemoryFrameIndex">MemoryFrameIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-ObjectStore.html"><abbr title="\Drupal\strata\Cas\ObjectStore">ObjectStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-Packer.html"><abbr title="\Drupal\strata\Cas\Packer">Packer</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Cas-PackIndex.html"><abbr title="\Drupal\strata\Cas\PackIndex">PackIndex</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-735308055"></a>
+								<a href="namespaces/drupal-strata-code.html" style="margin-left: 30px; padding-left: 0">Code</a>
+			</div>
+			<div id="namespace-735308055" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Code-CodeCapture.html"><abbr title="\Drupal\strata\Code\CodeCapture">CodeCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Code-CodeReport.html"><abbr title="\Drupal\strata\Code\CodeReport">CodeReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Code-CodeScanner.html"><abbr title="\Drupal\strata\Code\CodeScanner">CodeScanner</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Code-LockfileReference.html"><abbr title="\Drupal\strata\Code\LockfileReference">LockfileReference</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Code-SettingsRedactor.html"><abbr title="\Drupal\strata\Code\SettingsRedactor">SettingsRedactor</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Code-VendorDriftDetector.html"><abbr title="\Drupal\strata\Code\VendorDriftDetector">VendorDriftDetector</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1712662376"></a>
+								<a href="namespaces/drupal-strata-codec.html" style="margin-left: 30px; padding-left: 0">Codec</a>
+			</div>
+			<div id="namespace-1712662376" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1517917023"></a>
+								<a href="namespaces/drupal-strata-codec-dictionary.html" style="margin-left: 30px; padding-left: 0">Dictionary</a>
+			</div>
+			<div id="namespace-1517917023" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Codec-Dictionary-DictionaryPass.html"><abbr title="\Drupal\strata\Codec\Dictionary\DictionaryPass">DictionaryPass</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-Dictionary-DictionaryRef.html"><abbr title="\Drupal\strata\Codec\Dictionary\DictionaryRef">DictionaryRef</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-Dictionary-DictionaryStore.html"><abbr title="\Drupal\strata\Codec\Dictionary\DictionaryStore">DictionaryStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-Dictionary-DictionaryTrainer.html"><abbr title="\Drupal\strata\Codec\Dictionary\DictionaryTrainer">DictionaryTrainer</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Codec-CompressionCodecInterface.html"><abbr title="\Drupal\strata\Codec\CompressionCodecInterface">CompressionCodecInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Codec-BrotliCodec.html"><abbr title="\Drupal\strata\Codec\BrotliCodec">BrotliCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-CodecCatalog.html"><abbr title="\Drupal\strata\Codec\CodecCatalog">CodecCatalog</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-CodecMeasurement.html"><abbr title="\Drupal\strata\Codec\CodecMeasurement">CodecMeasurement</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-CodecProfile.html"><abbr title="\Drupal\strata\Codec\CodecProfile">CodecProfile</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-CodecRegistry.html"><abbr title="\Drupal\strata\Codec\CodecRegistry">CodecRegistry</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-GzipCodec.html"><abbr title="\Drupal\strata\Codec\GzipCodec">GzipCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-NoneCodec.html"><abbr title="\Drupal\strata\Codec\NoneCodec">NoneCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-ZstdCodec.html"><abbr title="\Drupal\strata\Codec\ZstdCodec">ZstdCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Codec-ZstdPipeCodec.html"><abbr title="\Drupal\strata\Codec\ZstdPipeCodec">ZstdPipeCodec</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1661406993"></a>
+								<a href="namespaces/drupal-strata-compaction.html" style="margin-left: 30px; padding-left: 0">Compaction</a>
+			</div>
+			<div id="namespace-1661406993" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Compaction-CompactionReport.html"><abbr title="\Drupal\strata\Compaction\CompactionReport">CompactionReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-Compactor.html"><abbr title="\Drupal\strata\Compaction\Compactor">Compactor</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-LevelPolicy.html"><abbr title="\Drupal\strata\Compaction\LevelPolicy">LevelPolicy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-PruneReceipt.html"><abbr title="\Drupal\strata\Compaction\PruneReceipt">PruneReceipt</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-Reachability.html"><abbr title="\Drupal\strata\Compaction\Reachability">Reachability</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-Recompressor.html"><abbr title="\Drupal\strata\Compaction\Recompressor">Recompressor</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Compaction-Rollup.html"><abbr title="\Drupal\strata\Compaction\Rollup">Rollup</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1569592375"></a>
+								<a href="namespaces/drupal-strata-crypto.html" style="margin-left: 30px; padding-left: 0">Crypto</a>
+			</div>
+			<div id="namespace-1569592375" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Crypto-CipherInterface.html"><abbr title="\Drupal\strata\Crypto\CipherInterface">CipherInterface</abbr></a></li>
+													<li class="interface"><a href="classes/Drupal-strata-Crypto-KeyProviderInterface.html"><abbr title="\Drupal\strata\Crypto\KeyProviderInterface">KeyProviderInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Crypto-AuthenticationFailure.html"><abbr title="\Drupal\strata\Crypto\AuthenticationFailure">AuthenticationFailure</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-KeyRing.html"><abbr title="\Drupal\strata\Crypto\KeyRing">KeyRing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-KeyRotation.html"><abbr title="\Drupal\strata\Crypto\KeyRotation">KeyRotation</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-NullCipher.html"><abbr title="\Drupal\strata\Crypto\NullCipher">NullCipher</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-RotatingCipher.html"><abbr title="\Drupal\strata\Crypto\RotatingCipher">RotatingCipher</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-StaticKeyProvider.html"><abbr title="\Drupal\strata\Crypto\StaticKeyProvider">StaticKeyProvider</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Crypto-XChaCha20Poly1305Cipher.html"><abbr title="\Drupal\strata\Crypto\XChaCha20Poly1305Cipher">XChaCha20Poly1305Cipher</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-269435793"></a>
+								<a href="namespaces/drupal-strata-delta.html" style="margin-left: 30px; padding-left: 0">Delta</a>
+			</div>
+			<div id="namespace-269435793" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Delta-ChainDepthPolicy.html"><abbr title="\Drupal\strata\Delta\ChainDepthPolicy">ChainDepthPolicy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Delta-DeltaCodec.html"><abbr title="\Drupal\strata\Delta\DeltaCodec">DeltaCodec</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Delta-DeltaFrame.html"><abbr title="\Drupal\strata\Delta\DeltaFrame">DeltaFrame</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Delta-Reanchorer.html"><abbr title="\Drupal\strata\Delta\Reanchorer">Reanchorer</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-755727172"></a>
+								<a href="namespaces/drupal-strata-diff.html" style="margin-left: 30px; padding-left: 0">Diff</a>
+			</div>
+			<div id="namespace-755727172" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Diff-DiffBuilder.html"><abbr title="\Drupal\strata\Diff\DiffBuilder">DiffBuilder</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Diff-DiffHunk.html"><abbr title="\Drupal\strata\Diff\DiffHunk">DiffHunk</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Diff-FieldDiff.html"><abbr title="\Drupal\strata\Diff\FieldDiff">FieldDiff</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Diff-SubjectDiff.html"><abbr title="\Drupal\strata\Diff\SubjectDiff">SubjectDiff</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-353771746"></a>
+								<a href="namespaces/drupal-strata-drill.html" style="margin-left: 30px; padding-left: 0">Drill</a>
+			</div>
+			<div id="namespace-353771746" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Drill-DrillIndex.html"><abbr title="\Drupal\strata\Drill\DrillIndex">DrillIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Drill-DrillReport.html"><abbr title="\Drupal\strata\Drill\DrillReport">DrillReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Drill-DrillRunner.html"><abbr title="\Drupal\strata\Drill\DrillRunner">DrillRunner</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-569822590"></a>
+								<a href="namespaces/drupal-strata-drush.html" style="margin-left: 30px; padding-left: 0">Drush</a>
+			</div>
+			<div id="namespace-569822590" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1585262958"></a>
+								<a href="namespaces/drupal-strata-drush-commands.html" style="margin-left: 30px; padding-left: 0">Commands</a>
+			</div>
+			<div id="namespace-1585262958" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																			<li class="trait"><a href="classes/Drupal-strata-Drush-Commands-StrataOutputTrait.html"><abbr title="\Drupal\strata\Drush\Commands\StrataOutputTrait">StrataOutputTrait</abbr></a></li>
+																			<li class="class"><a href="classes/Drupal-strata-Drush-Commands-StrataCommands.html"><abbr title="\Drupal\strata\Drush\Commands\StrataCommands">StrataCommands</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Drush-Commands-StrataDiagnosticCommands.html"><abbr title="\Drupal\strata\Drush\Commands\StrataDiagnosticCommands">StrataDiagnosticCommands</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Drush-Commands-StrataMaintenanceCommands.html"><abbr title="\Drupal\strata\Drush\Commands\StrataMaintenanceCommands">StrataMaintenanceCommands</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Drush-Commands-StrataRestoreCommands.html"><abbr title="\Drupal\strata\Drush\Commands\StrataRestoreCommands">StrataRestoreCommands</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2140965448"></a>
+								<a href="namespaces/drupal-strata-estimate.html" style="margin-left: 30px; padding-left: 0">Estimate</a>
+			</div>
+			<div id="namespace-2140965448" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Estimate-CollapseModel.html"><abbr title="\Drupal\strata\Estimate\CollapseModel">CollapseModel</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Estimate-Estimator.html"><abbr title="\Drupal\strata\Estimate\Estimator">Estimator</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Estimate-FreeTierModel.html"><abbr title="\Drupal\strata\Estimate\FreeTierModel">FreeTierModel</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Estimate-Measurement.html"><abbr title="\Drupal\strata\Estimate\Measurement">Measurement</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Estimate-PriceTable.html"><abbr title="\Drupal\strata\Estimate\PriceTable">PriceTable</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Estimate-Projection.html"><abbr title="\Drupal\strata\Estimate\Projection">Projection</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1332737983"></a>
+								<a href="namespaces/drupal-strata-event.html" style="margin-left: 30px; padding-left: 0">Event</a>
+			</div>
+			<div id="namespace-1332737983" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-392464632"></a>
+								<a href="namespaces/drupal-strata-event-webhook.html" style="margin-left: 30px; padding-left: 0">Webhook</a>
+			</div>
+			<div id="namespace-392464632" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Event-Webhook-WebhookDispatcher.html"><abbr title="\Drupal\strata\Event\Webhook\WebhookDispatcher">WebhookDispatcher</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-Webhook-WebhookSignature.html"><abbr title="\Drupal\strata\Event\Webhook\WebhookSignature">WebhookSignature</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-Webhook-WebhookSubscriber.html"><abbr title="\Drupal\strata\Event\Webhook\WebhookSubscriber">WebhookSubscriber</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-Webhook-WebhookSubscription.html"><abbr title="\Drupal\strata\Event\Webhook\WebhookSubscription">WebhookSubscription</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Event-BudgetEvent.html"><abbr title="\Drupal\strata\Event\BudgetEvent">BudgetEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-CommitEvent.html"><abbr title="\Drupal\strata\Event\CommitEvent">CommitEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-DrillEvent.html"><abbr title="\Drupal\strata\Event\DrillEvent">DrillEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-HealthEvent.html"><abbr title="\Drupal\strata\Event\HealthEvent">HealthEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-Notifier.html"><abbr title="\Drupal\strata\Event\Notifier">Notifier</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-PruneEvent.html"><abbr title="\Drupal\strata\Event\PruneEvent">PruneEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-RestoreEvent.html"><abbr title="\Drupal\strata\Event\RestoreEvent">RestoreEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-StrataEvent.html"><abbr title="\Drupal\strata\Event\StrataEvent">StrataEvent</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Event-StrataEvents.html"><abbr title="\Drupal\strata\Event\StrataEvents">StrataEvents</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1625889809"></a>
+								<a href="namespaces/drupal-strata-explore.html" style="margin-left: 30px; padding-left: 0">Explore</a>
+			</div>
+			<div id="namespace-1625889809" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Explore-ExplorerReport.html"><abbr title="\Drupal\strata\Explore\ExplorerReport">ExplorerReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Explore-RemovalCost.html"><abbr title="\Drupal\strata\Explore\RemovalCost">RemovalCost</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Explore-StorageExplorer.html"><abbr title="\Drupal\strata\Explore\StorageExplorer">StorageExplorer</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-805987864"></a>
+								<a href="namespaces/drupal-strata-file.html" style="margin-left: 30px; padding-left: 0">File</a>
+			</div>
+			<div id="namespace-805987864" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-File-BlockSplitter.html"><abbr title="\Drupal\strata\File\BlockSplitter">BlockSplitter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-FileCapture.html"><abbr title="\Drupal\strata\File\FileCapture">FileCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-FileMap.html"><abbr title="\Drupal\strata\File\FileMap">FileMap</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-FileMapDiff.html"><abbr title="\Drupal\strata\File\FileMapDiff">FileMapDiff</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-FileReport.html"><abbr title="\Drupal\strata\File\FileReport">FileReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-MediaStore.html"><abbr title="\Drupal\strata\File\MediaStore">MediaStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-ShiftDetector.html"><abbr title="\Drupal\strata\File\ShiftDetector">ShiftDetector</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-File-StorageClassPolicy.html"><abbr title="\Drupal\strata\File\StorageClassPolicy">StorageClassPolicy</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1547051585"></a>
+								<a href="namespaces/drupal-strata-flush.html" style="margin-left: 30px; padding-left: 0">Flush</a>
+			</div>
+			<div id="namespace-1547051585" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Flush-Flusher.html"><abbr title="\Drupal\strata\Flush\Flusher">Flusher</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Flush-FlushResult.html"><abbr title="\Drupal\strata\Flush\FlushResult">FlushResult</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Flush-Lease.html"><abbr title="\Drupal\strata\Flush\Lease">Lease</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2116773790"></a>
+								<a href="namespaces/drupal-strata-form.html" style="margin-left: 30px; padding-left: 0">Form</a>
+			</div>
+			<div id="namespace-2116773790" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Form-CaptureSettingsForm.html"><abbr title="\Drupal\strata\Form\CaptureSettingsForm">CaptureSettingsForm</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-RetentionSettingsForm.html"><abbr title="\Drupal\strata\Form\RetentionSettingsForm">RetentionSettingsForm</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-SettingsFormBase.html"><abbr title="\Drupal\strata\Form\SettingsFormBase">SettingsFormBase</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-StorageSettingsForm.html"><abbr title="\Drupal\strata\Form\StorageSettingsForm">StorageSettingsForm</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-TelemetrySettingsForm.html"><abbr title="\Drupal\strata\Form\TelemetrySettingsForm">TelemetrySettingsForm</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-TierSettingsForm.html"><abbr title="\Drupal\strata\Form\TierSettingsForm">TierSettingsForm</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Form-WebhookSettingsForm.html"><abbr title="\Drupal\strata\Form\WebhookSettingsForm">WebhookSettingsForm</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-93098977"></a>
+								<a href="namespaces/drupal-strata-health.html" style="margin-left: 30px; padding-left: 0">Health</a>
+			</div>
+			<div id="namespace-93098977" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1611073198"></a>
+								<a href="namespaces/drupal-strata-health-tripwire.html" style="margin-left: 30px; padding-left: 0">Tripwire</a>
+			</div>
+			<div id="namespace-1611073198" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-AnchorMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\AnchorMissing">AnchorMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-BaseUnreachable.html"><abbr title="\Drupal\strata\Health\Tripwire\BaseUnreachable">BaseUnreachable</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-CommitParentMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\CommitParentMissing">CommitParentMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-DeltaChainTooDeep.html"><abbr title="\Drupal\strata\Health\Tripwire\DeltaChainTooDeep">DeltaChainTooDeep</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-DeltaParentMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\DeltaParentMissing">DeltaParentMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-DictionaryMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\DictionaryMissing">DictionaryMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FileShiftDetected.html"><abbr title="\Drupal\strata\Health\Tripwire\FileShiftDetected">FileShiftDetected</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FrameAeadFailure.html"><abbr title="\Drupal\strata\Health\Tripwire\FrameAeadFailure">FrameAeadFailure</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FrameHashMismatch.html"><abbr title="\Drupal\strata\Health\Tripwire\FrameHashMismatch">FrameHashMismatch</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FrameMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\FrameMissing">FrameMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FrameUnindexed.html"><abbr title="\Drupal\strata\Health\Tripwire\FrameUnindexed">FrameUnindexed</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-FrameUnreadable.html"><abbr title="\Drupal\strata\Health\Tripwire\FrameUnreadable">FrameUnreadable</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-KeyRotatedMidFlight.html"><abbr title="\Drupal\strata\Health\Tripwire\KeyRotatedMidFlight">KeyRotatedMidFlight</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-PackShortRead.html"><abbr title="\Drupal\strata\Health\Tripwire\PackShortRead">PackShortRead</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-RefMissing.html"><abbr title="\Drupal\strata\Health\Tripwire\RefMissing">RefMissing</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-SegmentTruncated.html"><abbr title="\Drupal\strata\Health\Tripwire\SegmentTruncated">SegmentTruncated</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-TierUnreachable.html"><abbr title="\Drupal\strata\Health\Tripwire\TierUnreachable">TierUnreachable</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-UnclassifiedGrowth.html"><abbr title="\Drupal\strata\Health\Tripwire\UnclassifiedGrowth">UnclassifiedGrowth</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-VendorDrift.html"><abbr title="\Drupal\strata\Health\Tripwire\VendorDrift">VendorDrift</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Tripwire-WatermarkDrift.html"><abbr title="\Drupal\strata\Health\Tripwire\WatermarkDrift">WatermarkDrift</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Health-HealthLedgerInterface.html"><abbr title="\Drupal\strata\Health\HealthLedgerInterface">HealthLedgerInterface</abbr></a></li>
+													<li class="interface"><a href="classes/Drupal-strata-Health-TripwireInterface.html"><abbr title="\Drupal\strata\Health\TripwireInterface">TripwireInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Health-CircuitBreaker.html"><abbr title="\Drupal\strata\Health\CircuitBreaker">CircuitBreaker</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-DatabaseHealthLedger.html"><abbr title="\Drupal\strata\Health\DatabaseHealthLedger">DatabaseHealthLedger</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-Finding.html"><abbr title="\Drupal\strata\Health\Finding">Finding</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-MemoryHealthLedger.html"><abbr title="\Drupal\strata\Health\MemoryHealthLedger">MemoryHealthLedger</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-RepairLadder.html"><abbr title="\Drupal\strata\Health\RepairLadder">RepairLadder</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Health-TripwireRegistry.html"><abbr title="\Drupal\strata\Health\TripwireRegistry">TripwireRegistry</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-922488717"></a>
+								<a href="namespaces/drupal-strata-hook.html" style="margin-left: 30px; padding-left: 0">Hook</a>
+			</div>
+			<div id="namespace-922488717" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Hook-CronCapture.html"><abbr title="\Drupal\strata\Hook\CronCapture">CronCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Hook-EntityCapture.html"><abbr title="\Drupal\strata\Hook\EntityCapture">EntityCapture</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Hook-ViewsData.html"><abbr title="\Drupal\strata\Hook\ViewsData">ViewsData</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-7459904"></a>
+								<a href="namespaces/drupal-strata-journal.html" style="margin-left: 30px; padding-left: 0">Journal</a>
+			</div>
+			<div id="namespace-7459904" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Journal-JournalInterface.html"><abbr title="\Drupal\strata\Journal\JournalInterface">JournalInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Journal-DatabaseJournal.html"><abbr title="\Drupal\strata\Journal\DatabaseJournal">DatabaseJournal</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Journal-FlushPolicy.html"><abbr title="\Drupal\strata\Journal\FlushPolicy">FlushPolicy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Journal-JournalFactory.html"><abbr title="\Drupal\strata\Journal\JournalFactory">JournalFactory</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Journal-JournalOp.html"><abbr title="\Drupal\strata\Journal\JournalOp">JournalOp</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Journal-MemoryJournal.html"><abbr title="\Drupal\strata\Journal\MemoryJournal">MemoryJournal</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Journal-RedisJournal.html"><abbr title="\Drupal\strata\Journal\RedisJournal">RedisJournal</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1536658759"></a>
+								<a href="namespaces/drupal-strata-metrics.html" style="margin-left: 30px; padding-left: 0">Metrics</a>
+			</div>
+			<div id="namespace-1536658759" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Metrics-MetricSeries.html"><abbr title="\Drupal\strata\Metrics\MetricSeries">MetricSeries</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Metrics-SeriesBuilder.html"><abbr title="\Drupal\strata\Metrics\SeriesBuilder">SeriesBuilder</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1011177554"></a>
+								<a href="namespaces/drupal-strata-plugin.html" style="margin-left: 30px; padding-left: 0">Plugin</a>
+			</div>
+			<div id="namespace-1011177554" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-511758927"></a>
+								<a href="namespaces/drupal-strata-plugin-queueworker.html" style="margin-left: 30px; padding-left: 0">QueueWorker</a>
+			</div>
+			<div id="namespace-511758927" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Plugin-QueueWorker-WebhookDelivery.html"><abbr title="\Drupal\strata\Plugin\QueueWorker\WebhookDelivery">WebhookDelivery</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2048428026"></a>
+								<a href="namespaces/drupal-strata-plugin-views.html" style="margin-left: 30px; padding-left: 0">views</a>
+			</div>
+			<div id="namespace-2048428026" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-370514852"></a>
+								<a href="namespaces/drupal-strata-plugin-views-field.html" style="margin-left: 30px; padding-left: 0">field</a>
+			</div>
+			<div id="namespace-370514852" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-Bytes.html"><abbr title="\Drupal\strata\Plugin\views\field\Bytes">Bytes</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-ClassificationField.html"><abbr title="\Drupal\strata\Plugin\views\field\ClassificationField">ClassificationField</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-CommitLink.html"><abbr title="\Drupal\strata\Plugin\views\field\CommitLink">CommitLink</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-Digest.html"><abbr title="\Drupal\strata\Plugin\views\field\Digest">Digest</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-EnumField.html"><abbr title="\Drupal\strata\Plugin\views\field\EnumField">EnumField</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-Microtime.html"><abbr title="\Drupal\strata\Plugin\views\field\Microtime">Microtime</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-RealmField.html"><abbr title="\Drupal\strata\Plugin\views\field\RealmField">RealmField</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-SeverityField.html"><abbr title="\Drupal\strata\Plugin\views\field\SeverityField">SeverityField</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-field-VerbField.html"><abbr title="\Drupal\strata\Plugin\views\field\VerbField">VerbField</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1609403063"></a>
+								<a href="namespaces/drupal-strata-plugin-views-filter.html" style="margin-left: 30px; padding-left: 0">filter</a>
+			</div>
+			<div id="namespace-1609403063" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Plugin-views-filter-ClassificationFilter.html"><abbr title="\Drupal\strata\Plugin\views\filter\ClassificationFilter">ClassificationFilter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-filter-EnumFilter.html"><abbr title="\Drupal\strata\Plugin\views\filter\EnumFilter">EnumFilter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-filter-RealmFilter.html"><abbr title="\Drupal\strata\Plugin\views\filter\RealmFilter">RealmFilter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-filter-SeverityFilter.html"><abbr title="\Drupal\strata\Plugin\views\filter\SeverityFilter">SeverityFilter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Plugin-views-filter-VerbFilter.html"><abbr title="\Drupal\strata\Plugin\views\filter\VerbFilter">VerbFilter</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-876669115"></a>
+								<a href="namespaces/drupal-strata-restore.html" style="margin-left: 30px; padding-left: 0">Restore</a>
+			</div>
+			<div id="namespace-876669115" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1443615830"></a>
+								<a href="namespaces/drupal-strata-restore-plugin.html" style="margin-left: 30px; padding-left: 0">Plugin</a>
+			</div>
+			<div id="namespace-1443615830" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1989913020"></a>
+								<a href="namespaces/drupal-strata-restore-plugin-strata.html" style="margin-left: 30px; padding-left: 0">Strata</a>
+			</div>
+			<div id="namespace-1989913020" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-982121063"></a>
+								<a href="namespaces/drupal-strata-restore-plugin-strata-restore.html" style="margin-left: 30px; padding-left: 0">Restore</a>
+			</div>
+			<div id="namespace-982121063" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Restore-Plugin-Strata-Restore-ShadowSwapStrategy.html"><abbr title="\Drupal\strata\Restore\Plugin\Strata\Restore\ShadowSwapStrategy">ShadowSwapStrategy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-Plugin-Strata-Restore-TruncateRestoreStrategy.html"><abbr title="\Drupal\strata\Restore\Plugin\Strata\Restore\TruncateRestoreStrategy">TruncateRestoreStrategy</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Restore-RestoreStrategyInterface.html"><abbr title="\Drupal\strata\Restore\RestoreStrategyInterface">RestoreStrategyInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Restore-Conflict.html"><abbr title="\Drupal\strata\Restore\Conflict">Conflict</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-LogicalRestore.html"><abbr title="\Drupal\strata\Restore\LogicalRestore">LogicalRestore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-PhysicalPlan.html"><abbr title="\Drupal\strata\Restore\PhysicalPlan">PhysicalPlan</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-PhysicalRestore.html"><abbr title="\Drupal\strata\Restore\PhysicalRestore">PhysicalRestore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-Preflight.html"><abbr title="\Drupal\strata\Restore\Preflight">Preflight</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-Replayer.html"><abbr title="\Drupal\strata\Restore\Replayer">Replayer</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-ReplayResult.html"><abbr title="\Drupal\strata\Restore\ReplayResult">ReplayResult</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-RestoreAudit.html"><abbr title="\Drupal\strata\Restore\RestoreAudit">RestoreAudit</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-RestorePlan.html"><abbr title="\Drupal\strata\Restore\RestorePlan">RestorePlan</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Restore-RestoreResult.html"><abbr title="\Drupal\strata\Restore\RestoreResult">RestoreResult</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-986756028"></a>
+								<a href="namespaces/drupal-strata-segment.html" style="margin-left: 30px; padding-left: 0">Segment</a>
+			</div>
+			<div id="namespace-986756028" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Segment-Collapser.html"><abbr title="\Drupal\strata\Segment\Collapser">Collapser</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Segment-SegmentBuilder.html"><abbr title="\Drupal\strata\Segment\SegmentBuilder">SegmentBuilder</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Segment-SegmentManifest.html"><abbr title="\Drupal\strata\Segment\SegmentManifest">SegmentManifest</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Segment-SegmentReader.html"><abbr title="\Drupal\strata\Segment\SegmentReader">SegmentReader</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Segment-SegmentWriter.html"><abbr title="\Drupal\strata\Segment\SegmentWriter">SegmentWriter</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-17262903"></a>
+								<a href="namespaces/drupal-strata-site.html" style="margin-left: 30px; padding-left: 0">Site</a>
+			</div>
+			<div id="namespace-17262903" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Site-SiteContext.html"><abbr title="\Drupal\strata\Site\SiteContext">SiteContext</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Site-SiteScopedProvider.html"><abbr title="\Drupal\strata\Site\SiteScopedProvider">SiteScopedProvider</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1865196136"></a>
+								<a href="namespaces/drupal-strata-storage.html" style="margin-left: 30px; padding-left: 0">Storage</a>
+			</div>
+			<div id="namespace-1865196136" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1308209076"></a>
+								<a href="namespaces/drupal-strata-storage-plugin.html" style="margin-left: 30px; padding-left: 0">Plugin</a>
+			</div>
+			<div id="namespace-1308209076" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-254085801"></a>
+								<a href="namespaces/drupal-strata-storage-plugin-strata.html" style="margin-left: 30px; padding-left: 0">Strata</a>
+			</div>
+			<div id="namespace-254085801" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-701664127"></a>
+								<a href="namespaces/drupal-strata-storage-plugin-strata-storage.html" style="margin-left: 30px; padding-left: 0">Storage</a>
+			</div>
+			<div id="namespace-701664127" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Storage-Plugin-Strata-Storage-LocalStorage.html"><abbr title="\Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage">LocalStorage</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-Plugin-Strata-Storage-NullStorage.html"><abbr title="\Drupal\strata\Storage\Plugin\Strata\Storage\NullStorage">NullStorage</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Storage-StorageProviderFactoryInterface.html"><abbr title="\Drupal\strata\Storage\StorageProviderFactoryInterface">StorageProviderFactoryInterface</abbr></a></li>
+													<li class="interface"><a href="classes/Drupal-strata-Storage-StorageProviderInterface.html"><abbr title="\Drupal\strata\Storage\StorageProviderInterface">StorageProviderInterface</abbr></a></li>
+													<li class="interface"><a href="classes/Drupal-strata-Storage-TierProviderFactoryInterface.html"><abbr title="\Drupal\strata\Storage\TierProviderFactoryInterface">TierProviderFactoryInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Storage-BodyReader.html"><abbr title="\Drupal\strata\Storage\BodyReader">BodyReader</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ByteRange.html"><abbr title="\Drupal\strata\Storage\ByteRange">ByteRange</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-Capabilities.html"><abbr title="\Drupal\strata\Storage\Capabilities">Capabilities</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-HttpTransport.html"><abbr title="\Drupal\strata\Storage\HttpTransport">HttpTransport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ObjectKeys.html"><abbr title="\Drupal\strata\Storage\ObjectKeys">ObjectKeys</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ObjectMeta.html"><abbr title="\Drupal\strata\Storage\ObjectMeta">ObjectMeta</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ObjectPage.html"><abbr title="\Drupal\strata\Storage\ObjectPage">ObjectPage</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ProviderStats.html"><abbr title="\Drupal\strata\Storage\ProviderStats">ProviderStats</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ProviderStatStore.html"><abbr title="\Drupal\strata\Storage\ProviderStatStore">ProviderStatStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-ProviderStatSubscriber.html"><abbr title="\Drupal\strata\Storage\ProviderStatSubscriber">ProviderStatSubscriber</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-PutResult.html"><abbr title="\Drupal\strata\Storage\PutResult">PutResult</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-RecordingProvider.html"><abbr title="\Drupal\strata\Storage\RecordingProvider">RecordingProvider</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Storage-StorageProviderManager.html"><abbr title="\Drupal\strata\Storage\StorageProviderManager">StorageProviderManager</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1188452656"></a>
+								<a href="namespaces/drupal-strata-telemetry.html" style="margin-left: 30px; padding-left: 0">Telemetry</a>
+			</div>
+			<div id="namespace-1188452656" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Telemetry-MetricSet.html"><abbr title="\Drupal\strata\Telemetry\MetricSet">MetricSet</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Telemetry-OtlpExporter.html"><abbr title="\Drupal\strata\Telemetry\OtlpExporter">OtlpExporter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Telemetry-OtlpPayload.html"><abbr title="\Drupal\strata\Telemetry\OtlpPayload">OtlpPayload</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Telemetry-Span.html"><abbr title="\Drupal\strata\Telemetry\Span">Span</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Telemetry-TelemetryPass.html"><abbr title="\Drupal\strata\Telemetry\TelemetryPass">TelemetryPass</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Telemetry-Tracer.html"><abbr title="\Drupal\strata\Telemetry\Tracer">Tracer</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-439199881"></a>
+								<a href="namespaces/drupal-strata-tier.html" style="margin-left: 30px; padding-left: 0">Tier</a>
+			</div>
+			<div id="namespace-439199881" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+													<li class="interface"><a href="classes/Drupal-strata-Tier-PlacementIndexInterface.html"><abbr title="\Drupal\strata\Tier\PlacementIndexInterface">PlacementIndexInterface</abbr></a></li>
+													<li class="interface"><a href="classes/Drupal-strata-Tier-TierStatusInterface.html"><abbr title="\Drupal\strata\Tier\TierStatusInterface">TierStatusInterface</abbr></a></li>
+																									<li class="class"><a href="classes/Drupal-strata-Tier-DatabasePlacementIndex.html"><abbr title="\Drupal\strata\Tier\DatabasePlacementIndex">DatabasePlacementIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-MemoryPlacementIndex.html"><abbr title="\Drupal\strata\Tier\MemoryPlacementIndex">MemoryPlacementIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-Placement.html"><abbr title="\Drupal\strata\Tier\Placement">Placement</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-Tier.html"><abbr title="\Drupal\strata\Tier\Tier">Tier</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TieredProvider.html"><abbr title="\Drupal\strata\Tier\TieredProvider">TieredProvider</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierMap.html"><abbr title="\Drupal\strata\Tier\TierMap">TierMap</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierMigrationReport.html"><abbr title="\Drupal\strata\Tier\TierMigrationReport">TierMigrationReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierMigrator.html"><abbr title="\Drupal\strata\Tier\TierMigrator">TierMigrator</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierPlacementRebuilder.html"><abbr title="\Drupal\strata\Tier\TierPlacementRebuilder">TierPlacementRebuilder</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierPolicy.html"><abbr title="\Drupal\strata\Tier\TierPolicy">TierPolicy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierRequirementReport.html"><abbr title="\Drupal\strata\Tier\TierRequirementReport">TierRequirementReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierRequirements.html"><abbr title="\Drupal\strata\Tier\TierRequirements">TierRequirements</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tier-TierTarget.html"><abbr title="\Drupal\strata\Tier\TierTarget">TierTarget</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-2030459932"></a>
+								<a href="namespaces/drupal-strata-timeline.html" style="margin-left: 30px; padding-left: 0">Timeline</a>
+			</div>
+			<div id="namespace-2030459932" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Timeline-TimelineBucket.html"><abbr title="\Drupal\strata\Timeline\TimelineBucket">TimelineBucket</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Timeline-TimelineQuery.html"><abbr title="\Drupal\strata\Timeline\TimelineQuery">TimelineQuery</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Timeline-TimelineWindow.html"><abbr title="\Drupal\strata\Timeline\TimelineWindow">TimelineWindow</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-1189689778"></a>
+								<a href="namespaces/drupal-strata-tree.html" style="margin-left: 30px; padding-left: 0">Tree</a>
+			</div>
+			<div id="namespace-1189689778" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Tree-BaseManifest.html"><abbr title="\Drupal\strata\Tree\BaseManifest">BaseManifest</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-BasePolicy.html"><abbr title="\Drupal\strata\Tree\BasePolicy">BasePolicy</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-BaseReader.html"><abbr title="\Drupal\strata\Tree\BaseReader">BaseReader</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-BaseWriter.html"><abbr title="\Drupal\strata\Tree\BaseWriter">BaseWriter</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-Commit.html"><abbr title="\Drupal\strata\Tree\Commit">Commit</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-CommitIndex.html"><abbr title="\Drupal\strata\Tree\CommitIndex">CommitIndex</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-CommitLog.html"><abbr title="\Drupal\strata\Tree\CommitLog">CommitLog</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-RefStore.html"><abbr title="\Drupal\strata\Tree\RefStore">RefStore</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Tree-SubjectIndex.html"><abbr title="\Drupal\strata\Tree\SubjectIndex">SubjectIndex</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+													<div class="accordion" style="margin-bottom: 0">
+		<div class="accordion-group">
+			<div class="accordion-heading">
+									<a class="accordion-toggle collapsed" data-toggle="collapse" data-target="#namespace-842107620"></a>
+								<a href="namespaces/drupal-strata-verify.html" style="margin-left: 30px; padding-left: 0">Verify</a>
+			</div>
+			<div id="namespace-842107620" class="accordion-body collapse ">
+				<div class="accordion-inner">
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Verify-Reindexer.html"><abbr title="\Drupal\strata\Verify\Reindexer">Reindexer</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Verify-ReindexReport.html"><abbr title="\Drupal\strata\Verify\ReindexReport">ReindexReport</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Verify-Verifier.html"><abbr title="\Drupal\strata\Verify\Verifier">Verifier</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-Verify-VerifyReport.html"><abbr title="\Drupal\strata\Verify\VerifyReport">VerifyReport</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																									<li class="class"><a href="classes/Drupal-strata-Engine.html"><abbr title="\Drupal\strata\Engine">Engine</abbr></a></li>
+													<li class="class"><a href="classes/Drupal-strata-StrataServiceProvider.html"><abbr title="\Drupal\strata\StrataServiceProvider">StrataServiceProvider</abbr></a></li>
+											</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+					
+					<ul>
+																							</ul>
+				</div>
+			</div>
+		</div>
+	</div>
+
+		</div>
+	</section>
+	<section class="row-fluid">
+		<div class="span10 offset2">
+			<div class="row-fluid">
+				<div class="span8 content file">
+					<nav>											</nav>
+
+										<h1>
+						<small>src/Telemetry</small>
+						Span.php</h1>
+					<p>
+						<em></em>
+					</p>
+					
+
+					
+					
+											<h2>Classes</h2>
+						<table class="table table-hover">
+															<tr>
+									<td><a href="classes/Drupal-strata-Telemetry-Span.html"><abbr title="\Drupal\strata\Telemetry\Span">Span</abbr></a></td>
+									<td>
+										<em>One timed operation, in the shape OpenTelemetry transports.</em>
+									</td>
+								</tr>
+													</table>
+									</div>
+
+				<aside class="span4 detailsbar">
+					<dl>
+													<dt>Package</dt>
+							<dd>
+								<div class="namespace-wrapper">\Application</div>
+							</dd>
+						
+																			
+					</dl>
+					<h2>Tags</h2>
+					<table class="table table-condensed">
+																					<tr>
+									<td colspan="2">
+										<em>None found</em>
+									</td>
+								</tr>
+																		</table>
+
+				</aside>
+			</div>
+
+			
+			
+		</div>
+	</section>
+
+	<div id="source-view" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="source-view-label" aria-hidden="true">
+		<div class="modal-header">
+			<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+			<h3 id="source-view-label"></h3>
+		</div>
+		<div class="modal-body">
+			<pre data-src="files/src/Telemetry/Span.php.txt" class="language-php line-numbers"></pre>
+		</div>
+	</div>
+
+			<footer class="row-fluid">
+				<section class="span10 offset2">
+					<section class="row-fluid">
+						<section class="span10 offset1">
+							<section class="row-fluid footer-sections">
+								<section
+									class="span4">
+																		<h1>
+										<i class="fa-solid fa-code"></i>
+									</h1>
+									<div>
+										<ul>
+																							<li><a href="namespaces/drupal.html"><abbr title="\Drupal">Drupal</abbr></a></li>
+																					</ul>
+									</div>
+								</section>
+								<section
+									class="span4">
+																		<h1>
+										<i class="fa-solid fa-project-diagram"></i>
+									</h1>
+									<div>
+										<ul>
+											<li><a href="graphs/class.html">Class Hierarchy Diagram</a></li>
+										</ul>
+									</div>
+								</section>
+								<section
+									class="span4">
+																		<h1>
+										<i class="fa-solid fa-thumbtack"></i>
+									</h1>
+									<div>
+										<ul>
+											<li><a href="reports/errors.html">Errors</a></li>
+											<li><a href="reports/markers.html">Markers</a></li>
+										</ul>
+									</div>
+								</section>
+							</section>
+						</section>
+					</section>
+					<section class="row-fluid">
+						<section class="span10 offset1">
+							<hr/>
+							Documentation is powered by
+							<a href="https://www.phpdoc.org/">phpDocumentor
+							</a>
+							and authored
+							                    on
+							August 22nd, 2026 at 04:13.
+						</section>
+					</section>
+				</section>
+			</footer>
+		</div>
+		<script src="resources/js/jquery-1.11.0.min.js"></script>
+		<script src="resources/js/ui/1.10.4/jquery-ui.min.js"></script>
+		<script src="resources/js/jquery.smooth-scroll.js"></script>
+		<script src="resources/js/prism.min.js"></script>
+		<script src="resources/js/bootstrap.js"></script>
+		<script src="resources/js/custom.js"></script>
+			</body>
+</html>

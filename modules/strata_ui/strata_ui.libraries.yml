@@ -1,9 +1,0 @@
-strata:
-  version: 1.x
-  css:
-    component:
-      css/strata.css: {}
-  js:
-    js/timeline.js: {}
-  dependencies:
-    - core/drupal

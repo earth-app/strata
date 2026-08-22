@@ -1,6 +1,0 @@
-services:
-  strata_azure.factory:
-    class: Drupal\strata_azure\AzureProviderFactory
-    arguments: ['@config.factory', '@http_client']
-    tags:
-      - { name: strata.storage_provider_factory }

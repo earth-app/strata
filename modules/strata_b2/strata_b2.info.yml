@@ -1,8 +1,0 @@
-name: 'Strata B2'
-description: 'Stores history on Backblaze B2 over the native api, which accepts an application key scoped to one bucket.'
-type: module
-package: Strata
-core_version_requirement: ^11.2
-
-dependencies:
-  - strata:strata

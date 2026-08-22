@@ -1,4 +1,0 @@
-strata_s3.settings.tab:
-  title: 'S3'
-  route_name: strata_s3.settings
-  base_route: strata.settings.storage

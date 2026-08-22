@@ -1,9 +1,0 @@
-strata_s3.settings:
-  path: '/admin/config/system/strata/s3'
-  defaults:
-    _form: Drupal\strata_s3\Form\S3SettingsForm
-    _title: 'Strata S3'
-  requirements:
-    _permission: 'manage strata storage+administer strata'
-  options:
-    _admin_route: TRUE

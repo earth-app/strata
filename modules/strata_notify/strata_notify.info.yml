@@ -1,8 +1,0 @@
-name: 'Strata Notify'
-description: 'Mails and webhooks a site when a restore fails, a budget ceiling is crossed or a finding needs a person.'
-type: module
-package: Strata
-core_version_requirement: ^11.2
-
-dependencies:
-  - strata:strata

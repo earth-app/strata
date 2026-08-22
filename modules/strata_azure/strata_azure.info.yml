@@ -1,8 +1,0 @@
-name: 'Strata Azure'
-description: 'Stores history on Azure Blob Storage over the native Blob REST API, with a shared key or a sas token.'
-type: module
-package: Strata
-core_version_requirement: ^11.2
-
-dependencies:
-  - strata:strata

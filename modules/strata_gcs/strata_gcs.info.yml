@@ -1,8 +1,0 @@
-name: 'Strata GCS'
-description: 'Stores history on Google Cloud Storage over the native json api, with a service account key or a workload identity token.'
-type: module
-package: Strata
-core_version_requirement: ^11.2
-
-dependencies:
-  - strata:strata

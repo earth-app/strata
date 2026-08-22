@@ -1,9 +1,0 @@
-name: 'Strata Redis'
-description: 'Captures the authoritative parts of a Redis keyspace - queues, sessions, flood counters and semaphores - and flags what nobody has classified yet.'
-type: module
-package: Strata
-core_version_requirement: ^11.2
-
-dependencies:
-  - strata:strata
-  - redis:redis

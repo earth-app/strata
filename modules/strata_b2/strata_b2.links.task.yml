@@ -1,4 +1,0 @@
-strata_b2.settings.tab:
-  title: 'B2'
-  route_name: strata_b2.settings
-  base_route: strata.settings.storage
