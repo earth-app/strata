@@ -7,6 +7,8 @@ namespace Drupal\Tests\strata\Kernel;
 use Drupal\strata\Engine;
 use Drupal\strata\Site\SiteScopedProvider;
 use Drupal\strata\Tier\TieredProvider;
+use Drupal\strata\Tier\TierMigrationReport;
+use Drupal\strata\Tree\RefStore;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -373,7 +375,256 @@ class TierTest extends StrataKernelTestBase
 
 	#endregion
 
+	#region Migration
+
+	#[Test]
+	#[TestDox('a pass moves aged history out of the nearest bucket into the next one')]
+	#[Group('strata/tier')]
+	public function aPassMovesAgedHistoryOutward(): void
+	{
+		$this->tier();
+		$this->flush('aging');
+		$this->age($this->bucket(0), 60 * self::DAY);
+
+		$before = $this->keys($this->bucket(0));
+		$report = $this->migrate();
+
+		$this->assertGreaterThan(0, $report->examined, 'the pass looked at the aged objects');
+		$this->assertGreaterThan(0, $report->moved, 'and moved them rather than only copying');
+		$this->assertNotSame([], $this->keys($this->bucket(1)), 'the month bucket received them');
+		$this->assertLessThan(
+			count($before),
+			count($this->keys($this->bucket(0))),
+			'and the nearest bucket no longer holds what moved',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a migrated object still reads back through the router afterwards')]
+	#[Group('strata/tier')]
+	public function aMigratedObjectStillReadsThroughTheRouter(): void
+	{
+		$this->tier();
+		$this->flush('readable');
+		$this->age($this->bucket(0), 60 * self::DAY);
+
+		$router = $this->engine()->tiers();
+
+		$this->assertNotNull($router);
+
+		$keys = $this->keys($this->bucket(0));
+		$bodies = [];
+
+		foreach ($keys as $key) {
+			$bodies[$key] = $router->get($key);
+		}
+
+		$this->migrate();
+
+		foreach ($bodies as $key => $body) {
+			$this->assertSame(
+				$body,
+				$router->get($key),
+				sprintf('%s reads back byte-identical after the pass moved it', $key),
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('a tier that retains below is a replica, so the nearer copy stays put')]
+	#[Group('strata/tier')]
+	public function aRetainingTierKeepsTheNearerCopy(): void
+	{
+		$this->configureLadder([
+			['name' => 'now', 'provider' => 'local', 'location' => $this->bucket(0)],
+			[
+				'name' => 'replica',
+				'provider' => 'local',
+				'location' => $this->bucket(1),
+				'from_age' => 30 * self::DAY,
+				'retain_below' => true,
+			],
+		]);
+		$this->flush('replicated');
+		$this->age($this->bucket(0), 60 * self::DAY);
+
+		$before = $this->keys($this->bucket(0));
+		$report = $this->migrate();
+
+		$this->assertGreaterThan(0, $report->copied, 'the objects were copied outward');
+		$this->assertSame(
+			0,
+			$report->moved,
+			'and none of them were moved, since this is a replica',
+		);
+		$this->assertSame(
+			$before,
+			$this->keys($this->bucket(0)),
+			'the nearest bucket is untouched, which is what makes it a replica rather than a move',
+		);
+		$this->assertNotSame([], $this->keys($this->bucket(1)));
+	}
+
+	#[Test]
+	#[TestDox('refs are never moved, however old they get')]
+	#[Group('strata/tier')]
+	public function refsAreNeverMoved(): void
+	{
+		$this->tier();
+		$this->flush('pinned');
+		$this->age($this->bucket(0), 400 * self::DAY);
+
+		$this->migrate();
+
+		$refs = $this->keys($this->bucket(0), RefStore::PREFIX);
+
+		$this->assertNotSame([], $refs, 'the ref stayed in the nearest bucket');
+		$this->assertSame(
+			[],
+			$this->keys($this->bucket(1), RefStore::PREFIX),
+			'and nothing put a copy of it in a colder one',
+		);
+		$this->assertSame([], $this->keys($this->bucket(2), RefStore::PREFIX));
+	}
+
+	#[Test]
+	#[TestDox('a pass that runs out of budget stops where it is and says so')]
+	#[Group('strata/tier')]
+	public function aBudgetedPassStopsAndReports(): void
+	{
+		$this->tier();
+		$this->flush('budgeted');
+		$this->age($this->bucket(0), 60 * self::DAY);
+
+		// one byte cannot carry an object, so the pass stops on the first one it tries
+		$report = $this->migrate(1);
+
+		$this->assertGreaterThan(
+			0,
+			count($this->keys($this->bucket(0))),
+			'the nearest bucket still holds what the budget stopped it reaching',
+		);
+		$this->assertLessThanOrEqual(
+			1,
+			$report->moved,
+			'a budget of one byte moves at most the object it was already committed to',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a pass over history that is not old enough yet moves nothing')]
+	#[Group('strata/tier')]
+	public function freshHistoryIsNotMoved(): void
+	{
+		$this->tier();
+		$this->flush('fresh');
+
+		$before = $this->keys($this->bucket(0));
+		$report = $this->migrate();
+
+		$this->assertSame(0, $report->moved);
+		$this->assertSame(0, $report->copied);
+		$this->assertSame($before, $this->keys($this->bucket(0)));
+		$this->assertSame([], $this->keys($this->bucket(1)));
+	}
+
+	#[Test]
+	#[TestDox('a second pass over migrated history finds nothing left to do')]
+	#[Group('strata/tier')]
+	public function aSecondPassIsIdempotent(): void
+	{
+		$this->tier();
+		$this->flush('settled');
+		$this->age($this->bucket(0), 60 * self::DAY);
+
+		$this->migrate();
+		$after = $this->keys($this->bucket(1));
+
+		// the objects are newly written in tier 1, so their age restarts there and nothing is due
+		$second = $this->migrate();
+
+		$this->assertSame(0, $second->moved);
+		$this->assertSame($after, $this->keys($this->bucket(1)));
+	}
+
+	#[Test]
+	#[TestDox('a history split by a real migration still verifies clean as one history')]
+	#[Group('strata/tier')]
+	public function aMigratedHistoryVerifiesClean(): void
+	{
+		$this->tier();
+		$this->flush('verifiable');
+		$this->age($this->bucket(0), 60 * self::DAY);
+		$this->migrate();
+
+		$report = $this->engine()->verifier()->verify();
+
+		$this->assertTrue(
+			$report->isClean(),
+			'a migration that split the history left it verifiable: ' . $report->summary(),
+		);
+		$this->assertGreaterThan(0, $report->frames);
+	}
+
+	#endregion
+
 	#region Fixtures
+
+	/**
+	 * Runs one migration pass.
+	 *
+	 * @param int $budget
+	 *   Most bytes to copy; zero for no limit.
+	 *
+	 * @return TierMigrationReport
+	 *   What the pass did.
+	 */
+	private function migrate(int $budget = 0): TierMigrationReport
+	{
+		$migrator = $this->engine()->tierMigrator();
+
+		$this->assertNotNull($migrator, 'a configured ladder builds a migrator');
+
+		return $migrator->run($budget);
+	}
+
+	/**
+	 * Backdates every object in a bucket so a pass sees it as old.
+	 *
+	 * Age is read from the object's own last-modified time, so this is what actually drives a
+	 * promotion. Moving the clock instead would not work: the objects would still be newer than the
+	 * request time the migrator compares against.
+	 *
+	 * @param string $root
+	 *   The bucket directory.
+	 * @param int $seconds
+	 *   How far back to set each file's modification time.
+	 */
+	private function age(string $root, int $seconds): void
+	{
+		$when = $this->container->get('datetime.time')->getRequestTime() - $seconds;
+		$walk = static function (string $directory) use (&$walk, $when): void {
+			foreach (scandir($directory) ?: [] as $entry) {
+				if ($entry === '.' || $entry === '..') {
+					continue;
+				}
+
+				$path = $directory . '/' . $entry;
+
+				if (is_dir($path)) {
+					$walk($path);
+
+					continue;
+				}
+
+				touch($path, $when);
+			}
+		};
+
+		if (is_dir($root)) {
+			$walk($root);
+		}
+	}
 
 	/**
 	 * The engine under test.
