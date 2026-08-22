@@ -60,18 +60,39 @@ final class StrataRestoreCommands extends DrushCommands
 	 *   Builds the preflight, the replayer and the restore.
 	 * @param HealthLedgerInterface $ledger
 	 *   Holds the rung each finding code sits at, which is what a quarantine moves.
-	 * @param ArchiveExporter $exporter
-	 *   Writes a span of history into one portable file.
-	 * @param ArchiveImporter $importer
-	 *   Reads one back into this site's store.
 	 */
 	public function __construct(
 		private readonly Engine $engine,
 		private readonly HealthLedgerInterface $ledger,
-		private readonly ArchiveExporter $exporter,
-		private readonly ArchiveImporter $importer,
 	) {
 		parent::__construct();
+	}
+
+	/**
+	 * The archive writer, built when a command asks for one.
+	 *
+	 * Not a constructor argument. Building one assembles the whole store, which refuses on a site
+	 * that has not chosen a key yet, and Drush answers a constructor that throws by dropping every
+	 * command on the class with a debug-level line nobody sees. Losing `strata:rollback` because
+	 * `strata:export` could not be built is the wrong trade at exactly the moment somebody needs it.
+	 *
+	 * @return ArchiveExporter
+	 *   The exporter.
+	 */
+	private function exporter(): ArchiveExporter
+	{
+		return $this->engine->archiveExporter();
+	}
+
+	/**
+	 * The archive reader, built when a command asks for one.
+	 *
+	 * @return ArchiveImporter
+	 *   The importer.
+	 */
+	private function importer(): ArchiveImporter
+	{
+		return $this->engine->archiveImporter();
 	}
 
 	#region Reading
@@ -709,7 +730,7 @@ final class StrataRestoreCommands extends DrushCommands
 		array $options = ['from' => self::REQ, 'limit' => self::REQ],
 	): PropertyList {
 		$limit = self::value($options, 'limit');
-		$manifest = $this->exporter->export(
+		$manifest = $this->exporter()->export(
 			$path,
 			self::value($options, 'from'),
 			$limit === null ? null : max(0, (int) $limit),
@@ -771,7 +792,7 @@ final class StrataRestoreCommands extends DrushCommands
 	#[CLI\Format(listDelimiter: ':', tableStyle: 'compact')]
 	public function import(string $path, array $options = ['dry-run' => false]): PropertyList
 	{
-		$manifest = $this->importer->inspect($path);
+		$manifest = $this->importer()->inspect($path);
 
 		$this->prose()->text(
 			sprintf(
@@ -784,7 +805,7 @@ final class StrataRestoreCommands extends DrushCommands
 		$this->printProblems($manifest);
 
 		if (self::flag($options, 'dry-run')) {
-			return $this->manifestList($path, $this->importer->import($path, false));
+			return $this->manifestList($path, $this->importer()->import($path, false));
 		}
 		if (
 			!$this->agreed(
@@ -796,7 +817,7 @@ final class StrataRestoreCommands extends DrushCommands
 			return $this->manifestList($path, $manifest);
 		}
 
-		$written = $this->importer->import($path, true);
+		$written = $this->importer()->import($path, true);
 
 		$this->announce($written->isComplete(), $written->summary());
 		$this->printProblems($written);

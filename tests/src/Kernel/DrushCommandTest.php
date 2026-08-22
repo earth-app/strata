@@ -26,6 +26,7 @@ use ReflectionClass;
 use ReflectionMethod;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Proves the command suite is declared correctly and runs on a site with no history.
@@ -211,6 +212,80 @@ class DrushCommandTest extends StrataKernelTestBase
 
 		$this->assertInstanceOf($class, $command);
 		$this->assertInstanceOf(DrushCommands::class, $command);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'$_dataName ask for nothing that assembles the store, so drush can always build them',
+		),
+	]
+	#[Group('strata/drush')]
+	#[DataProvider('commandClasses')]
+	public function commandClassAsksForNothingAssembled(string $class): void
+	{
+		// AutowireTrait resolves every constructor parameter through the container, and anything the
+		// engine builds assembles the store, which refuses on a site with no key. Drush answers a
+		// constructor that throws by dropping every command on the class with a debug line nobody
+		// reads. Engine itself is lazy, and a service taking only `@database` cannot refuse, so the
+		// set is derived from which services name the engine as their factory rather than guessed at.
+		// Structural rather than constructed, because the container caches a service it already built
+		// and a kernel test cannot ask for a cold one.
+		$assembled = $this->engineBuiltClasses();
+
+		$this->assertNotEmpty($assembled, 'the engine is the factory for at least one service');
+
+		foreach ((new ReflectionMethod($class, '__construct'))->getParameters() as $parameter) {
+			$this->assertNotContains(
+				ltrim((string) $parameter->getType(), '?'),
+				$assembled,
+				sprintf(
+					'%s::$%s assembles the store, so resolve it from Engine inside a method',
+					$class,
+					$parameter->getName(),
+				),
+			);
+		}
+	}
+
+	/**
+	 * Every class whose service is built by the engine.
+	 *
+	 * @return list<string>
+	 *   Class names, plus the interfaces aliased to those services.
+	 */
+	private function engineBuiltClasses(): array
+	{
+		$services =
+			(array) (Yaml::parseFile(__DIR__ . '/../../../strata.services.yml')['services'] ?? []);
+		$built = [];
+
+		foreach ($services as $definition) {
+			if (!is_array($definition)) {
+				continue;
+			}
+
+			$factory = $definition['factory'] ?? null;
+
+			if (is_array($factory) && ($factory[0] ?? '') === '@strata.engine') {
+				$built[(string) ($definition['class'] ?? '')] = true;
+			}
+		}
+
+		foreach ($services as $id => $definition) {
+			$alias = is_array($definition) ? $definition['alias'] ?? '' : '';
+
+			if (
+				$alias !== '' &&
+				isset($services[$alias]['class'], $built[$services[$alias]['class']])
+			) {
+				$built[(string) $id] = true;
+			}
+		}
+
+		unset($built['']);
+
+		return array_keys($built);
 	}
 
 	#endregion
