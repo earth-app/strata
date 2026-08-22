@@ -18,36 +18,83 @@ Every recipe below is exercised by a spec in [`tests/`](./tests/) or by a script
 > The snippets are sketches against the public API. The linked spec is the asserted version that runs
 > in CI.
 
+## 🧪 Simulating a Recipe Before You Run It
+
+Most of what follows can be rehearsed locally first. `./startup.sh` builds the site against whichever
+object store you name, each in its own container, so the same traffic can be sealed into a different
+API and the results compared.
+
+| Flag               | What it gives you                                                            |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `--provider=s3`    | MinIO. Also how R2, Wasabi, Ceph and every S3-compatible endpoint behave     |
+| `--provider=azure` | Azurite, over the native Blob REST API, signed with `SharedKey`              |
+| `--provider=gcs`   | fake-gcs-server, over the native JSON API                                    |
+| `--provider=local` | The filesystem, no container at all                                          |
+| `--tiers`          | Two buckets on MinIO, the near one plus a replica, for the ladder recipes    |
+| `--db=`            | `mariadb`, `postgres` or `sqlite`, since physical restore is driver-specific |
+| `--no-ui`          | The engine alone, without `strata_ui`, `strata_files` or `strata_notify`     |
+| `--no-codecs`      | Skip building `ext-zstd` and `ext-brotli` into the container                 |
+| `--fresh`          | Delete the site and rebuild it                                               |
+
+Every build prints the capabilities it probed from the live endpoint, which is the fastest way to see
+why a recipe behaves differently on one vendor than another:
+
+```text
+                        minio    azurite   fake-gcs
+  batch delete          yes      no        no
+  conditional write     yes      yes       yes
+  checksums             no       yes       yes
+  largest single put    5 GiB    256 MiB   256 MiB
+  smallest part         5 MiB    4 MiB     8 MiB
+```
+
+Four accounts are created on every run, one per permission level, all with the password `demo`. Log
+in as each to see what the [Permissions](README.md#-permissions) table means in the UI:
+
+| Account           | Reaches                                                         |
+| ----------------- | --------------------------------------------------------------- |
+| `strata-admin`    | Everything, including storage credentials                       |
+| `strata-operator` | Rollback, repair, quarantine, branch and merge. Not credentials |
+| `strata-auditor`  | Timeline, diffs, payloads, health and cost estimates. No writes |
+| `strata-viewer`   | The timeline, and nothing else                                  |
+
+Backblaze B2 has no emulator, so there is no simulated lane for it. Point `b2.api_url` at a real
+account, or run [`B2IntegrationTest.php`](./modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php)
+with credentials.
+
 ## 🔑 Settings and Credentials
 
 Every recipe reads from `strata.settings`, which exports with the rest of your site configuration.
 Each recipe lists what it needs under **Prerequisites**. This is the catalog of what those keys are
 and where the values come from.
 
-| Key                                             | What it is                                       | Example                         | Where it comes from                                 |
-| ----------------------------------------------- | ------------------------------------------------ | ------------------------------- | --------------------------------------------------- |
-| `provider`                                      | Active provider id                               | `s3`, `azure`, `gcs`, `b2`      | whichever storage submodule you enabled             |
-| `site_id`                                       | Prefix every key sits under                      | `earth-prod`                    | defaults to a digest of the database identity       |
-| `key`                                           | `drupal/key` entity holding the encryption key   | `strata_encryption`             | `/admin/config/system/keys`, 32 bytes hex           |
-| `retired_keys`                                  | Keys still needed to open old frames             | `[strata_2025]`                 | filled by `drush strata:rotate-key`                 |
-| `s3.bucket` / `.region` / `.endpoint`           | S3 target                                        | `backups` / `us-east-1`         | your bucket; endpoint only for non-AWS              |
-| `s3.access_key_id` / `.secret_access_key`       | S3 credentials                                   | `AKIA...`                       | leave empty to use env, `~/.aws` or an EC2 role     |
-| `s3.path_style`                                 | Address the bucket in the path, not the host     | `true` for MinIO                | required by MinIO, Ceph and Garage                  |
-| `azure.account` / `.container`                  | Azure target                                     | `earthapp` / `strata`           | the storage account and a blob container            |
-| `azure.account_key` / `.sas_token`              | Azure credentials                                | a base64 key, or a SAS          | portal, Access keys or Shared access signature      |
-| `gcs.bucket`                                    | GCS target                                       | `earth-strata`                  | your bucket                                         |
-| `gcs.service_account`                           | Service-account JSON                             | `{"type":"service_account"...}` | IAM, a key for an account with Storage Object Admin |
-| `b2.bucket` / `.key_id` / `.application_key`    | B2 target and credentials                        | `earth-cold`                    | B2, Application Keys; scope it to the bucket        |
-| `flush.max_age` / `.max_bytes` / `.max_ops`     | Whichever fires first seals a segment            | `15` / `4194304` / `5000`       | your recovery point objective                       |
-| `journal.backend`                               | Where operations queue before a flush            | `database` or `redis`           | `redis` needs `strata_redis` and `ext-redis`        |
-| `capture.*`                                     | Which realms are captured                        | `true`                          | `/admin/config/system/strata/capture`               |
-| `capture.access_churn`                          | How `access` and `login` timestamps are recorded | `event`                         | `event`, `full` or `off`                            |
-| `tiers`                                         | The bucket ladder                                | see recipe 3                    | `/admin/config/system/strata/tiers`                 |
-| `retention.base_interval`                       | Seconds between base anchors                     | `14400`                         | a restore-latency dial                              |
-| `budget.bytes_per_month` / `.dollars_per_month` | Monthly ceilings                                 | `10737418240` / `5.00`          | what you are willing to spend                       |
-| `drill.enabled` / `.sample`                     | Scheduled restore drills                         | `true` / `50`                   | how much to prove per run                           |
-| `merge.base_ceiling` / `.walk_limit`            | How far a merge looks                            | `10000` / `5000`                | raise on a very long history                        |
-| `telemetry.endpoint`                            | OpenTelemetry collector                          | `http://otel:4318`              | your collector                                      |
+| Key                                                | What it is                                       | Example                                 | Where it comes from                                 |
+| -------------------------------------------------- | ------------------------------------------------ | --------------------------------------- | --------------------------------------------------- |
+| `provider`                                         | Active provider id                               | `s3`, `azure`, `gcs`, `b2`              | whichever storage submodule you enabled             |
+| `site_id`                                          | Prefix every key sits under                      | `earth-prod`                            | defaults to a digest of the database identity       |
+| `key`                                              | `drupal/key` entity holding the encryption key   | `strata_encryption`                     | `/admin/config/system/keys`, 32 bytes hex           |
+| `retired_keys`                                     | Keys still needed to open old frames             | `[strata_2025]`                         | filled by `drush strata:rotate-key`                 |
+| `s3.bucket` / `.region` / `.endpoint`              | S3 target                                        | `backups` / `us-east-1`                 | your bucket; endpoint only for non-AWS              |
+| `s3.access_key_id` / `.secret_access_key`          | S3 credentials                                   | `AKIA...`                               | leave empty to use env, `~/.aws` or an EC2 role     |
+| `s3.path_style`                                    | Address the bucket in the path, not the host     | `true` for MinIO                        | required by MinIO, Ceph and Garage                  |
+| `azure.account` / `.container`                     | Azure target                                     | `earthapp` / `strata`                   | the storage account and a blob container            |
+| `azure.account_key` / `.sas_token`                 | Azure credentials                                | a base64 key, or a SAS                  | portal, Access keys or Shared access signature      |
+| `gcs.bucket`                                       | GCS target                                       | `earth-strata`                          | your bucket                                         |
+| `gcs.service_account`                              | Service-account JSON                             | `{"type":"service_account"...}`         | IAM, a key for an account with Storage Object Admin |
+| `b2.bucket_name` / `.bucket_id`                    | B2 target                                        | `earth-cold`                            | B2, Buckets; the id is on the bucket's detail page  |
+| `b2.key_id` / `.application_key`                   | B2 credentials                                   | `0045...` / `K004...`                   | B2, Application Keys; scope it to the bucket        |
+| `azure.service_url` / `gcs.api_url` / `b2.api_url` | Address a different host than the vendor's       | `http://azurite:10000/devstoreaccount1` | set by `./startup.sh --provider=`                   |
+| `gcs.access_token`                                 | A pre-issued OAuth2 token instead of a key       | `ya29...`                               | GKE workload identity, or an emulator               |
+| `flush.max_age` / `.max_bytes` / `.max_ops`        | Whichever fires first seals a segment            | `15` / `4194304` / `5000`               | your recovery point objective                       |
+| `journal.backend`                                  | Where operations queue before a flush            | `database` or `redis`                   | `redis` needs `strata_redis` and `ext-redis`        |
+| `capture.*`                                        | Which realms are captured                        | `true`                                  | `/admin/config/system/strata/capture`               |
+| `capture.access_churn`                             | How `access` and `login` timestamps are recorded | `event`                                 | `event`, `full` or `off`                            |
+| `tiers`                                            | The bucket ladder                                | see recipe 3                            | `/admin/config/system/strata/tiers`                 |
+| `retention.base_interval`                          | Seconds between base anchors                     | `14400`                                 | a restore-latency dial                              |
+| `budget.bytes_per_month` / `.dollars_per_month`    | Monthly ceilings                                 | `10737418240` / `5.00`                  | what you are willing to spend                       |
+| `drill.enabled` / `.sample`                        | Scheduled restore drills                         | `true` / `50`                           | how much to prove per run                           |
+| `merge.base_ceiling` / `.walk_limit`               | How far a merge looks                            | `10000` / `5000`                        | raise on a very long history                        |
+| `telemetry.endpoint`                               | OpenTelemetry collector                          | `http://otel:4318`                      | your collector                                      |
 
 ## 📚 Recipe Index
 

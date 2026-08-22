@@ -560,13 +560,30 @@ server. One command brings the server up, or reuses one already listening, and r
 The server is detached from the shell that started it and is independent of the DDEV site below, so
 the two run side by side.
 
-`./startup.sh` builds a throwaway DDEV Drupal 11 site at `/tmp/drupal-strata` on port 8788 with a
-local MinIO container, and takes `--db=mariadb|postgres|sqlite` because the physical-restore
-strategies are driver-specific.
+`./startup.sh` builds a throwaway DDEV Drupal 11 site at `/tmp/drupal-strata` on port 8788, with the
+engine, `strata_ui`, `strata_files` and `strata_notify` installed and four accounts, one per
+permission level, all with the password `demo`.
+
+It can run against any of the object stores, each in its own container, so the same traffic can be
+sealed into a different API and compared:
+
+```bash
+./startup.sh                       # minio, which is how r2 and every s3-compatible endpoint behaves
+./startup.sh --provider=azure      # azurite, over the native Blob REST API
+./startup.sh --provider=gcs        # fake-gcs-server, over the native JSON API
+./startup.sh --provider=s3 --tiers # two buckets, the near one plus a replica
+./startup.sh --provider=local      # the filesystem, no container at all
+```
+
+Backblaze B2 has no emulator, so there is no simulated lane for it. Point `b2.api_url` at a real
+account, or run `modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php` with credentials.
+
+`--db=mariadb|postgres|sqlite` picks the database, because the physical-restore strategies are
+driver-specific. `--no-ui` installs the engine alone. `--fresh` rebuilds from scratch.
 
 The DDEV web image ships neither `ext-zstd` nor `ext-brotli`, so the build in
 [docker/web-build/](docker/web-build/) adds both extensions and both CLI binaries to the container.
-Without them the playground compresses with gzip and none of the measurements below can be
+Without them the playground compresses with gzip and none of the measurements above can be
 reproduced by hand. `--no-codecs` skips that build.
 
 That site can then be driven, measured and broken by hand:
