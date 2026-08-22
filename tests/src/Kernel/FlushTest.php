@@ -427,6 +427,76 @@ class FlushTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('a holder whose lease was taken over cannot release the new holder on its way out')]
+	#[Group('strata/flush')]
+	public function staleHolderCannotReleaseTheNewHolder(): void
+	{
+		$database = $this->container->get('database');
+		$now = 1_755_000_000;
+
+		$abandoned = new Lease($database, static fn(): int => $now);
+		$abandoned->acquire(Lease::FLUSH, 60);
+
+		$taker = new Lease($database, static fn(): int => $now + 3600);
+		$this->assertTrue($taker->acquire(Lease::FLUSH));
+
+		// both instances believe they hold it; only the token in the row decides
+		$this->assertTrue($abandoned->holds(Lease::FLUSH));
+		$this->assertFalse($abandoned->release(Lease::FLUSH), 'the stale token frees nothing');
+		$this->assertTrue($taker->holds(Lease::FLUSH));
+
+		$this->assertFalse(
+			(new Lease($database, static fn(): int => $now + 3600))->acquire(Lease::FLUSH),
+			'the new holder still has it',
+		);
+		$this->assertTrue($taker->release(Lease::FLUSH));
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'releasing a lease this instance never took reports nothing rather than deleting one',
+		),
+	]
+	#[Group('strata/flush')]
+	public function releasingAnUnheldLeaseReportsNothing(): void
+	{
+		$database = $this->container->get('database');
+		$holder = new Lease($database);
+		$holder->acquire(Lease::FLUSH);
+
+		$stranger = new Lease($database);
+
+		$this->assertFalse($stranger->holds(Lease::FLUSH));
+		$this->assertFalse($stranger->release(Lease::FLUSH));
+		$this->assertTrue($holder->holds(Lease::FLUSH));
+	}
+
+	#[Test]
+	#[TestDox('collecting removes an expired lease and leaves a live one alone')]
+	#[Group('strata/flush')]
+	public function collectingRemovesOnlyExpiredLeases(): void
+	{
+		$database = $this->container->get('database');
+		$now = 1_755_000_000;
+
+		(new Lease($database, static fn(): int => $now))->acquire(Lease::FLUSH, 60);
+		(new Lease($database, static fn(): int => $now))->acquire(Lease::COMPACTION, 7_200);
+
+		$this->assertSame(0, (new Lease($database, static fn(): int => $now))->collect());
+		$this->assertSame(1, (new Lease($database, static fn(): int => $now + 3_600))->collect());
+
+		$this->assertTrue(
+			(new Lease($database, static fn(): int => $now + 3_600))->acquire(Lease::FLUSH),
+			'the collected lease is free',
+		);
+		$this->assertFalse(
+			(new Lease($database, static fn(): int => $now + 3_600))->acquire(Lease::COMPACTION),
+			'the live lease survived the sweep',
+		);
+	}
+
+	#[Test]
 	#[TestDox('a flush that fails leaves the window in place for the next run')]
 	#[Group('strata/flush')]
 	public function failedFlushKeepsTheWindow(): void
@@ -518,6 +588,40 @@ class FlushTest extends StrataKernelTestBase
 
 		$this->assertSame(1, $this->journal()->pending());
 		$this->assertSame([], $this->keys());
+	}
+
+	#[Test]
+	#[TestDox('cron survives an engine that cannot be assembled at all')]
+	#[Group('strata/flush')]
+	public function cronSurvivesAnUnassembledEngine(): void
+	{
+		// the shipped default: encryption on with no key, so every stage refuses to be built
+		$this->config('strata.settings')->set('cipher.id', 'xchacha20poly1305')->save();
+		$this->engine()->reset();
+
+		// resolving the hook happens outside Cron's own try/catch, so this used to kill every
+		// module's cron and leak the cron lock
+		$this->assertTrue($this->container->get('cron')->run(), 'cron completed');
+		$this->assertTrue(
+			$this->container->get('lock')->lockMayBeAvailable('cron'),
+			'the cron lock was released',
+		);
+	}
+
+	#[Test]
+	#[TestDox('cron does not need capture to be on to run at all')]
+	#[Group('strata/flush')]
+	public function cronRunsWithAnUnconfiguredStore(): void
+	{
+		$this->config('strata.settings')
+			->set('enabled', false)
+			->set('cipher.id', 'xchacha20poly1305')
+			->set('local_path', '')
+			->save();
+		$this->container->get('strata.capture_scope')->reset();
+		$this->engine()->reset();
+
+		$this->assertTrue($this->container->get('cron')->run(), 'cron completed');
 	}
 
 	#endregion

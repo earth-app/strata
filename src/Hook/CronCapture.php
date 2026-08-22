@@ -10,12 +10,11 @@ use Drupal\strata\Capture\CaptureScope;
 use Drupal\Core\State\StateInterface;
 use Drupal\strata\Anomaly\Anomaly;
 use Drupal\strata\Anomaly\AnomalyDetector;
-use Drupal\strata\Capture\Classifier\KeyspaceDiscovery;
-use Drupal\strata\Codec\Dictionary\DictionaryPass;
 use Drupal\strata\Capture\Reconciler;
 use Drupal\strata\Code\CodeCapture;
 use Drupal\strata\Drill\DrillReport;
 use Drupal\strata\Drill\DrillRunner;
+use Drupal\strata\Engine;
 use Drupal\strata\Flush\Flusher;
 use Drupal\strata\Flush\Lease;
 use Drupal\strata\Telemetry\TelemetryPass;
@@ -57,6 +56,15 @@ use Throwable;
  * storage outage would take the site's search indexing and cache warming down with it. Each stage
  * is caught separately, so one failing does not skip the others either.
  *
+ * **The engine arrives rather than the eight things it builds, and that is load bearing.** Every
+ * stage is assembled from configuration and assembling one can refuse: encryption is on by default
+ * with no key, so `Engine::flusher()` throws on a site nobody has configured yet. Drupal resolves a
+ * cron hook's service inside `ModuleHandler::invokeAllWith()`, which runs before the per-module
+ * try/catch in `Cron::invokeCronHandlers()` and before this class can check anything. Taking the
+ * stages as constructor arguments therefore skipped every module's cron and left the cron lock held
+ * for its full 900 seconds. Each stage resolves what it needs inside its own guard instead.
+ *
+ * @see Engine
  * @see Flusher
  * @see Reconciler
  * @see CodeCapture
@@ -92,50 +100,29 @@ final class CronCapture
 	/**
 	 * Constructs the cron capture.
 	 *
-	 * @param Flusher $flusher
-	 *   Seals a window when one is due.
+	 * @param Engine $engine
+	 *   Builds each stage on demand. Deliberately not the stages themselves; see the class docblock.
 	 * @param CaptureScope $scope
 	 *   Decides whether capture is on at all.
 	 * @param Lease $lease
 	 *   Collected on each run so an abandoned lease cannot block a flush forever.
 	 * @param LoggerInterface $logger
 	 *   Records a stage that could not run.
-	 * @param Reconciler|null $reconciler
-	 *   Detects uncaptured table changes, or NULL to skip that stage.
-	 * @param CodeCapture|null $code
-	 *   Captures the site's own code, or NULL to skip that stage.
-	 * @param KeyspaceDiscovery|null $keyspace
-	 *   Describes the ephemeral keyspace, or NULL to skip that stage.
-	 * @param DictionaryPass|null $dictionaries
-	 *   Trains the per-realm dictionaries, or NULL to skip that stage.
-	 * @param StateInterface|null $state
+	 * @param StateInterface $state
 	 *   Remembers when the dictionary pass and the last drill ran.
+	 * @param ConfigFactoryInterface $configFactory
+	 *   Decides whether the anomaly and drill stages are on, and how often the drill runs.
 	 * @param int $dictionaryInterval
 	 *   Seconds between dictionary passes.
-	 * @param AnomalyDetector|null $anomalies
-	 *   Scores each reading against the site's own history, or NULL to skip that stage.
-	 * @param DrillRunner|null $drill
-	 *   Proves the store reproduces the site, or NULL to skip that stage.
-	 * @param TelemetryPass|null $telemetry
-	 *   Exports what the store looks like, or NULL to skip that stage.
-	 * @param ConfigFactoryInterface|null $configFactory
-	 *   Decides whether the anomaly and drill stages are on, and how often the drill runs.
 	 */
 	public function __construct(
-		private readonly Flusher $flusher,
+		private readonly Engine $engine,
 		private readonly CaptureScope $scope,
 		private readonly Lease $lease,
 		private readonly LoggerInterface $logger,
-		private readonly ?Reconciler $reconciler = null,
-		private readonly ?CodeCapture $code = null,
-		private readonly ?KeyspaceDiscovery $keyspace = null,
-		private readonly ?DictionaryPass $dictionaries = null,
-		private readonly ?StateInterface $state = null,
+		private readonly StateInterface $state,
+		private readonly ConfigFactoryInterface $configFactory,
 		private readonly int $dictionaryInterval = self::DICTIONARY_INTERVAL,
-		private readonly ?AnomalyDetector $anomalies = null,
-		private readonly ?DrillRunner $drill = null,
-		private readonly ?TelemetryPass $telemetry = null,
-		private readonly ?ConfigFactoryInterface $configFactory = null,
 	) {}
 
 	/**
@@ -154,14 +141,17 @@ final class CronCapture
 			return;
 		}
 
-		$this->stage('capture code', fn(): mixed => $this->code?->capture());
-		$this->stage('reconcile tables', fn(): mixed => $this->reconciler?->reconcile());
-		$this->stage('flush', fn(): mixed => $this->flusher->flush());
-		$this->stage('discover the keyspace', fn(): mixed => $this->keyspace?->discover());
+		$this->stage('capture code', fn(): mixed => $this->engine->codeCapture()->capture());
+		$this->stage('reconcile tables', fn(): mixed => $this->engine->reconciler()->reconcile());
+		$this->stage('flush', fn(): mixed => $this->engine->flusher()->flush());
+		$this->stage(
+			'discover the keyspace',
+			fn(): mixed => $this->engine->keyspaceDiscovery()->discover(),
+		);
 		$this->stage('train the dictionaries', fn(): mixed => $this->trainDictionaries());
 		$this->stage('detect anomalies', fn(): mixed => $this->detectAnomalies());
 		$this->stage('run a restore drill', fn(): mixed => $this->runDrill());
-		$this->stage('export telemetry', fn(): mixed => $this->telemetry?->run());
+		$this->stage('export telemetry', fn(): mixed => $this->engine->telemetryPass()->run());
 	}
 
 	/**
@@ -172,11 +162,11 @@ final class CronCapture
 	 */
 	private function detectAnomalies(): ?array
 	{
-		if ($this->anomalies === null || !$this->setting('anomaly.enabled', true)) {
+		if (!$this->setting('anomaly.enabled', true)) {
 			return null;
 		}
 
-		return $this->anomalies->run();
+		return $this->engine->anomalyDetector()->run();
 	}
 
 	/**
@@ -187,9 +177,6 @@ final class CronCapture
 	 */
 	private function runDrill(): ?DrillReport
 	{
-		if ($this->drill === null || $this->state === null) {
-			return null;
-		}
 		if (!$this->setting('drill.enabled', false)) {
 			return null;
 		}
@@ -205,10 +192,9 @@ final class CronCapture
 		// recorded before the drill, so one that dies does not retry on every cron afterwards
 		$this->state->set(self::DRILL_KEY, $now);
 
-		return $this->drill->run(
-			null,
-			(int) $this->setting('drill.sample', DrillRunner::DEFAULT_SAMPLE),
-		);
+		return $this->engine
+			->drillRunner()
+			->run(null, (int) $this->setting('drill.sample', DrillRunner::DEFAULT_SAMPLE));
 	}
 
 	/**
@@ -224,10 +210,6 @@ final class CronCapture
 	 */
 	private function setting(string $key, mixed $default): mixed
 	{
-		if ($this->configFactory === null) {
-			return $default;
-		}
-
 		return $this->configFactory->get('strata.settings')->get($key) ?? $default;
 	}
 
@@ -239,10 +221,6 @@ final class CronCapture
 	 */
 	private function trainDictionaries(): ?array
 	{
-		if ($this->dictionaries === null || $this->state === null) {
-			return null;
-		}
-
 		$last = (int) $this->state->get(self::DICTIONARY_KEY, 0);
 		$now = time();
 
@@ -253,7 +231,7 @@ final class CronCapture
 		// recorded before the pass, so a pass that dies does not retry on every cron afterwards
 		$this->state->set(self::DICTIONARY_KEY, $now);
 
-		return $this->dictionaries->run();
+		return $this->engine->dictionaryPass()->run();
 	}
 
 	/**
