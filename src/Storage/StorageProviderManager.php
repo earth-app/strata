@@ -6,14 +6,18 @@ namespace Drupal\strata\Storage;
 
 use Closure;
 use InvalidArgumentException;
-use RuntimeException;
+use Throwable;
 
 /**
- * Holds the storage providers a site has configured.
+ * Holds the storage providers a site has available.
  *
- * A site has one active provider that flushes receive, and may have others registered for a
- * migration, a second-bucket replica or a dry run. An add-on registers here and needs no change
- * anywhere else in the engine.
+ * A registry, not a policy. Which provider a flush is written to is `strata.settings`'s `provider`
+ * key, resolved by Engine; this class only knows what has been contributed and how to build it. An
+ * add-on registers here and needs no change anywhere else in the engine.
+ *
+ * Every enabled submodule registers whether or not the site has configured it, so the ids held here
+ * are what is *available* rather than what is in use. A caller wanting to report on the store the
+ * site actually writes to has to name that provider itself.
  *
  * @see StorageProviderInterface
  */
@@ -49,15 +53,7 @@ final class StorageProviderManager
 	private array $factories = [];
 
 	/**
-	 * Id of the provider flushes are written to.
-	 */
-	private ?string $active = null;
-
-	/**
 	 * Adds a provider.
-	 *
-	 * The first provider registered becomes the active one, so a manager holding exactly one
-	 * provider never needs it named.
 	 *
 	 * @param StorageProviderInterface $provider
 	 *   The provider.
@@ -83,7 +79,6 @@ final class StorageProviderManager
 		}
 
 		$this->providers[$id] = $provider;
-		$this->active ??= $id;
 
 		return $this;
 	}
@@ -114,7 +109,6 @@ final class StorageProviderManager
 		}
 
 		$this->deferred[$id] = Closure::fromCallable($factory);
-		$this->active ??= $id;
 
 		return $this;
 	}
@@ -164,51 +158,6 @@ final class StorageProviderManager
 	public function factory(string $id): ?StorageProviderFactoryInterface
 	{
 		return $this->factories[$id] ?? null;
-	}
-
-	/**
-	 * Chooses which provider receives flushes.
-	 *
-	 * @param string $id
-	 *   A registered provider id.
-	 *
-	 * @return $this
-	 *   The manager, for chaining.
-	 *
-	 * @throws InvalidArgumentException
-	 *   When nothing is registered under that id.
-	 */
-	public function activate(string $id): self
-	{
-		if (!$this->has($id)) {
-			throw new InvalidArgumentException(
-				sprintf('Cannot activate "%s": no such storage provider is registered', $id),
-			);
-		}
-
-		$this->active = $id;
-
-		return $this;
-	}
-
-	/**
-	 * The provider flushes are written to.
-	 *
-	 * @return StorageProviderInterface
-	 *   The active provider.
-	 *
-	 * @throws RuntimeException
-	 *   When no provider is registered, which means the site has never been configured.
-	 */
-	public function active(): StorageProviderInterface
-	{
-		if ($this->active === null) {
-			throw new RuntimeException(
-				'No storage provider is configured, so there is nowhere to write a backup',
-			);
-		}
-
-		return $this->get($this->active);
 	}
 
 	/**
@@ -279,28 +228,37 @@ final class StorageProviderManager
 	}
 
 	/**
-	 * Which providers can be reached right now.
+	 * Whether one provider can be reached right now.
 	 *
-	 * Used by hook_requirements() and the status report. A provider that raises while being probed
-	 * is reported as unreachable rather than taking the status page down with it.
+	 * Used by `strata_requirements()` to report the store the site writes to. It names a single
+	 * provider rather than sweeping every registered one because registration follows the enabled
+	 * submodules and not the configuration: a site running strata_s3 and strata_b2 but configured
+	 * for S3 alone would otherwise report B2 as broken on the status page every time it loaded.
 	 *
-	 * @return array<string, string|null>
-	 *   Provider id keyed to the reason it is unreachable, or NULL when it is reachable.
+	 * **Three failure modes collapse into one reason string, and none of them raise.** A provider id
+	 * nothing registered, a factory that throws while building, and a provider that builds but cannot
+	 * answer are all just "unreachable, and here is why" to a caller that must not take the status
+	 * report down with it.
+	 *
+	 * @param string $id
+	 *   The provider id to probe, as it appears in `strata.settings`.
+	 *
+	 * @return string|null
+	 *   Why the provider cannot be reached, or NULL when it can be.
 	 */
-	public function reachability(): array
+	public function reachability(string $id): ?string
 	{
-		$status = [];
+		try {
+			$provider = $this->get($id);
 
-		foreach ($this->ids() as $id) {
-			try {
-				$provider = $this->get($id);
-				$status[$id] = $provider->isReachable() ? null : $provider->unreachableReason();
-			} catch (RuntimeException | InvalidArgumentException $e) {
-				// a provider that cannot even be built is unreachable, not a fatal
-				$status[$id] = $e->getMessage();
-			}
+			return $provider->isReachable()
+				? null
+				: $provider->unreachableReason() ?? 'the provider did not say why';
+		} catch (Throwable $error) {
+			// a provider that cannot even be built is unreachable, not a fatal. Throwable rather than
+			// a named list: this runs on the status report, and a factory is submodule code that can
+			// raise anything at all
+			return $error->getMessage();
 		}
-
-		return $status;
 	}
 }
