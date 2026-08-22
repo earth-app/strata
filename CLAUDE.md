@@ -160,8 +160,30 @@ Do not "fix" these without measuring first.
 
 ## Core Behaviour Worth Knowing
 
+- **Never take an engine-built service as a constructor argument.** Anything defined with
+  `factory: ['@strata.engine', ...]` assembles the store, and assembling it refuses on a site that
+  has not chosen a key - encryption is on by default. Whoever builds the object then wears the
+  refusal, and none of them handle it: Drupal resolves a `#[Hook]` class inside
+  `ModuleHandler::invokeAllWith()`, which for cron runs **before** the per-module try/catch in
+  `Cron::invokeCronHandlers()`, so a throw skipped every module's cron and left the cron lock held
+  for its full 900 seconds. Drush answers a constructor that throws by dropping every command on the
+  class with a debug-level line nobody reads. Take `@strata.engine` and resolve inside a guarded
+  method; `DrushCommandTest::commandClassAsksForNothingAssembled()` derives the forbidden set from
+  the service file and fails the build. A service taking only `@database` is cheap and fine.
+- **A kernel test cannot prove this by constructing the class.** The container caches a service it
+  has already built, and `Engine::reset()` clears the engine's memo rather than the container's, so
+  the assertion has to be structural.
+- **`json_encode()` returns FALSE for the whole document when any string in it is not valid UTF-8**,
+  and `(string) false` is `''`. That sealed an empty manifest under `Hash::of('')` and reported
+  success. `JournalOp` refuses such a string on construction so the loss is one operation; use
+  `Hash::ofData()` for a digest that is only ever compared. Check strings joined with an ASCII
+  separator, never concatenated bare: a subject ending in a truncated `"\xC3"` and a label opening
+  with `"\xA9"` splice into a valid sequence and both halves pass.
 - **The `database` service cannot be decorated.** It is a factory returning a driver subclass chosen
   in `settings.php`. Statement events are the only driver-agnostic write tap.
+- **Do not wrap the `state` key-value collection.** Core's `State` asks the key-value factory for a
+  collection called `state`, so wrapping it records every state write twice - once as `state`, again
+  as `keyvalue` under `state:<key>`. Invisible in the kernel lane, where `keyvalue` is synthetic.
 - **`StatementExecutionEndEvent` only fires when the Start event is also enabled**, and the Start
   event's constructor calls `findCallerFromDebugBacktrace()` on every statement - 2.99 us at a stack
   depth of 100.
