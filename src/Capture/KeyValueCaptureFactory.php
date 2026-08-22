@@ -18,6 +18,11 @@ use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
  * Strata's own collections are handed through unwrapped. Recording the journal's own bookkeeping in
  * the journal is a feedback loop rather than a backup.
  *
+ * So is the `state` collection, for a different reason. Core's `state` service is
+ * `State(@keyvalue, ...)` and its constructor asks this factory for the collection called `state`,
+ * so a wrapped store there means every state write is recorded twice - once as `state` by
+ * StateCapture, and again as `keyvalue` under the subject `state:<key>`.
+ *
  * The expirable factory is deliberately NOT decorated. An expirable value is a cache with a
  * deadline; capturing one would record something whose correct future state is "gone", and
  * restoring it would put back an entry the site had already finished with.
@@ -30,6 +35,13 @@ final class KeyValueCaptureFactory implements KeyValueFactoryInterface
 	 * Collection prefix this module owns, never captured.
 	 */
 	public const OWN_PREFIX = 'strata';
+
+	/**
+	 * Collections another decorator already records, so wrapping them would double-count.
+	 *
+	 * @var list<string>
+	 */
+	public const CAPTURED_ELSEWHERE = ['state'];
 
 	/**
 	 * Wrapped stores, keyed by collection.
@@ -68,15 +80,26 @@ final class KeyValueCaptureFactory implements KeyValueFactoryInterface
 		}
 
 		$store = $this->inner->get($collection);
+		$name = (string) $collection;
 
-		if (str_starts_with((string) $collection, self::OWN_PREFIX)) {
+		if (str_starts_with($name, self::OWN_PREFIX) || $this->isCapturedElsewhere($name)) {
 			return $this->stores[$collection] = $store;
 		}
 
-		return $this->stores[$collection] = new KeyValueCapture(
-			$store,
-			$this->recorder,
-			(string) $collection,
-		);
+		return $this->stores[$collection] = new KeyValueCapture($store, $this->recorder, $name);
+	}
+
+	/**
+	 * Whether a collection is already recorded by a decorator of its own.
+	 *
+	 * @param string $collection
+	 *   The collection name.
+	 *
+	 * @return bool
+	 *   TRUE when wrapping it here would record the same write twice.
+	 */
+	private function isCapturedElsewhere(string $collection): bool
+	{
+		return in_array($collection, self::CAPTURED_ELSEWHERE, true);
 	}
 }

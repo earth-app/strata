@@ -311,6 +311,21 @@ class KeyValueCaptureTest extends TestCase
 	}
 
 	#[Test]
+	#[TestDox('the state collection is handed through, since state has a decorator of its own')]
+	#[Group('strata/capture')]
+	public function stateCollectionIsNotWrapped(): void
+	{
+		$store = $this->factory->get('state');
+		$store->set('system.cron_last', 1_700_000_000);
+
+		$this->assertNotInstanceOf(KeyValueCapture::class, $store);
+		$this->assertNull(
+			$this->entry('state:system.cron_last'),
+			'StateCapture records this write; recording it here as well would double-count it',
+		);
+	}
+
+	#[Test]
 	#[TestDox('the same collection asked for twice is the same wrapper')]
 	#[Group('strata/capture')]
 	public function collectionsAreCachedPerName(): void
