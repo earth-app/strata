@@ -41,24 +41,56 @@ bunx prettier --check .
 ./vendor/bin/phpcs
 ./vendor/bin/phpstan analyse --memory-limit=1G
 ./vendor/bin/phpunit --testsuite Unit
-./vendor/bin/phpunit --testsuite Kernel
+bun run test:kernel
 ```
 
-The default 128M memory limit makes PHPStan OOM and report a fake "2 errors"; that is not a pass. The
-Kernel suite takes roughly ten minutes and skips seven tests when Docker is down - those are the MinIO
-lane and the skip is expected.
+The default 128M memory limit makes PHPStan OOM and report a fake "2 errors"; that is not a pass.
+
+The Kernel suite skips the vendor integration classes, and the count depends on what is reachable.
+Measured on 2026-08-22 with MinIO, Azurite and fake-gcs all up: 12 skips, being
+`AzureIntegrationTest`, `GcsIntegrationTest` and `B2IntegrationTest` at four each. **A running
+emulator is not enough for two of them:** Azure needs `STRATA_AZURE_ENDPOINT` and `STRATA_AZURE_KEY`,
+GCS needs `STRATA_GCS_BUCKET` plus one of `STRATA_GCS_KEY_FILE` or `STRATA_GCS_TOKEN`, whereas
+`MinioIntegrationTest` probes its endpoint and so runs whenever MinIO answers. B2 has no emulator, so
+its four never run without real credentials.
 
 `bun run test:kernel --filter <ClassName>` while iterating.
+
+**A green SQLite run is not a green suite.** `phpunit.xml.dist` points at in-memory SQLite, and
+SQLite hides two whole classes of defect: it implements a table prefix as an attached database rather
+than as a name prefix, and it stores any byte sequence in any column. Four separate bugs have reached
+CI through that gap - the statement tap recording prefixed table names, the journal sequence
+overflowing a 32-bit column, and two fixtures putting invalid UTF-8 in a varchar. **Anything touching
+SQL, the journal schema, the statement tap or a test fixture's columns runs all three drivers before
+it is called done:**
+
+```bash
+docker compose -f docker/compose.yml up -d mariadb postgres
+bun run test:kernel:all
+```
+
+PHPStan is pinned to `phpVersion.min: 80300` because the composer floor is `php: ^8.3` and some rules
+are version-gated - readonly promoted properties are incompatible with `DependencySerializationTrait`
+below 8.4, which a run on 8.5 cannot see. The Lint job also runs `php tests/drupal-root.php` first:
+`mglaman/phpstan-drupal` is auto-included by `phpstan/extension-installer` and registers module
+namespaces from a Drupal root, so without one `Drupal\key\KeyRepositoryInterface` is `class.notFound`.
 
 ## Tests
 
 Three lanes with different budgets:
 
-| Lane       | Directory              | Budget                                              |
-| ---------- | ---------------------- | --------------------------------------------------- |
-| Unit       | `tests/src/Unit`       | Deterministic, offline, free, fast                  |
-| Kernel     | `tests/src/Kernel`     | A booted Drupal on in-memory SQLite, `LocalStorage` |
-| Functional | `tests/src/Functional` | A browser and a live backend                        |
+| Lane       | Directory              | Budget                                         |
+| ---------- | ---------------------- | ---------------------------------------------- |
+| Unit       | `tests/src/Unit`       | Deterministic, offline, free, fast             |
+| Kernel     | `tests/src/Kernel`     | A booted Drupal on SQLite, MySQL or PostgreSQL |
+| Functional | `tests/src/Functional` | A browser and a live backend                   |
+
+The Kernel lane runs under paratest with `--functional --max-batch-size 20`, which splits by test
+method rather than by class. Parallelism is safe because every kernel test gets its own random table
+prefix, so workers share a database without sharing a schema. CI splits the same suite four ways
+through `ShardPlanner`, whose plan is a pure function of `phpunit --list-tests` and therefore needs no
+coordination between jobs. `bun run test:kernel:serial` is the escape hatch for a failure that only
+appears in order.
 
 Every test carries `#[Test]`, `#[TestDox('a lowercase sentence describing the behaviour')]` and
 `#[Group('strata/<area>')]`. Method names are bare camelCase with no `test` prefix. Test methods get
@@ -106,6 +138,17 @@ forms already do.
 
 Do not "fix" these without measuring first.
 
+- **`SqlStatement::parse()` takes the connection prefix and strips it; the subject is the logical
+  table, never the physical one.** A statement event carries SQL that is already prefixed, so
+  recording it verbatim writes a `settings.php` deployment detail into the subject a restore looks
+  for, and - worse - `CaptureScope::coversTable()` stops recognising `strata_` as this module's own,
+  so journaling a write becomes a write that gets journaled. Core's `Schema::findTables()` already
+  strips the prefix, so the tap was the only place reading a physical name.
+- **`strata_journal.sequence` is a big serial, not a plain one.** A serial never reuses a number, so
+  the column climbs with every operation ever captured rather than with the rows held; at 800,000
+  operations a day a 32-bit key runs out in about seven years. It also makes the type honest:
+  `trim(PHP_INT_MAX)` is a legitimate way to say "everything", and against a 32-bit column MySQL and
+  SQLite coerce it silently while PostgreSQL refuses the statement.
 - **Fixed 16 KiB framing, never content-defined chunking.** CDC measured 4.29 MB/s in pure PHP
   against 683 MB/s for framing plus BLAKE2b. It is 120 to 160 times slower than every other stage.
   What it was meant to buy is bought by `zstd -D` against the previous version instead.
@@ -160,6 +203,17 @@ Do not "fix" these without measuring first.
 
 ## Core Behaviour Worth Knowing
 
+- **A readonly promoted property is incompatible with `DependencySerializationTrait` when a parent
+  brings the trait in and PHP is below 8.4.** `__wakeup()` cannot initialize a readonly property
+  declared in a child class, so a plugin extending `PluginBase` - every block and every queue worker
+  here - has to `use DependencySerializationTrait` itself, putting `__wakeup()` in the scope that
+  declares the property. Only visible below 8.4, which is why `phpstan.neon` pins `phpVersion.min`.
+- **MySQL refuses an invalid UTF-8 sequence in a utf8mb4 varchar outright.** A fixture proving what
+  happens to bytes JSON cannot describe has to put them in a `blob`; SQLite accepts them anywhere and
+  hides the constraint. A blob also cannot carry `'default' => ''` on MySQL.
+- **`use SomeGlobalClass;` in a file with no namespace declaration is a PHP warning, not a style
+  choice.** `tests/shard.php` and `tests/drupal-root.php` therefore reference `Throwable` and
+  `RuntimeException` bare. This is the one real structural exception to the always-import rule.
 - **Never take an engine-built service as a constructor argument.** Anything defined with
   `factory: ['@strata.engine', ...]` assembles the store, and assembling it refuses on a site that
   has not chosen a key - encryption is on by default. Whoever builds the object then wears the

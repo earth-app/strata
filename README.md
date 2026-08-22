@@ -548,6 +548,31 @@ bun run test:unit # fully offline, including the SigV4 vectors
 bun run test:kernel
 ```
 
+The kernel lane runs under paratest and defaults to in-memory SQLite. The physical-restore
+strategies, the journal and the statement tap all behave differently per driver, so it also runs
+against MySQL and PostgreSQL from [docker/compose.yml](docker/compose.yml):
+
+```bash
+docker compose -f docker/compose.yml up -d mariadb postgres
+
+bun run test:kernel:mysql
+bun run test:kernel:pgsql
+bun run test:kernel:all    # all three, in order
+bun run test:kernel:serial # one process, for a failure that only appears in order
+```
+
+A driver runs the suite with a random table prefix, which is what makes a prefix-dependent bug
+visible. Running only the SQLite lane will not find one.
+
+CI splits the same suite across four jobs. The plan comes from `phpunit --list-tests`, so it stays
+balanced as tests are added, and it is reproducible locally:
+
+```bash
+bun run test:shard -- --suite=Kernel --total=4 --plan    # what each shard would take
+bun run test:shard -- --suite=Kernel --index=3 --total=4 # write phpunit.shard.xml
+bun run test:kernel:shard                                # run just that shard
+```
+
 The browser lane installs a real site into a synthesised root and drives it over HTTP, so it needs a
 server. One command brings the server up, or reuses one already listening, and runs the suite:
 
