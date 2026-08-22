@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [unit, kernel, functional]
+        suite: [unit, functional]
     steps:
       - uses: actions/checkout@v4
 
@@ -82,4 +82,59 @@ jobs:
         with:
           files: coverage/${{ matrix.suite }}.junit.xml
           flags: ${{ matrix.suite }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  kernel:
+    name: Kernel Coverage (Shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sodium, zlib, zstd, brotli, json, pdo_sqlite, dom, gd
+          coverage: pcov
+          tools: composer:v2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-coverage-${{ hashFiles('composer.json') }}
+          restore-keys: composer-coverage-
+
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
+
+      - name: Plan Shard ${{ matrix.shard }}
+        run: bun run test:shard -- --suite=Kernel --index=${{ matrix.shard }} --total=${{ strategy.job-total }}
+
+      - run: bun run test:coverage:kernel:shard
+
+      - uses: codecov/codecov-action@v5
+        with:
+          files: coverage/kernel.clover.xml
+          flags: kernel
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - uses: codecov/test-results-action@v1
+        if: always()
+        with:
+          files: coverage/kernel.junit.xml
+          flags: kernel
           token: ${{ secrets.CODECOV_TOKEN }}

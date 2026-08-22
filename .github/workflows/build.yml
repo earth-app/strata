@@ -79,7 +79,7 @@ jobs:
 
       - run: ./vendor/bin/phpunit --testsuite Unit
 
-      - run: ./vendor/bin/phpunit --testsuite Kernel
+      - run: ./vendor/bin/paratest --testsuite Kernel --functional --max-batch-size 20
 
   functional:
     name: Browser Suite (PHP 8.3)
@@ -216,4 +216,4 @@ jobs:
           STRATA_S3_ENDPOINT: http://127.0.0.1:9000
           STRATA_S3_KEY: strata
           STRATA_S3_SECRET: stratatest
-        run: ./vendor/bin/phpunit --testsuite Kernel
+        run: ./vendor/bin/paratest --testsuite Kernel --functional --max-batch-size 20
