@@ -69,8 +69,8 @@ final class JournalOp implements JsonSerializable
 	 *   when the verb replaces the whole subject.
 	 *
 	 * @throws InvalidArgumentException
-	 *   When a number is out of range, the subject is empty, a hash is not a valid digest, or
-	 *   $fields is not a list of names.
+	 *   When a number is out of range, the subject is empty, a hash is not a valid digest, $fields
+	 *   is not a list of names, or a string the op carries is not valid UTF-8.
 	 */
 	public function __construct(
 		public readonly int $sequence,
@@ -110,6 +110,68 @@ final class JournalOp implements JsonSerializable
 		if (!array_is_list($fields) || array_filter($fields, 'is_string') !== $fields) {
 			throw new InvalidArgumentException('Journal op fields must be a list of field names');
 		}
+
+		$this->refuseUnrepresentable();
+	}
+
+	/**
+	 * Refuses an op carrying a string that JSON cannot represent.
+	 *
+	 * `json_encode()` returns FALSE when any string in the document is not valid UTF-8, and the
+	 * whole document goes with it - not the offending string. SegmentManifest is that document, so
+	 * one unrepresentable subject would take every operation in the flush with it. Refusing here
+	 * bounds the loss to the one op: every capture source catches, records a finding and returns,
+	 * and the reconciler notices the gap on its next pass.
+	 *
+	 * The strings are checked as one newline-joined document because this runs on every captured
+	 * mutation, and which one failed is worked out only on the path that is about to throw. The
+	 * separator has to be there and has to be ASCII: joined bare, a subject ending in a truncated
+	 * "\xC3" and a label opening with "\xA9" form a valid two-byte sequence across the seam and both
+	 * halves pass, while `json_encode()` still refuses each of them on its own. An ASCII byte can
+	 * neither continue nor complete a multibyte sequence, so with one between them the joined check
+	 * is exactly the per-string check.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When the subject, the label or a field name is not valid UTF-8.
+	 */
+	private function refuseUnrepresentable(): void
+	{
+		$joined = implode("\n", [$this->subject, $this->label, ...$this->fields]);
+
+		if (self::isRepresentable($joined)) {
+			return;
+		}
+
+		$part = match (true) {
+			!self::isRepresentable($this->subject) => 'subject',
+			!self::isRepresentable($this->label) => 'label',
+			default => 'field name',
+		};
+
+		throw new InvalidArgumentException(
+			sprintf(
+				'Journal op %s is not valid UTF-8, so the segment carrying it would not serialize',
+				$part,
+			),
+		);
+	}
+
+	/**
+	 * Whether a string survives JSON.
+	 *
+	 * `//u` fails to match when the subject is not valid UTF-8, which is the same condition
+	 * `json_encode()` refuses on. PCRE is always compiled in, where mbstring and iconv are core
+	 * requirements this module does not declare.
+	 *
+	 * @param string $value
+	 *   The string.
+	 *
+	 * @return bool
+	 *   TRUE when it is valid UTF-8.
+	 */
+	private static function isRepresentable(string $value): bool
+	{
+		return preg_match('//u', $value) === 1;
 	}
 
 	#region Identity

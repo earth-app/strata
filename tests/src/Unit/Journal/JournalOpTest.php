@@ -109,6 +109,35 @@ class JournalOpTest extends TestCase
 				['fields' => ['title', 42]],
 				'must be a list of field names',
 			],
+			'a subject that is not valid utf-8' => [
+				['subject' => "node:\xC3\x28"],
+				'Journal op subject is not valid UTF-8',
+			],
+			'a label that is not valid utf-8' => [
+				['label' => "Article: \xFF\xFE"],
+				'Journal op label is not valid UTF-8',
+			],
+			'a field name that is not valid utf-8' => [
+				['fields' => ['title', "body\x80"]],
+				'Journal op field name is not valid UTF-8',
+			],
+			'a lone utf-16 surrogate half' => [
+				['subject' => "node:\xED\xA0\x80"],
+				'Journal op subject is not valid UTF-8',
+			],
+			'a truncated multibyte sequence' => [
+				['subject' => substr('node:' . "\u{1F600}", 0, 6)],
+				'Journal op subject is not valid UTF-8',
+			],
+			// bare concatenation would splice these into a valid two-byte sequence and pass both
+			'two halves that only look valid spliced together' => [
+				['subject' => "node:\xC3", 'label' => "\xA9dit"],
+				'Journal op subject is not valid UTF-8',
+			],
+			'a continuation byte opening the label' => [
+				['label' => "\xA9dited"],
+				'Journal op label is not valid UTF-8',
+			],
 		];
 	}
 
@@ -133,6 +162,61 @@ class JournalOpTest extends TestCase
 
 		$this->assertSame(0, $op->sequence);
 		$this->assertSame(1, $op->microtime);
+	}
+
+	#[Test]
+	#[TestDox('the largest timestamp and payload length php can hold are both accepted')]
+	#[Group('strata/journal')]
+	public function acceptsTheHighestValidNumbers(): void
+	{
+		$op = self::build([
+			'sequence' => PHP_INT_MAX,
+			'microtime' => PHP_INT_MAX,
+			'payloadLength' => PHP_INT_MAX,
+		]);
+
+		$this->assertSame(PHP_INT_MAX, $op->sequence);
+		$this->assertSame(PHP_INT_MAX, $op->microtime);
+		$this->assertSame(PHP_INT_MAX, $op->payloadLength);
+	}
+
+	#endregion
+
+	#region Text A Subject Can Hold
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public static function representableSubjectProvider(): array
+	{
+		return [
+			'a null byte' => ["node:4\x002"],
+			'a newline' => ["node:4\n2"],
+			'a tab' => ["node:4\t2"],
+			'a carriage return' => ["node:4\r2"],
+			'a multibyte sequence' => ['node:uber-' . "\u{00FC}"],
+			'an emoji' => ['node:' . "\u{1F600}"],
+			'a right-to-left override' => ['node:' . "\u{202E}" . 'txt.exe'],
+			'a zero-width joiner' => ['node:' . "\u{200D}"],
+			'a four-byte plane-two character' => ['node:' . "\u{2A6B2}"],
+			'a byte order mark' => ["\u{FEFF}" . 'node:42'],
+		];
+	}
+
+	#[Test]
+	#[TestDox('a subject holding $_dataName survives json, so the op is kept')]
+	#[Group('strata/journal')]
+	#[DataProvider('representableSubjectProvider')]
+	public function representableSubjectsAreKept(string $subject): void
+	{
+		$op = self::build(['subject' => $subject]);
+
+		$this->assertSame($subject, $op->subject);
+
+		// the property the refusal exists to protect: the op reaches a segment manifest intact
+		$decoded = JournalOp::fromArray(json_decode(json_encode($op, JSON_THROW_ON_ERROR), true));
+
+		$this->assertSame($subject, $decoded->subject);
 	}
 
 	#endregion
