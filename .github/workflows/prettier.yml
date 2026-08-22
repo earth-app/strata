@@ -1,4 +1,4 @@
-name: Prettier
+name: Check Prettier Formatting
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   check:
-    name: Formatting
+    name: Formatting Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

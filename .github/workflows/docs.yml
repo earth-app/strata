@@ -1,4 +1,4 @@
-name: Docs
+name: Publish Documentation
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,14 @@ jobs:
         with:
           bun-version: latest
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - run: bun install --frozen-lockfile
 
@@ -45,7 +52,7 @@ jobs:
           path: docs
 
   deploy:
-    name: Deploy
+    name: Deploy Documentation
     needs: build
     runs-on: ubuntu-latest
     environment:

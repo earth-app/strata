@@ -1,4 +1,4 @@
-name: Coverage
+name: Check Test Coverage
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   coverage:
-    name: ${{ matrix.suite }}
+    name: Suite Coverage (${{ matrix.suite }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,6 +20,10 @@ jobs:
         suite: [unit, kernel, functional]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -34,7 +38,14 @@ jobs:
           key: composer-coverage-${{ hashFiles('composer.json') }}
           restore-keys: composer-coverage-
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - if: matrix.suite == 'functional'
         run: php tests/drupal-root.php

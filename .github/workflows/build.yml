@@ -1,4 +1,4 @@
-name: Build
+name: Build Package
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   static:
-    name: Static Analysis
+    name: Lint (PHP 8.3)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,14 +30,21 @@ jobs:
           key: composer-8.3-${{ hashFiles('composer.json') }}
           restore-keys: composer-8.3-
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - run: ./vendor/bin/phpcs
 
       - run: ./vendor/bin/phpstan analyse --memory-limit=1G
 
   test:
-    name: PHP ${{ matrix.php }}
+    name: Engine Suite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -59,14 +66,21 @@ jobs:
           key: composer-${{ matrix.php }}-${{ hashFiles('composer.json') }}
           restore-keys: composer-${{ matrix.php }}-
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - run: ./vendor/bin/phpunit --testsuite Unit
 
       - run: ./vendor/bin/phpunit --testsuite Kernel
 
   functional:
-    name: Browser
+    name: Browser Suite (PHP 8.3)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +98,14 @@ jobs:
           key: composer-8.3-${{ hashFiles('composer.json') }}
           restore-keys: composer-8.3-
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - run: php tests/drupal-root.php
 
@@ -121,7 +142,7 @@ jobs:
           if-no-files-found: ignore
 
   restore:
-    name: Restore Strategies on ${{ matrix.db }}
+    name: Restore Strategies (${{ matrix.db }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -150,17 +171,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: strata
-          MINIO_ROOT_PASSWORD: stratatest
-        ports: ['9000:9000']
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -171,7 +181,32 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - run: composer install --prefer-dist --no-progress --no-interaction
+      - name: Start MinIO
+        run: |
+          docker run -d --name strata-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=strata -e MINIO_ROOT_PASSWORD=stratatest \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
+          for attempt in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:9000/minio/health/live; then
+              docker exec strata-minio mc alias set local http://127.0.0.1:9000 strata stratatest
+              docker exec strata-minio mc mb --ignore-existing local/strata-backups
+              docker exec strata-minio mc mb --ignore-existing local/strata-replica
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs strata-minio
+          exit 1
+
+      - name: Install Composer Dependencies
+        run: |
+          for attempt in 1 2 3; do
+            composer install --prefer-dist --no-progress --no-interaction && exit 0
+            echo "composer install failed; the phpdocumentor phar download is the usual cause"
+            sleep 15
+          done
+          exit 1
 
       - name: Kernel suite
         env:
