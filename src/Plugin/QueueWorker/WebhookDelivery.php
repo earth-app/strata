@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata\Plugin\QueueWorker;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\Attribute\QueueWorker;
 use Drupal\Core\Queue\QueueWorkerBase;
@@ -32,6 +33,10 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 ]
 final class WebhookDelivery extends QueueWorkerBase implements ContainerFactoryPluginInterface
 {
+	// declared here rather than inherited from PluginBase, so __wakeup() sits in the scope that
+	// declares the readonly properties below and can therefore reinitialize them on php 8.3
+	use DependencySerializationTrait;
+
 	/**
 	 * Constructs a worker.
 	 *

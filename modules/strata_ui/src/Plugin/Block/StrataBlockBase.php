@@ -7,6 +7,7 @@ namespace Drupal\strata_ui\Plugin\Block;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Access\AccessResultInterface;
 use Drupal\Core\Block\BlockBase;
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Url;
@@ -29,6 +30,10 @@ use Throwable;
  */
 abstract class StrataBlockBase extends BlockBase implements ContainerFactoryPluginInterface
 {
+	// declared here rather than inherited from PluginBase, so __wakeup() sits in the scope that
+	// declares the readonly property below and can therefore reinitialize it on php 8.3
+	use DependencySerializationTrait;
+
 	/**
 	 * Constructs a block.
 	 *

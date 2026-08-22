@@ -3,6 +3,9 @@ parameters:
     paths:
         - src
         - modules
+    phpVersion:
+        min: 80300
+        max: 80500
     treatPhpDocTypesAsCertain: false
     scanFiles:
         - stubs/zstd.php
