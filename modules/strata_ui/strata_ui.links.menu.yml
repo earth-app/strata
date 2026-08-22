@@ -17,13 +17,13 @@ strata_ui.branches:
   parent: system.admin_reports
 
 strata_ui.estimate:
-  title: 'Strata Cost Estimate'
+  title: 'Cost Estimate'
   description: 'Project what stored history will cost.'
   route_name: strata_ui.estimate
-  parent: system.admin_config_system
+  parent: strata.settings
 
 strata_ui.explorer:
-  title: 'Strata Storage Explorer'
+  title: 'Storage Explorer'
   description: 'What is stored now, and what deleting something would take with it.'
   route_name: strata_ui.explorer
-  parent: system.admin_config_system
+  parent: strata.settings
