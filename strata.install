@@ -35,6 +35,7 @@ function strata_schema(): array
 		'fields' => [
 			'sequence' => [
 				'type' => 'serial',
+				'size' => 'big',
 				'not null' => true,
 				'description' => 'Monotonic capture order.',
 			],
@@ -987,6 +988,34 @@ function strata_update_11102(): string
 	return (string) new TranslatableMarkup(
 		'Added the branch index. Run drush strata:reindex to fill it from the bucket.',
 	);
+}
+
+/**
+ * Widens the journal sequence to a big integer.
+ *
+ * A serial never reuses a number, so the column climbs with every operation ever captured rather
+ * than with the rows currently held. At the 800,000 operations a day a 500,000-user site writes,
+ * a 32-bit serial runs out in about seven years, and the sequence is the journal's primary key.
+ *
+ * It also makes the type honest across drivers. `JournalInterface::trim()` takes a PHP int and
+ * documents no ceiling, so `trim(PHP_INT_MAX)` is a legitimate way to say "everything"; against a
+ * 32-bit column MySQL and SQLite coerce it silently and PostgreSQL refuses the statement outright.
+ * Nothing pending is lost - the column is widened in place, not recreated.
+ */
+function strata_update_11103(): string
+{
+	$schema = Drupal::database()->schema();
+	$tables = strata_schema();
+
+	$schema->changeField(
+		'strata_journal',
+		'sequence',
+		'sequence',
+		$tables['strata_journal']['fields']['sequence'],
+		['primary key' => ['sequence']],
+	);
+
+	return (string) new TranslatableMarkup('Widened the journal sequence to a 64-bit key.');
 }
 
 /**
