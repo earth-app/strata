@@ -12,6 +12,7 @@ use Drupal\strata\Capture\CaptureScope;
 use Drupal\strata\Capture\Reconciler;
 use Drupal\strata\Capture\SqlStatement;
 use Drupal\strata\Capture\TableWrites;
+use Drupal\strata\Journal\JournalFactory;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\JournalOp;
 use Psr\Log\LoggerInterface;
@@ -47,6 +48,16 @@ use Throwable;
  * bootstrap, routing, session - are not captured. That is what the reconciler's watermark is for: a
  * table that changed without a captured operation is drift, and drift is reported.
  *
+ * **The journal arrives as a factory, and that is load bearing.** Building a journal reads
+ * `strata.settings`, and reading configuration queries the database, and a query dispatches the very
+ * event this class listens for. Taking `strata.journal` as a constructor argument therefore made the
+ * container resolve this subscriber while it was already resolving it, which is a circular reference
+ * and takes the site down on any request that logs. So the factory is injected and `journal()`
+ * resolves once on first use, by which point the container has finished with this object. The
+ * re-entrancy flag guards the resolution itself against being entered twice; it is defence for a
+ * future caller, because nothing on the statement path reaches `journal()` today.
+ *
+ * @see JournalFactory
  * @see SqlStatement
  * @see TableWrites
  * @see Reconciler
@@ -83,12 +94,26 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 	private array $dirty = [];
 
 	/**
+	 * The journal, once something has needed it.
+	 */
+	private ?JournalInterface $journal = null;
+
+	/**
+	 * Whether a journal is being resolved right now.
+	 *
+	 * Resolving one reads configuration, and reading configuration queries. Nothing on the statement
+	 * path asks for the journal today, so this is a guard against a future one rather than a live
+	 * mechanism.
+	 */
+	private bool $resolving = false;
+
+	/**
 	 * Constructs the subscriber.
 	 *
 	 * @param Connection $database
 	 *   The connection events are enabled on.
-	 * @param JournalInterface $journal
-	 *   Where operations are appended.
+	 * @param JournalFactory $journalFactory
+	 *   Builds the journal on first use. Deliberately not the journal itself; see the class docblock.
 	 * @param CaptureScope $scope
 	 *   Decides whether the tap runs and which tables it covers.
 	 * @param AccountProxyInterface $currentUser
@@ -100,12 +125,37 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 	 */
 	public function __construct(
 		private readonly Connection $database,
-		private readonly JournalInterface $journal,
+		private readonly JournalFactory $journalFactory,
 		private readonly CaptureScope $scope,
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
 		private readonly string $requestId = '',
 	) {}
+
+	/**
+	 * The journal, resolved once.
+	 *
+	 * @return JournalInterface|null
+	 *   The journal, or NULL while one is already being resolved, which means the caller is the
+	 *   configuration read that resolution itself triggered.
+	 */
+	private function journal(): ?JournalInterface
+	{
+		if ($this->journal !== null) {
+			return $this->journal;
+		}
+		if ($this->resolving) {
+			return null;
+		}
+
+		$this->resolving = true;
+
+		try {
+			return $this->journal = $this->journalFactory->create();
+		} finally {
+			$this->resolving = false;
+		}
+	}
 
 	/**
 	 * {@inheritdoc}
@@ -251,6 +301,23 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 			return 0;
 		}
 
+		// resolving the journal reads configuration and can refuse; a capture never breaks the
+		// request that caused it, so this is inside the guard rather than beside it
+		try {
+			$journal = $this->journal();
+		} catch (Throwable $error) {
+			$this->logger->error('Strata could not open its journal to record writes: %message', [
+				'%message' => $error->getMessage(),
+			]);
+
+			return 0;
+		}
+
+		if ($journal === null) {
+			// a nested commit, which means this call is the configuration read resolving the journal
+			return 0;
+		}
+
 		$dirty = $this->dirty;
 		$this->dirty = [];
 		$written = 0;
@@ -259,7 +326,7 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 			try {
 				$payload = (string) json_encode($seen);
 
-				$this->journal->append(
+				$journal->append(
 					new JournalOp(
 						0,
 						$this->now(),

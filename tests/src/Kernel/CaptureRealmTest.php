@@ -433,6 +433,37 @@ class CaptureRealmTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('the tap resolves its journal without the config read re-entering the tap')]
+	#[Group('strata/capture')]
+	public function theTapDoesNotDependOnTheJournalToExist(): void
+	{
+		// the journal is built from strata.settings, reading settings queries, and a query arrives
+		// back here as an event; taking the journal as a constructor argument made that a cycle
+		$definition = $this->container->getDefinition('strata.statement_capture');
+		$arguments = $definition->getArguments();
+
+		$this->assertNotContains(
+			'strata.journal',
+			array_map(static fn(mixed $a): string => (string) $a, $arguments),
+			'the tap must take the journal factory, never the journal',
+		);
+
+		$tap = $this->container->get('strata.statement_capture');
+		$tap->enable();
+
+		$this->assertTrue($tap->isTapping());
+
+		// a write, then a config read while tapping, which is the sequence that used to recurse
+		$this->createWidgetTable();
+		$this->insertWidget('written while tapping');
+
+		$this->config('system.site')->get('name');
+
+		$this->assertSame(['capture_widget'], $tap->pending());
+		$this->assertSame(1, $tap->commit(), 'the journal resolves on first use and takes the row');
+	}
+
+	#[Test]
 	#[TestDox('this module\'s own tables are never captured by the tap')]
 	#[Group('strata/capture')]
 	public function ownTablesAreNotTapped(): void

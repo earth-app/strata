@@ -85,7 +85,7 @@ services:
     class: Drupal\strata\Capture\EventSubscriber\StatementCaptureSubscriber
     arguments:
       - '@database'
-      - '@strata.journal'
+      - '@strata.journal_factory'
       - '@strata.capture_scope'
       - '@current_user'
       - '@logger.channel.strata'
@@ -335,17 +335,10 @@ services:
   Drupal\strata\Hook\CronCapture:
     class: Drupal\strata\Hook\CronCapture
     arguments:
-      - '@strata.flusher'
+      - '@strata.engine'
       - '@strata.capture_scope'
       - '@strata.lease'
       - '@logger.channel.strata'
-      - '@strata.reconciler'
-      - '@strata.code_capture'
-      - '@strata.keyspace_discovery'
-      - '@strata.dictionary_pass'
       - '@state'
-      - 604800
-      - '@strata.anomaly'
-      - '@strata.drill'
-      - '@strata.telemetry'
       - '@config.factory'
+      - 604800
