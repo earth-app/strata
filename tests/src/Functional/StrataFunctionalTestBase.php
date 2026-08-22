@@ -44,6 +44,11 @@ abstract class StrataFunctionalTestBase extends BrowserTestBase
 	public const ABSENT_CODE = 'strata.pack_missing';
 
 	/**
+	 * A branch name no ref holds, matching what the merge route's requirement allows.
+	 */
+	public const ABSENT_BRANCH = 'absent-branch';
+
+	/**
 	 * The bucket a timeline window route is asked for, in unix seconds.
 	 */
 	public const WINDOW_START = 1_755_000_000;
@@ -274,6 +279,7 @@ abstract class StrataFunctionalTestBase extends BrowserTestBase
 			'from' => $earlier ?? self::ABSENT_COMMIT,
 			'to' => $commit ?? self::ABSENT_COMMIT,
 			'code' => self::ABSENT_CODE,
+			'branch' => self::ABSENT_BRANCH,
 		];
 	}
 
