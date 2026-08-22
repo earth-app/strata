@@ -13,6 +13,7 @@ use Drupal\strata\File\StorageClassPolicy;
 use Drupal\strata\Health\Tripwire\FileShiftDetected;
 use Drupal\strata\Storage\Capabilities;
 use InvalidArgumentException;
+use JsonException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -250,6 +251,48 @@ class FileRealmTest extends TestCase
 		$reversed = new FileMap('a.bin', [$two, $one], self::BLOCK * 2, self::BLOCK);
 
 		$this->assertNotSame($forward->address(), $reversed->address());
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a map whose filename is not valid utf-8 refuses to encode rather than storing nothing',
+		),
+	]
+	#[Group('strata/file')]
+	public function unrepresentableFilenameIsRefused(): void
+	{
+		// a posix filename is bytes, so a latin-1 name reaches here as invalid utf-8
+		$map = new FileMap("caf\xE9.bin", [], 0);
+
+		$this->expectException(JsonException::class);
+
+		$map->encode();
+	}
+
+	#[Test]
+	#[TestDox('a map whose filename holds an emoji round trips, since that is valid utf-8')]
+	#[Group('strata/file')]
+	public function multibyteFilenameRoundTrips(): void
+	{
+		$path = "caf\u{00E9}-\u{1F600}.bin";
+		$decoded = FileMap::decode((new FileMap($path, [], 0))->encode());
+
+		$this->assertSame($path, $decoded->path);
+	}
+
+	#[Test]
+	#[TestDox('a zero-length file has no blocks and is not empty of identity')]
+	#[Group('strata/file')]
+	public function zeroLengthFileHasNoBlocks(): void
+	{
+		$map = new FileMap('empty.bin', [], 0);
+
+		$this->assertTrue($map->isEmpty());
+		$this->assertSame(0, $map->count());
+		$this->assertSame(0, $map->storedCeiling());
+		$this->assertNull($map->positionOf(0));
+		$this->assertNotSame($map->address(), (new FileMap('other.bin', [], 0))->address());
 	}
 
 	#endregion

@@ -483,6 +483,59 @@ class SegmentTest extends TestCase
 	}
 
 	#[Test]
+	#[TestDox('a segment carrying one operation round-trips, and its range is that one operation')]
+	#[Group('strata/segment')]
+	public function oneOperationSegmentRoundTrips(): void
+	{
+		$builder = new SegmentBuilder($this->store());
+		$builder->add($this->op(Realm::CONFIG, 'system.site', Verb::UPDATE), '{"name":"one"}');
+
+		$manifest = $builder->build();
+		$this->assertNotNull($manifest);
+
+		$back = $this->reader()->read($this->writer()->write($manifest));
+
+		$this->assertSame(1, $back->count());
+		$this->assertSame($back->firstSequence, $back->lastSequence);
+		$this->assertSame($back->firstMicrotime, $back->lastMicrotime);
+		$this->assertSame(0.0, $back->duration());
+	}
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public static function extremeSubjectProvider(): array
+	{
+		return [
+			'a null byte' => ["node:4\x002"],
+			'a newline' => ["node:4\n2"],
+			'an emoji' => ['node:' . "\u{1F600}"],
+			'a right-to-left override' => ['node:' . "\u{202E}" . 'txt.exe'],
+			'a four-byte character' => ['node:' . "\u{2A6B2}"],
+			'four kibibytes of ascii' => ['node:' . str_repeat('x', 4091)],
+		];
+	}
+
+	#[Test]
+	#[TestDox('a segment naming a subject holding $_dataName round-trips byte for byte')]
+	#[Group('strata/segment')]
+	#[DataProvider('extremeSubjectProvider')]
+	public function extremeSubjectsSurviveTheStore(string $subject): void
+	{
+		$store = $this->store();
+		$builder = new SegmentBuilder($store);
+		$builder->add($this->op(Realm::ENTITY, $subject, Verb::UPDATE), '{"a":1}');
+
+		$manifest = $builder->build();
+		$this->assertNotNull($manifest);
+
+		$back = $this->reader()->read($this->writer()->write($manifest));
+
+		$this->assertSame($subject, $back->operations[0]->subject);
+		$this->assertSame('{"a":1}', $store->read($back->payloadFor($back->operations[0])));
+	}
+
+	#[Test]
 	#[TestDox('the object key carries the level, the epoch second and the first sequence')]
 	#[Group('strata/segment')]
 	public function keyCarriesLevelSecondAndSequence(): void

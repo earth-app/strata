@@ -6,6 +6,7 @@ namespace Drupal\Tests\strata\Unit\Capture;
 
 use Drupal\strata\Capture\PayloadCodec;
 use Drupal\strata\Journal\Realm;
+use JsonException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -213,6 +214,63 @@ class PayloadCodecTest extends TestCase
 	{
 		$this->assertNull(PayloadCodec::decode(Realm::STATE, 'a:1:{truncated'));
 		$this->assertNull(PayloadCodec::decode(Realm::STATE, 'not serialized at all'));
+	}
+
+	#endregion
+
+	#region Bytes JSON Cannot Carry
+
+	#[Test]
+	#[TestDox('a json realm refuses a value that is not valid utf-8 rather than encoding nothing')]
+	#[Group('strata/capture')]
+	public function unencodableValueIsRefused(): void
+	{
+		// (string) json_encode() is '', which decodes to NULL, so the op would claim a value it lost
+		$this->expectException(JsonException::class);
+
+		PayloadCodec::encode(Realm::CONFIG, ['blob' => "\xC3\x28"]);
+	}
+
+	#[Test]
+	#[TestDox('a serialized realm carries arbitrary binary, which is why state does not use json')]
+	#[Group('strata/capture')]
+	public function serializedRealmCarriesBinary(): void
+	{
+		$value = "\x00\xFF\xFE binary \xC3\x28";
+		$decoded = PayloadCodec::decode(Realm::STATE, PayloadCodec::encode(Realm::STATE, $value));
+
+		$this->assertNotNull($decoded);
+		$this->assertSame($value, $decoded[PayloadCodec::VALUE]);
+	}
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public static function textProvider(): array
+	{
+		return [
+			'a null byte' => ["a\x00b"],
+			'a newline' => ["a\nb"],
+			'an emoji' => ["\u{1F600}"],
+			'a right-to-left override' => ["\u{202E}" . 'txt.exe'],
+			'a byte order mark' => ["\u{FEFF}" . 'value'],
+			'a four-byte character' => ["\u{2A6B2}"],
+			'an empty string' => [''],
+		];
+	}
+
+	#[Test]
+	#[TestDox('a field map holding $_dataName round trips through a json realm')]
+	#[Group('strata/capture')]
+	#[DataProvider('textProvider')]
+	public function representableTextRoundTrips(string $text): void
+	{
+		$fields = ['field' => $text];
+
+		$this->assertSame(
+			$fields,
+			PayloadCodec::decode(Realm::CONFIG, PayloadCodec::encode(Realm::CONFIG, $fields)),
+		);
 	}
 
 	#endregion

@@ -13,6 +13,7 @@ use Drupal\strata\Tree\BaseManifest;
 use Drupal\strata\Tree\BaseReader;
 use Drupal\strata\Tree\BaseWriter;
 use InvalidArgumentException;
+use JsonException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -21,6 +22,7 @@ use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
+#[CoversClass(Commit::class)]
 #[CoversClass(CommitLog::class)]
 #[CoversClass(RefStore::class)]
 #[CoversClass(BaseManifest::class)]
@@ -677,6 +679,304 @@ class CommitLogTest extends TestCase
 		$this->assertSame($manifest->microtime, $decoded->microtime);
 		$this->assertSame($manifest->address(), $decoded->address());
 		$this->assertSame(7, $manifest->size());
+	}
+
+	#endregion
+
+	#region Text JSON Cannot Represent
+
+	#[Test]
+	#[TestDox('a commit whose label is not valid utf-8 refuses to address itself')]
+	#[Group('strata/tree')]
+	public function commitRefusesToAddressAnUnrepresentableLabel(): void
+	{
+		$commit = new Commit(Hash::of('anchor'), null, 1_000, "broken \xC3\x28");
+
+		$this->expectException(JsonException::class);
+
+		$commit->id();
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'two commits differing only in unrepresentable metadata do not collide on one address',
+		),
+	]
+	#[Group('strata/tree')]
+	public function unrepresentableCommitsDoNotShareAnAddress(): void
+	{
+		$first = new Commit(Hash::of('anchor'), null, 1_000, '', null, 0, 0, 0, 0, false, 0, 0, [
+			'segment' => "one \xFF",
+		]);
+		$second = new Commit(Hash::of('anchor'), null, 2_000, '', null, 0, 0, 0, 0, false, 0, 0, [
+			'segment' => "two \xFF",
+		]);
+
+		// before the refusal both addressed as Hash::of('') and each overwrote the other
+		$this->expectException(JsonException::class);
+
+		$this->assertNotSame($first->id(), $second->id());
+	}
+
+	#[Test]
+	#[TestDox('writing a commit that cannot serialize stores nothing rather than an empty object')]
+	#[Group('strata/tree')]
+	public function writeStoresNothingForAnUnrepresentableCommit(): void
+	{
+		$log = $this->log();
+		$commit = new Commit(Hash::of('anchor'), null, 1_000, "broken \xC3\x28");
+
+		try {
+			$log->write($commit);
+			$this->fail('An unrepresentable commit was written.');
+		} catch (JsonException) {
+			$this->assertSame([], $this->provider()->list(CommitLog::PREFIX . '/')->objects);
+		}
+	}
+
+	#[Test]
+	#[TestDox('an anchor naming a subject that is not valid utf-8 refuses to encode')]
+	#[Group('strata/tree')]
+	public function anchorRefusesAnUnrepresentableSubject(): void
+	{
+		$manifest = new BaseManifest(
+			["entity/a\xC3\x28" => ['frames' => [Hash::of('a')], 'size' => 7]],
+			null,
+			true,
+		);
+
+		$this->expectException(JsonException::class);
+
+		$manifest->encode();
+	}
+
+	#[Test]
+	#[TestDox('a subject holding an emoji or a null byte still addresses an anchor')]
+	#[Group('strata/tree')]
+	public function anchorKeepsRepresentableSubjects(): void
+	{
+		$subjects = [
+			'entity/' . "\u{1F600}" => ['frames' => [Hash::of('a')], 'size' => 1],
+			"entity/nul\x00byte" => ['frames' => [Hash::of('b')], 'size' => 2],
+			'entity/' . "\u{202E}" . 'rtl' => ['frames' => [Hash::of('c')], 'size' => 3],
+		];
+
+		$decoded = BaseManifest::decode((new BaseManifest($subjects, null, true))->encode());
+
+		$this->assertSame($subjects, $decoded->entries);
+	}
+
+	#endregion
+
+	#region Commit Invariants
+
+	/**
+	 * @return array<string, array{array<string, mixed>, string}>
+	 */
+	public static function incoherentCommitProvider(): array
+	{
+		return [
+			'an anchor address that is not a digest' => [
+				['index' => 'nope'],
+				'must address its anchor with a valid digest',
+			],
+			'a parent that is not a digest' => [
+				['parent' => 'nope'],
+				'commit parent must be a valid digest',
+			],
+			'a merge parent that is not a digest' => [
+				['parent' => 'PARENT', 'merge' => 'nope'],
+				'merge parent must be a valid digest',
+			],
+			'a merge parent with no first parent' => [
+				['merge' => 'MERGE'],
+				'cannot be the root of one',
+			],
+			'a negative time' => [['microtime' => -1], 'commit time cannot be negative'],
+			'a negative operation count' => [
+				['operations' => -1],
+				'commit count cannot be negative',
+			],
+			'a negative raw byte count' => [['rawBytes' => -1], 'commit count cannot be negative'],
+			'a negative stored byte count' => [
+				['storedBytes' => -1],
+				'commit count cannot be negative',
+			],
+			'a negative level' => [['level' => -1], 'commit count cannot be negative'],
+			'a negative chain length' => [['chain' => -1], 'commit anchor cannot be negative'],
+			'a negative anchor time' => [['anchoredAt' => -1], 'commit anchor cannot be negative'],
+		];
+	}
+
+	#[Test]
+	#[TestDox('a commit with $_dataName is refused at construction rather than stored')]
+	#[Group('strata/tree')]
+	#[DataProvider('incoherentCommitProvider')]
+	public function incoherentCommitsAreRefused(array $overrides, string $message): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage($message);
+
+		self::commit($overrides);
+	}
+
+	#[Test]
+	#[TestDox('a commit at time zero with every count at zero is coherent, being the root')]
+	#[Group('strata/tree')]
+	public function zeroedRootCommitIsCoherent(): void
+	{
+		$commit = self::commit(['microtime' => 0]);
+
+		$this->assertTrue($commit->isRoot());
+		$this->assertTrue($commit->isAnchor(), 'the root anchors a replay even without the flag');
+		$this->assertFalse($commit->isMerge());
+		$this->assertSame([], $commit->parents());
+		$this->assertSame(0.0, $commit->timestamp());
+		$this->assertSame(1.0, $commit->ratio(), 'no bytes either way is a ratio of one');
+	}
+
+	#[Test]
+	#[TestDox('the largest time and counts php can hold are all accepted')]
+	#[Group('strata/tree')]
+	public function extremeCommitCountsAreAccepted(): void
+	{
+		$commit = self::commit([
+			'microtime' => PHP_INT_MAX,
+			'operations' => PHP_INT_MAX,
+			'rawBytes' => PHP_INT_MAX,
+			'storedBytes' => PHP_INT_MAX,
+			'chain' => PHP_INT_MAX,
+			'anchoredAt' => PHP_INT_MAX,
+		]);
+
+		$this->assertSame(PHP_INT_MAX, $commit->microtime);
+		$this->assertSame(1.0, $commit->ratio(), 'equal raw and stored bytes is a ratio of one');
+		$this->assertSame(PHP_INT_MAX / 1_000_000, $commit->timestamp());
+	}
+
+	#[Test]
+	#[TestDox('a merge commit reports both parents, first parent first')]
+	#[Group('strata/tree')]
+	public function mergeCommitReportsBothParents(): void
+	{
+		$commit = self::commit(['parent' => 'PARENT', 'merge' => 'MERGE']);
+
+		$this->assertTrue($commit->isMerge());
+		$this->assertFalse($commit->isRoot());
+		$this->assertSame([Hash::of('a parent'), Hash::of('a merge')], $commit->parents());
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'marking a commit as a base gives it a chain of at least one and its own anchor time',
+		),
+	]
+	#[Group('strata/tree')]
+	public function asBaseFillsInTheAnchorFields(): void
+	{
+		$based = self::commit(['microtime' => 4_242])->asBase();
+
+		$this->assertTrue($based->base);
+		$this->assertSame(1, $based->chain, 'a chain of zero would say no anchor stands behind it');
+		$this->assertSame(4_242, $based->anchoredAt);
+
+		// an anchor time already recorded is left alone
+		$this->assertSame(
+			7,
+			self::commit(['microtime' => 4_242, 'anchoredAt' => 7])->asBase()->anchoredAt,
+		);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'fromArray() defaults every field a document written before it existed would not carry',
+		),
+	]
+	#[Group('strata/tree')]
+	public function commitFromArrayDefaultsWhatIsAbsent(): void
+	{
+		$commit = Commit::fromArray(['index' => Hash::of('anchor')]);
+
+		$this->assertTrue($commit->isRoot());
+		$this->assertFalse($commit->isMerge());
+		$this->assertSame(0, $commit->microtime);
+		$this->assertSame('', $commit->label);
+		$this->assertNull($commit->actor);
+		$this->assertSame([], $commit->metadata);
+	}
+
+	#[Test]
+	#[TestDox('fromArray() refuses a document with no anchor address rather than inventing one')]
+	#[Group('strata/tree')]
+	public function commitFromArrayRefusesAMissingIndex(): void
+	{
+		$this->expectException(InvalidArgumentException::class);
+		$this->expectExceptionMessage('A commit is missing "index"');
+
+		Commit::fromArray(['parent' => Hash::of('a parent')]);
+	}
+
+	/**
+	 * One commit, with named fields overridden.
+	 *
+	 * "PARENT" and "MERGE" stand for real digests, so a case can name a parent without repeating a
+	 * hash literal.
+	 *
+	 * @param array<string, mixed> $overrides
+	 *   Constructor parameter names keyed to their values.
+	 *
+	 * @return Commit
+	 *   The commit.
+	 */
+	private static function commit(array $overrides = []): Commit
+	{
+		$values = array_merge(
+			[
+				'index' => Hash::of('anchor'),
+				'parent' => null,
+				'microtime' => 1_000,
+				'label' => 'a label',
+				'actor' => null,
+				'operations' => 0,
+				'rawBytes' => 0,
+				'storedBytes' => 0,
+				'level' => 0,
+				'base' => false,
+				'chain' => 0,
+				'anchoredAt' => 0,
+				'metadata' => [],
+				'merge' => null,
+			],
+			$overrides,
+		);
+
+		$named = ['PARENT' => Hash::of('a parent'), 'MERGE' => Hash::of('a merge')];
+
+		foreach (['parent', 'merge'] as $key) {
+			if (is_string($values[$key]) && isset($named[$values[$key]])) {
+				$values[$key] = $named[$values[$key]];
+			}
+		}
+
+		return new Commit(
+			$values['index'],
+			$values['parent'],
+			$values['microtime'],
+			$values['label'],
+			$values['actor'],
+			$values['operations'],
+			$values['rawBytes'],
+			$values['storedBytes'],
+			$values['level'],
+			$values['base'],
+			$values['chain'],
+			$values['anchoredAt'],
+			$values['metadata'],
+			$values['merge'],
+		);
 	}
 
 	#endregion
