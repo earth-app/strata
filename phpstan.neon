@@ -11,3 +11,4 @@ parameters:
         - stubs/zstd.php
         - stubs/brotli.php
         - stubs/redis.php
+        - stubs/cfw.php
