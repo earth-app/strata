@@ -199,6 +199,13 @@ Do not "fix" these without measuring first.
   at the default level 3 whatever level the caller asked for.
 - **`ext-brotli` does support dictionaries** - `brotli_compress(string, int, int, ?string)`. An
   earlier comment asserted it did not and was wrong.
+- **`gzdeflate()` takes no dictionary but `deflate_init()` does**, through its `dictionary` option,
+  and so does `inflate_init()`. Both have been in `ext-zlib` since PHP 7.0 and `ext-zlib` is already
+  a hard require, so delta coding needs no extension at all on an ordinary host: measured
+  1,085 bytes to 17 against the previous version, against 43 with no dictionary. `DeflateDictCodec`
+  is that, and its `cfw_zlib_dict()` bridge is a fallback for a WASM runtime shipped without the
+  incremental API - not the mechanism. Both paths emit `ZLIB_ENCODING_RAW`, which is what
+  `gzdeflate()` emits, so one codec id covers an anchor frame and a delta frame.
 - **A branch carries the config realm only, and refuses the rest by name.** Config is captured WHOLE,
   so a three-way merge over it is defined on complete values; every other realm is a field delta
   against a parent, and merging two divergent delta chains means inventing a resolution.

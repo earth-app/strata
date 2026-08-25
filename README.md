@@ -113,8 +113,10 @@ and `composer.lock` as the reference for everything in `vendor/`. The whole code
 | `ext-redis`  | Optional. Backs the journal with a stream instead of a table |
 | `drupal/key` | Required. Holds the encryption key                           |
 
-Without `ext-zstd`, Strata uses the `zstd` binary through one long-lived pipe when it is on `PATH`,
-and gzip otherwise. gzip at 8 KiB frames costs 76% more stored bytes than zstd with a dictionary.
+Without `ext-zstd`, Strata uses the `zstd` binary through one long-lived pipe when it is on `PATH`.
+Failing that it deflates against a preset dictionary through `ext-zlib`, which is already required,
+so delta coding keeps working on a stock VPS with nothing installed. Plain gzip is the last resort,
+and at 8 KiB frames it costs 76% more stored bytes than zstd with a dictionary.
 
 ## 🚀 Installation
 
