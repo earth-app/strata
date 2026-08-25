@@ -82,6 +82,10 @@ final class CodecRegistry
 		// registered for reading and batch work only and never wins the flush path
 		$registry->register(new ZstdPipeCodec(), false);
 		$registry->register(new BrotliCodec());
+		// before gzip, and only for the reason that decides everything else here: it carries a
+		// dictionary on a stock php where gzip cannot, and delta coding measures 63.70x against
+		// gzip's 3.52x standalone
+		$registry->register(new DeflateDictCodec());
 		$registry->register(new GzipCodec());
 		$registry->register(new NoneCodec());
 

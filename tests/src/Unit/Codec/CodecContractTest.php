@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Unit\Codec;
 
 use Drupal\strata\Codec\CompressionCodecInterface;
+use Drupal\strata\Codec\DeflateDictCodec;
 use Drupal\strata\Codec\GzipCodec;
 use Drupal\strata\Codec\NoneCodec;
 use Drupal\strata\Codec\ZstdCodec;
@@ -15,9 +16,11 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 #[CoversClass(NoneCodec::class)]
 #[CoversClass(GzipCodec::class)]
+#[CoversClass(DeflateDictCodec::class)]
 #[CoversClass(ZstdCodec::class)]
 #[CoversClass(ZstdPipeCodec::class)]
 class CodecContractTest extends TestCase
@@ -34,6 +37,7 @@ class CodecContractTest extends TestCase
 		return [
 			'none' => [new NoneCodec()],
 			'gzip' => [new GzipCodec()],
+			'deflate with a dictionary' => [new DeflateDictCodec()],
 			'zstd extension' => [new ZstdCodec()],
 			'zstd binary' => [new ZstdPipeCodec()],
 		];
@@ -341,6 +345,139 @@ class CodecContractTest extends TestCase
 
 		$payload = str_repeat('strata extension path ', 500);
 		$this->assertSame($payload, $codec->decompress($codec->compress($payload, 19)));
+	}
+
+	#endregion
+
+	#region Deflate With A Dictionary
+
+	/**
+	 * A subject and the version of it a delta frame would be coded against.
+	 *
+	 * @return array{0: string, 1: string}
+	 *   The previous version, then the one being stored.
+	 */
+	private static function versions(): array
+	{
+		$shared = (string) json_encode([
+			'nid' => [['value' => 42]],
+			'body' => [['value' => str_repeat('lorem ipsum dolor sit amet ', 60)]],
+		]);
+
+		return [$shared . '{"status":[{"value":1}]}', $shared . '{"status":[{"value":0}]}'];
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'deflate-dict is available on any host with ext-zlib, so a vps needs nothing installed',
+		),
+	]
+	#[Group('strata/codec')]
+	public function deflateDictNeedsNoExtension(): void
+	{
+		$codec = new DeflateDictCodec();
+
+		// ext-zlib is a hard requirement of this package and carries deflate_init() since php 7.0
+		$this->assertTrue(function_exists('deflate_init'));
+		$this->assertTrue($codec->isAvailable());
+		$this->assertNull($codec->unavailableReason());
+		$this->assertTrue($codec->supportsDictionary());
+	}
+
+	#[Test]
+	#[TestDox('deflate-dict round-trips $_dataName against a dictionary')]
+	#[Group('strata/codec')]
+	#[DataProvider('payloadProvider')]
+	public function deflateDictRoundTripsWithADictionary(string $payload): void
+	{
+		$codec = new DeflateDictCodec();
+		$dictionary = str_repeat('a previous version of this subject ', 40);
+
+		$this->assertSame(
+			$payload,
+			$codec->decompress($codec->compress($payload, null, $dictionary), $dictionary),
+		);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a dictionary is what makes a delta frame small, which is the whole point of the codec',
+		),
+	]
+	#[Group('strata/codec')]
+	public function aDictionaryShrinksARewrite(): void
+	{
+		$codec = new DeflateDictCodec();
+		[$previous, $current] = self::versions();
+
+		$anchored = $codec->compress($current, 9);
+		$delta = $codec->compress($current, 9, $previous);
+
+		$this->assertLessThan(
+			strlen($anchored),
+			strlen($delta),
+			'coding against the previous version must beat coding alone',
+		);
+		$this->assertSame($current, $codec->decompress($delta, $previous));
+	}
+
+	#[Test]
+	#[TestDox('an anchor frame and a delta frame are the same wire format, so one id covers both')]
+	#[Group('strata/codec')]
+	public function bothPathsEmitRawDeflate(): void
+	{
+		$codec = new DeflateDictCodec();
+		$payload = str_repeat('strata anchor frame ', 200);
+
+		// no dictionary goes through gzdeflate(), a dictionary through deflate_init(); a frame
+		// header records one codec id for both, so they have to be the same format
+		$this->assertSame($payload, gzinflate($codec->compress($payload, 9)));
+		$this->assertSame($payload, $codec->decompress(gzdeflate($payload, 9)));
+	}
+
+	#[Test]
+	#[TestDox('an empty dictionary is a plain deflate rather than a refusal')]
+	#[Group('strata/codec')]
+	public function anEmptyDictionaryIsNotAnError(): void
+	{
+		$codec = new DeflateDictCodec();
+		$payload = str_repeat('the first frame of a chain ', 100);
+
+		// the anchor frame of every chain has no previous version to code against
+		$this->assertSame($payload, $codec->decompress($codec->compress($payload, 9, ''), ''));
+		$this->assertSame($payload, $codec->decompress($codec->compress($payload, 9, null), null));
+	}
+
+	#[Test]
+	#[TestDox('decompressing against the wrong dictionary raises rather than returning garbage')]
+	#[Group('strata/codec')]
+	public function theWrongDictionaryRaises(): void
+	{
+		$codec = new DeflateDictCodec();
+		[$previous, $current] = self::versions();
+		$delta = $codec->compress($current, 9, $previous);
+
+		$this->expectException(RuntimeException::class);
+		$codec->decompress($delta, str_repeat('a completely different subject ', 40));
+	}
+
+	#[Test]
+	#[TestDox('a level outside the range is clamped rather than refused')]
+	#[Group('strata/codec')]
+	public function levelsAreClamped(): void
+	{
+		$codec = new DeflateDictCodec();
+		$payload = str_repeat('strata clamp ', 200);
+		$dictionary = str_repeat('strata ', 100);
+
+		foreach ([-5, 0, 99] as $level) {
+			$this->assertSame(
+				$payload,
+				$codec->decompress($codec->compress($payload, $level, $dictionary), $dictionary),
+			);
+		}
 	}
 
 	#endregion
