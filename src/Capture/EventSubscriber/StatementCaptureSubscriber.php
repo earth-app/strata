@@ -189,7 +189,15 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 	 */
 	public function onRequest(RequestEvent $event): void
 	{
-		$this->enable();
+		try {
+			$this->enable();
+		} catch (Throwable $error) {
+			// deciding whether to tap reads configuration, and configuration reads can fail on a
+			// site mid-deployment; a backup that cannot start must not stop the site serving
+			$this->logger->error('Strata could not start watching statements: %message', [
+				'%message' => $error->getMessage(),
+			]);
+		}
 	}
 
 	/**
@@ -262,32 +270,53 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 	/**
 	 * Notes a statement that changed something.
 	 *
+	 * **This is the widest blast radius in the module, so it is the one path that must never throw.**
+	 * It runs inside `Connection::execute()` on every write the site performs, and an exception here
+	 * does not fail a capture - it fails the query, and with it the request, on every write. Every
+	 * other capture source already holds to "a backup never takes a save down with it"; this one
+	 * reads configuration on its first call and folds a value object on every later one, and neither
+	 * is something to bet a site's availability on.
+	 *
+	 * A failed classification is dropped rather than retried. The table it belonged to is then a
+	 * table that changed with no captured operation, which is exactly what the reconciler's watermark
+	 * reports as drift, so the gap is visible rather than silent.
+	 *
 	 * @param StatementExecutionEndEvent $event
 	 *   The statement that just ran.
 	 */
 	public function onStatement(StatementExecutionEndEvent $event): void
 	{
-		// the guard first: all but a few per cent of statements are reads and stop here
-		if (!SqlStatement::isWrite($event->queryString)) {
-			return;
-		}
-		if (!$this->scope->coversTarget($event->target)) {
-			return;
-		}
+		try {
+			// the guard first: all but a few per cent of statements are reads and stop here
+			if (!SqlStatement::isWrite($event->queryString)) {
+				return;
+			}
+			if (!$this->scope->coversTarget($event->target)) {
+				return;
+			}
 
-		$statement = SqlStatement::parse($event->queryString, $this->database->getPrefix());
+			$statement = SqlStatement::parse($event->queryString, $this->database->getPrefix());
 
-		if ($statement === null) {
-			return;
-		}
-		if (!$this->scope->covers($statement->realm)) {
-			return;
-		}
-		if (!$this->scope->coversTable($statement->table)) {
-			return;
-		}
+			if ($statement === null) {
+				return;
+			}
+			if (!$this->scope->covers($statement->realm)) {
+				return;
+			}
+			if (!$this->scope->coversTable($statement->table)) {
+				return;
+			}
 
-		$this->note($statement, $event->queryString);
+			$this->note($statement, $event->queryString);
+		} catch (Throwable $error) {
+			// logging issues a query, which dispatches this event again; the tap comes off first so
+			// a failure that repeats cannot recurse through its own error handler
+			$this->disable();
+
+			$this->logger->error('Strata stopped watching statements after a failure: %message', [
+				'%message' => $error->getMessage(),
+			]);
+		}
 	}
 
 	/**
