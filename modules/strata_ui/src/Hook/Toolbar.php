@@ -61,7 +61,7 @@ final class Toolbar
 				'tab' => [
 					'#type' => 'link',
 					'#title' => $this->label(),
-					'#url' => Url::fromRoute('strata_ui.timeline'),
+					'#url' => Url::fromRoute('strata_ui.status'),
 					'#attributes' => [
 						'title' => $this->t('How much captured work is not yet sealed'),
 						'class' => ['toolbar-icon', 'toolbar-icon-strata'],
@@ -90,19 +90,22 @@ final class Toolbar
 	 */
 	private function label(): string
 	{
+		// the whole label, not only the index read: this renders on every admin page, and building
+		// the telemetry pass reads settings and can refuse on a site that has not finished setting
+		// up. a toolbar item is the last thing that should be able to take an admin page down
 		try {
 			$newest = $this->engine->commitIndex()->newest();
+
+			if ($newest === null) {
+				return (string) $this->t('Strata: nothing captured');
+			}
+
+			return (string) $this->t('Strata: @lag behind', [
+				'@lag' => Format::duration($this->engine->telemetryPass()->rpoLag()),
+			]);
 		} catch (Throwable) {
 			return (string) $this->t('Strata');
 		}
-
-		if ($newest === null) {
-			return (string) $this->t('Strata: nothing captured');
-		}
-
-		return (string) $this->t('Strata: @lag behind', [
-			'@lag' => Format::duration($this->engine->telemetryPass()->rpoLag()),
-		]);
 	}
 
 	/**
@@ -114,6 +117,10 @@ final class Toolbar
 	private function links(): array
 	{
 		$links = [
+			'status' => [
+				'title' => $this->t('Status'),
+				'url' => Url::fromRoute('strata_ui.status'),
+			],
 			'timeline' => [
 				'title' => $this->t('Timeline'),
 				'url' => Url::fromRoute('strata_ui.timeline'),
