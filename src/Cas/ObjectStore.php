@@ -53,6 +53,14 @@ final class ObjectStore
 	public const PACK_PREFIX = 'packs';
 
 	/**
+	 * Encoded bytes this store has written since it was constructed.
+	 *
+	 * Monotonic rather than resettable, so a caller measuring one flush takes the difference across
+	 * it and two callers sharing a store cannot clear each other's reading.
+	 */
+	private int $written = 0;
+
+	/**
 	 * Constructs a store.
 	 *
 	 * @param StorageProviderInterface $provider
@@ -216,6 +224,21 @@ final class ObjectStore
 	}
 
 	/**
+	 * Encoded bytes written since this store was constructed.
+	 *
+	 * Counts what actually reached the provider, so a frame the index already held contributes
+	 * nothing. Deduplication is most of what this module does, and a figure that counted skipped
+	 * frames would report a flush as costing what it avoided.
+	 *
+	 * @return int
+	 *   The running total.
+	 */
+	public function written(): int
+	{
+		return $this->written;
+	}
+
+	/**
 	 * Encodes one frame and either buffers or uploads it.
 	 *
 	 * @param string $hash
@@ -263,6 +286,8 @@ final class ObjectStore
 
 		// a frame at or above the pack target gains nothing from batching
 		if ($this->packer->shouldStoreAlone(strlen($encoded))) {
+			$this->written += strlen($encoded);
+
 			$this->provider->put(
 				Hash::key($hash, self::FRAME_PREFIX),
 				FrameEnvelope::wrap(
@@ -327,6 +352,8 @@ final class ObjectStore
 			$written++;
 
 			foreach ($pack['entries'] as $entry) {
+				$this->written += (int) $entry['length'];
+
 				$this->index->record(
 					new FrameRecord(
 						(string) $entry['hash'],

@@ -205,6 +205,10 @@ final class Flusher
 			return FlushResult::skipped('nothing pending');
 		}
 
+		// frame bytes this window adds, which the commit cannot carry: a commit is addressed by its
+		// own json, so a size written into it would change the address it is stored under
+		$writtenBefore = $this->store->written();
+
 		// the index holds where each subject was last stored, which is what a delta codes against
 		$builder = new SegmentBuilder(
 			$this->store,
@@ -261,7 +265,7 @@ final class Flusher
 
 		$commitId = $this->commits->append($commit, $ref);
 
-		$this->index?->record($commitId, $commit);
+		$this->index?->record($commitId, $commit, $this->store->written() - $writtenBefore);
 
 		// last, and only once the ref has moved: a repeat is cheap, a lost window is not
 		$trimmed = $this->journal->trim($manifest->lastSequence);

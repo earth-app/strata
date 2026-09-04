@@ -468,6 +468,69 @@ class ObjectStoreTest extends TestCase
 	}
 
 	#[Test]
+	#[TestDox('the store counts the encoded bytes it sent to the provider')]
+	#[Group('strata/cas')]
+	public function writtenCountsWhatReachedTheProvider(): void
+	{
+		$store = $this->store(frameSize: 16384, packTarget: Packer::MIN_TARGET);
+
+		$this->assertSame(0, $store->written(), 'a store that has written nothing has written 0');
+
+		$value = $this->value(100_000);
+		$store->write($value);
+		$store->commit();
+
+		$statistics = (array) $this->index?->statistics();
+
+		$this->assertSame(
+			$statistics['storedBytes'],
+			$store->written(),
+			'every frame the index holds was counted exactly once as it was written',
+		);
+		$this->assertLessThan(strlen($value), $store->written(), 'and the bytes were compressed');
+	}
+
+	#[Test]
+	#[TestDox('a value the store already holds is written again for free')]
+	#[Group('strata/cas')]
+	public function writtenSkipsADeduplicatedValue(): void
+	{
+		$store = $this->store(frameSize: 16384, packTarget: Packer::MIN_TARGET);
+		$value = $this->value(20_000);
+
+		$store->write($value);
+		$store->commit();
+
+		$after = $store->written();
+
+		$this->assertGreaterThan(0, $after);
+
+		$store->write($value);
+		$store->commit();
+
+		$this->assertSame(
+			$after,
+			$store->written(),
+			'deduplication is most of what this module does, so a skipped frame costs nothing',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a frame stored alone rather than packed is counted the same way')]
+	#[Group('strata/cas')]
+	public function writtenCountsAStandaloneFrame(): void
+	{
+		// a frame at or above the pack target is uploaded on its own rather than batched
+		$store = $this->store(frameSize: 65536, packTarget: Packer::MIN_TARGET);
+		$store->write(random_bytes(Packer::MIN_TARGET + 1024));
+		$store->commit();
+
+		$statistics = (array) $this->index?->statistics();
+
+		$this->assertSame($statistics['storedBytes'], $store->written());
+	}
+
+	#[Test]
 	#[TestDox('page() lists every frame, referenced or not, and pages stably')]
 	#[Group('strata/cas')]
 	public function pageListsEveryFrame(): void

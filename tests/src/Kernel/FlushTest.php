@@ -8,6 +8,7 @@ use Drupal\strata\Engine;
 use Drupal\strata\Flush\Lease;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\Realm;
+use Drupal\strata\Tree\CommitIndex;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -194,6 +195,61 @@ class FlushTest extends StrataKernelTestBase
 		$this->assertStringContainsString('entity', $head->label);
 		// a kernel test saves as the anonymous user, so the commit is attributed to nobody
 		$this->assertNull($head->actor);
+	}
+
+	#[Test]
+	#[TestDox('the index records what a flush actually wrote, not a zero the commit carries')]
+	#[Group('strata/flush')]
+	public function theIndexRecordsWhatTheFlushWrote(): void
+	{
+		$this->user('measured');
+
+		$result = $this->engine()->flusher()->flush(true);
+
+		$this->assertTrue($result->ran);
+
+		$row = $this->container
+			->get('database')
+			->select(CommitIndex::TABLE, 'c')
+			->fields('c', ['raw_bytes', 'stored_bytes'])
+			->condition('id', (string) $result->commit)
+			->execute()
+			?->fetchAssoc();
+
+		$this->assertIsArray($row);
+		$this->assertGreaterThan(0, (int) $row['raw_bytes']);
+		// a commit is addressed by its own json, so it cannot carry its own size; the flush measures
+		// it and passes it to the index, and without that every "Stored" column reads 0 B at 1.00x
+		$this->assertGreaterThan(
+			0,
+			(int) $row['stored_bytes'],
+			'the flush measured the bytes it sent to the provider',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a frame the store already holds costs the next commit nothing')]
+	#[Group('strata/flush')]
+	public function aDeduplicatedFlushIsRecordedAsCostingLess(): void
+	{
+		$this->user('first');
+		$first = $this->engine()->flusher()->flush(true);
+
+		$store = $this->engine()->objectStore();
+		$before = $store->written();
+
+		$store->write('a payload the store already holds');
+		$store->commit();
+
+		$this->assertGreaterThan($before, $store->written(), 'the first write cost something');
+
+		$after = $store->written();
+
+		$store->write('a payload the store already holds');
+		$store->commit();
+
+		$this->assertSame($after, $store->written(), 'storing it again wrote nothing');
+		$this->assertTrue($first->ran);
 	}
 
 	#[Test]
