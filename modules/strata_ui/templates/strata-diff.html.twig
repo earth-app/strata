@@ -39,8 +39,10 @@
 		<p class="strata-empty">{{ 'Nothing changed between these two points.'|t }}</p>
 	{% endif %}
 
+	{# only the first few are expanded; a window with five hundred changed subjects is otherwise one
+	   page tens of thousands of pixels tall #}
 	{% for subject in subjects %}
-		<details class="strata-subject strata-subject--{{ subject.status }}" open>
+		<details class="strata-subject strata-subject--{{ subject.status }}" {{ loop.index <= 5 ? 'open' : '' }}>
 			<summary class="strata-subject__title">
 				<span class="strata-badge strata-badge--{{ subject.status }}">{{ subject.status }}</span>
 				<span class="strata-subject__label">{{ subject.title }}</span>

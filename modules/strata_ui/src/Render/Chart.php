@@ -34,8 +34,11 @@ final class Chart
 
 	/**
 	 * Space left for the axis labels.
+	 *
+	 * Wide enough for the longest label any series produces, which is a rate in its own unit -
+	 * "41 per second" is thirteen characters and was clipped to "er second" at 56.
 	 */
-	public const PADDING_LEFT = 56;
+	public const PADDING_LEFT = 92;
 
 	/**
 	 * Space left below for the time labels.

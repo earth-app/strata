@@ -109,7 +109,7 @@ final class TimelineController extends StrataControllerBase
 						$this->t('Operations'),
 						$this->t('Stored'),
 						$this->t('Ratio'),
-						$this->t('Operations'),
+						$this->t('Actions'),
 					],
 					'#rows' => $rows,
 					'#empty' => $this->t('No commit was sealed in this window.'),
