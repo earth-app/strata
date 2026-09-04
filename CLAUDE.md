@@ -221,6 +221,48 @@ Do not "fix" these without measuring first.
 - **A merge always targets `refs/heads/main`.** It writes config to the live site, and the live site
   is what the trunk describes; merging into another ref would leave the trunk describing a site that
   no longer exists.
+- **A views page display overrides a module route on the same path, silently.** `config/optional`
+  ships five views, and one of them claimed `admin/reports/strata/health` in 1.0.1, so the health
+  dashboard was replaced by an empty table with no error anywhere. `ExtensionTest` compares every
+  routing file against every shipped view's page paths and fails the build on a collision; that check
+  costs milliseconds and no lane below Functional-with-Views-enabled can find this any other way.
+- **A commit cannot carry its own stored size.** It is addressed by the bytes of its own JSON, so
+  writing a size into it would re-address it. `Flusher::seal()` measures `ObjectStore::written()`
+  across the window instead and passes it to `CommitIndex::record()`'s third argument, which existed
+  and was never supplied - which is why every "Stored" column read 0 B at 1.00x until 1.0.2.
+- **`ObjectStore::written()` counts what reached the provider, so a deduplicated frame costs
+  nothing.** It is monotonic rather than resettable: a caller measuring one window takes the
+  difference across it, and two callers sharing a store cannot clear each other's reading.
+
+## Error Handling Invariants
+
+- **`StatementCaptureSubscriber::onStatement()` must never throw.** It runs inside
+  `Connection::execute()` on every write the site performs, so an exception there is not a failed
+  capture - it is a failed query, and with it a failed request, on every write. It is the one place
+  where the module's own rule ("a backup never takes a save down with it") has the widest blast
+  radius, and it was the one place not holding to it until 1.0.2. The catch disables the tap before
+  logging, because logging issues a query and a repeating failure would otherwise recurse through its
+  own error handler.
+- **`Cron::processQueues()` catches `\Exception`, not `\Throwable`.** An `Error` raised inside
+  `processItem()` therefore does not fail that item - it aborts the whole cron run and skips every
+  module whose cron had not gone yet, for as long as the lock is held. A queue worker here catches
+  `Throwable` around its work and rethrows nothing but `RequeueException`.
+- **Guzzle follows five redirects by default, and a webhook must follow none.** A subscribed endpoint
+  answering 302 - or whoever controls the DNS for it - would otherwise choose where a signed payload
+  describing this site's history is posted next, and the operator who approved the subscription never
+  saw that address. `allow_redirects => false` on every delivery.
+- **A toolbar item renders on every admin page, so its whole body is inside the guard.** Reading the
+  commit index is cheap and safe; building the telemetry pass reads settings and can refuse on a site
+  that has not finished setting up, and that half was outside the try until 1.0.2.
+- **`ArchiveImporter` verifies only content-addressed keys.** `frames/`, `packs/`, `commits/` and
+  `bases/` are checked against the digest in their own key; `refs/`, `segments/` and `dictionaries/`
+  are written as given, and the exporter includes `refs/heads/main`. So importing an archive moves
+  this site's trunk to whatever the archive says. That is gated by the restricted
+  `import strata archive` permission and by `--apply` being off by default, and it is a deliberate
+  posture rather than an oversight - but it is the one place where an operator action trusts a file's
+  contents, and anything widening who may import has to revisit it. Path traversal is closed
+  separately: `ObjectKeys::resolve()` and `LocalStorage` both refuse `..`, `.`, an empty segment and a
+  null byte by name.
 
 ## Core Behaviour Worth Knowing
 

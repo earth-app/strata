@@ -222,7 +222,11 @@ and `--shallow` checks the index without the bytes.
 
 ## 📊 Reports
 
-`strata_ui` adds five pages under `/admin/reports/strata/` and `/admin/config/system/strata/`.
+`strata_ui` adds six pages under `/admin/reports/strata/` and `/admin/config/system/strata/`.
+
+**Status.** Whether the site is backed up right now: how much captured work would be lost if the host
+died, when the last commit was sealed, what is stored, and the same checks Drupal's own status report
+shows. It is the landing page for the section and renders before anything has been configured.
 
 **Timeline.** Every point the site can be restored to, pannable and zoomable to the second. Each bar
 links to the commits inside it. The window is in the URL, so a view can be bookmarked or shared.
@@ -242,8 +246,9 @@ dictionary by frames elsewhere, so a removal is priced by what would become unre
 restore drill proved.
 
 The pages need no JavaScript. Wheel-zoom and drag-pan are added when scripting is available, and
-every navigation is also a link. Charts follow the reader's colour scheme, honour
-`prefers-reduced-motion` and `prefers-contrast`, and encode state in shape as well as colour.
+every navigation is also a link. Colours are taken from the admin theme's own tokens, so the pages
+match whatever theme is drawing them. Charts honour `prefers-reduced-motion` and `prefers-contrast`,
+and encode state in shape as well as colour.
 
 ## 🔬 Measurements
 
