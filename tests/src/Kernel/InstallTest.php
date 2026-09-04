@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Kernel;
 
+use Drupal\Component\Serialization\Yaml;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\strata\Cas\Hash;
 use Drupal\strata\Tree\Commit;
@@ -16,6 +17,17 @@ use PHPUnit\Framework\Attributes\TestDox;
  */
 class InstallTest extends StrataKernelTestBase
 {
+	/**
+	 * {@inheritdoc}
+	 *
+	 * Views is here for `strata_update_11104`, which moves a shipped view off the path the health
+	 * dashboard answers on. Saving a `views.view.*` object under strict schema checking needs the
+	 * module that defines that schema.
+	 *
+	 * @var list<string>
+	 */
+	protected static $modules = ['system', 'user', 'views', 'key', 'strata'];
+
 	#region Schema
 
 	#[Test]
@@ -168,6 +180,73 @@ class InstallTest extends StrataKernelTestBase
 		$this->appendJournalRow('entity/node:4', PHP_INT_MAX);
 
 		$this->assertSame(1, $this->container->get('strata.journal')->pending());
+	}
+
+	#[Test]
+	#[TestDox('moving the findings view frees the path the health dashboard answers on')]
+	#[Group('strata/install')]
+	public function theFindingsViewIsMovedOffTheDashboardPath(): void
+	{
+		$this->installShippedFindingsView('admin/reports/strata/health');
+
+		strata_update_11104();
+
+		$this->assertSame(
+			'admin/reports/strata/findings',
+			$this->config('views.view.strata_health')->get('display.page_1.display_options.path'),
+		);
+	}
+
+	#[Test]
+	#[TestDox('a site whose view already moved is left exactly as it is')]
+	#[Group('strata/install')]
+	public function movingTheFindingsViewIsRepeatable(): void
+	{
+		$this->installShippedFindingsView('admin/reports/strata/findings');
+
+		$before = $this->config('views.view.strata_health')->getRawData();
+
+		strata_update_11104();
+		strata_update_11104();
+
+		$this->assertSame($before, $this->config('views.view.strata_health')->getRawData());
+	}
+
+	#[Test]
+	#[TestDox('a site that never installed the optional view is not given one')]
+	#[Group('strata/install')]
+	public function movingTheFindingsViewSkipsASiteWithoutIt(): void
+	{
+		// the view is optional config, so a site running without Views has never had it
+		$this->config('views.view.strata_health')->delete();
+
+		$this->assertTrue($this->config('views.view.strata_health')->isNew());
+
+		strata_update_11104();
+
+		$this->assertTrue(
+			$this->config('views.view.strata_health')->isNew(),
+			'the update created nothing on a site running without Views',
+		);
+	}
+
+	#[Test]
+	#[TestDox('the shipped view no longer claims the path a route already answers on')]
+	#[Group('strata/install')]
+	public function theShippedViewDoesNotShadowTheDashboard(): void
+	{
+		$shipped = Yaml::decode(
+			(string) file_get_contents(
+				dirname(__DIR__, 3) . '/config/optional/views.view.strata_health.yml',
+			),
+		);
+
+		$this->assertIsArray($shipped);
+		$this->assertSame(
+			'admin/reports/strata/findings',
+			$shipped['display']['page_1']['display_options']['path'],
+			'a views page display overrides a module route on the same path',
+		);
 	}
 
 	#endregion
@@ -466,6 +545,31 @@ class InstallTest extends StrataKernelTestBase
 	#endregion
 
 	#region Fixtures
+
+	/**
+	 * Saves the shipped findings view, with its page display on a given path.
+	 *
+	 * Read from the module's own directory and saved as it is, rather than through the optional
+	 * config installer: that installer scans every enabled module's optional config and core's
+	 * brings in dependencies this lane has no reason to boot.
+	 *
+	 * @param string $path
+	 *   The path to give the page display, so a pre-update and a post-update site are both testable.
+	 */
+	private function installShippedFindingsView(string $path): void
+	{
+		$data = Yaml::decode(
+			(string) file_get_contents(
+				dirname(__DIR__, 3) . '/config/optional/views.view.strata_health.yml',
+			),
+		);
+
+		$this->assertIsArray($data);
+
+		$data['display']['page_1']['display_options']['path'] = $path;
+
+		$this->config('views.view.strata_health')->setData($data)->save();
+	}
 
 	/**
 	 * Rebuilds the journal table with the 32-bit sequence a pre-update site has.

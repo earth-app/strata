@@ -1021,6 +1021,39 @@ function strata_update_11103(): string
 }
 
 /**
+ * Moves the findings view off the path the health dashboard answers on.
+ *
+ * `views.view.strata_health` shipped with a page display on `admin/reports/strata/health`, which is
+ * the path route `strata_ui.health` declares. A views page display overrides a module route on the
+ * same path, so on any site with Views enabled the dashboard was silently replaced by an empty
+ * table and there was no way to reach it.
+ *
+ * Does nothing when Views is absent or the view was never installed, which is the common case: the
+ * view ships in `config/optional`.
+ */
+function strata_update_11104(): string
+{
+	$view = Drupal::configFactory()->getEditable('views.view.strata_health');
+
+	if ($view->isNew()) {
+		return (string) new TranslatableMarkup('The findings view is not installed on this site.');
+	}
+	if ($view->get('display.page_1.display_options.path') !== 'admin/reports/strata/health') {
+		return (string) new TranslatableMarkup('The findings view already sits on its own path.');
+	}
+
+	$view
+		->set('display.page_1.display_options.path', 'admin/reports/strata/findings')
+		->set('label', 'Strata Findings')
+		->set('display.default.display_options.title', 'Strata Findings')
+		->save();
+
+	return (string) new TranslatableMarkup(
+		'Moved the findings view to admin/reports/strata/findings, which frees the health dashboard.',
+	);
+}
+
+/**
  * Implements hook_requirements().
  *
  * Reports what the compression and encryption layers can actually do on this host, so a site

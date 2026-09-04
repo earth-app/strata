@@ -4,7 +4,7 @@ dependencies:
   module:
     - strata
 id: strata_health
-label: 'Strata health'
+label: 'Strata Findings'
 module: views
 description: 'What the tripwires found, most serious first, open findings only.'
 tag: strata
@@ -17,7 +17,7 @@ display:
     display_plugin: default
     position: 0
     display_options:
-      title: 'Strata health'
+      title: 'Strata Findings'
       access:
         type: perm
         options:
@@ -130,6 +130,6 @@ display:
     display_plugin: page
     position: 1
     display_options:
-      path: admin/reports/strata/health
+      path: admin/reports/strata/findings
       menu:
         type: none
