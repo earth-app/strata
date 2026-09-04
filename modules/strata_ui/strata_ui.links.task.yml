@@ -1,22 +1,32 @@
+strata_ui.status.tab:
+  title: 'Status'
+  route_name: strata_ui.status
+  base_route: strata_ui.status
+
 strata_ui.timeline.tab:
   title: 'Timeline'
   route_name: strata_ui.timeline
-  base_route: strata_ui.timeline
+  base_route: strata_ui.status
 
 strata_ui.graphs.tab:
   title: 'Graphs'
   route_name: strata_ui.graphs
-  base_route: strata_ui.timeline
+  base_route: strata_ui.status
 
 strata_ui.diff.tab:
   title: 'Diff'
   route_name: strata_ui.diff
-  base_route: strata_ui.timeline
+  base_route: strata_ui.status
 
 strata_ui.health.tab:
   title: 'Health'
   route_name: strata_ui.health
-  base_route: strata_ui.timeline
+  base_route: strata_ui.status
+
+strata_ui.branches.tab:
+  title: 'Branches'
+  route_name: strata_ui.branches
+  base_route: strata_ui.status
 
 strata.settings.storage.tab:
   title: 'Storage'

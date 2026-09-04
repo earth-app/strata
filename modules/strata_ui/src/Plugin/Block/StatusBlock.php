@@ -101,7 +101,7 @@ final class StatusBlock extends StrataBlockBase
 	 */
 	protected function detailRoute(): string
 	{
-		return 'strata_ui.timeline';
+		return 'strata_ui.status';
 	}
 
 	/**

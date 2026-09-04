@@ -1,6 +1,48 @@
 strata.settings:
   title: 'Strata'
   description: 'Choose where backups are stored, what is captured and how long it is kept.'
-  route_name: strata.settings.storage
+  route_name: strata.settings
   parent: system.admin_config_system
   weight: 10
+
+strata.settings.storage:
+  title: 'Storage'
+  description: 'Which provider backups go to, and how frames are compressed and sealed.'
+  route_name: strata.settings.storage
+  parent: strata.settings
+  weight: 0
+
+strata.settings.capture:
+  title: 'Capture'
+  description: 'Which realms are watched, and how much of a changed table is sampled.'
+  route_name: strata.settings.capture
+  parent: strata.settings
+  weight: 1
+
+strata.settings.tiers:
+  title: 'Tiers'
+  description: 'Spread stored history across several buckets by age.'
+  route_name: strata.settings.tiers
+  parent: strata.settings
+  weight: 3
+
+strata.settings.retention:
+  title: 'Retention'
+  description: 'How long each resolution of history is kept before it is collapsed.'
+  route_name: strata.settings.retention
+  parent: strata.settings
+  weight: 2
+
+strata.settings.webhooks:
+  title: 'Webhooks'
+  description: 'Where Strata posts when a restore, a budget or a finding needs a person.'
+  route_name: strata.settings.webhooks
+  parent: strata.settings
+  weight: 4
+
+strata.settings.telemetry:
+  title: 'Telemetry'
+  description: 'Export the pipeline metrics to an OTLP endpoint.'
+  route_name: strata.settings.telemetry
+  parent: strata.settings
+  weight: 5

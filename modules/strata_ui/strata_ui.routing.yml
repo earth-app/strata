@@ -1,3 +1,13 @@
+strata_ui.status:
+  path: '/admin/reports/strata'
+  defaults:
+    _controller: Drupal\strata_ui\Controller\StatusController::page
+    _title: 'Strata Status'
+  requirements:
+    _permission: 'view strata timeline'
+  options:
+    _admin_route: TRUE
+
 strata_ui.timeline:
   path: '/admin/reports/strata/timeline'
   defaults:

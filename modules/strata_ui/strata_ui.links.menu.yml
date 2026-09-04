@@ -1,29 +1,19 @@
-strata_ui.timeline:
-  title: 'Strata Timeline'
-  description: 'When the site changed, what changed and who changed it.'
-  route_name: strata_ui.timeline
+strata_ui.status:
+  title: 'Strata'
+  description: 'Whether this site is backed up right now, and what to do when it is not.'
+  route_name: strata_ui.status
   parent: system.admin_reports
-
-strata_ui.health:
-  title: 'Strata Health'
-  description: 'Open findings, repair rungs and what the last restore drill proved.'
-  route_name: strata_ui.health
-  parent: system.admin_reports
-
-strata_ui.branches:
-  title: 'Strata Configuration Branches'
-  description: 'Which configuration branches exist, and what merging one would write.'
-  route_name: strata_ui.branches
-  parent: system.admin_reports
-
-strata_ui.estimate:
-  title: 'Cost Estimate'
-  description: 'Project what stored history will cost.'
-  route_name: strata_ui.estimate
-  parent: strata.settings
 
 strata_ui.explorer:
   title: 'Storage Explorer'
   description: 'What is stored now, and what deleting something would take with it.'
   route_name: strata_ui.explorer
   parent: strata.settings
+  weight: 10
+
+strata_ui.estimate:
+  title: 'Cost Estimate'
+  description: 'Project what stored history will cost.'
+  route_name: strata_ui.estimate
+  parent: strata.settings
+  weight: 11

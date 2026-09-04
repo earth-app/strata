@@ -60,6 +60,11 @@ final class Help
 				(string) $this->t('It captures nothing and stores nothing of its own.'),
 				(string) $this->t('Uninstalling it leaves the stored history untouched.'),
 			],
+			'strata_ui.status' => [
+				(string) $this->t('The checks below are the ones on the Drupal status report.'),
+				(string) $this->t('Unprotected work is what a host failure right now would cost.'),
+				(string) $this->t('Nothing on this page reaches the storage provider twice.'),
+			],
 			'strata_ui.timeline' => [
 				(string) $this->t(
 					'Each bar is a window of captured operations, and links to its commits.',

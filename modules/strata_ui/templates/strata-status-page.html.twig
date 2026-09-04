@@ -1,0 +1,118 @@
+{#
+/**
+ * @file
+ * Whether this site is backed up right now, and what to do when it is not.
+ *
+ * Available variables:
+ * - capturing: whether capture is switched on.
+ * - verdict: the one sentence at the top.
+ * - severity: ok, warn or error, deciding the banner colour.
+ * - requirements: this module's rows on Drupal's status report.
+ * - figures: the cards saying how much work is protected.
+ * - findings: how many codes are open at each severity.
+ * - drill: what the newest restore drill proved.
+ * - links: where to go next.
+ * - unavailable: why the local indexes could not be read, when they could not.
+ *
+ * @ingroup themeable
+ */
+#}
+<div class="strata strata-overview">
+	<p class="strata-banner strata-banner--{{ severity }}">{{ verdict }}</p>
+
+	{% if not capturing %}
+		<p class="strata-note">
+			{{ 'Turn capture on at Strata Storage settings once a provider and a key are chosen.'|t }}
+		</p>
+	{% endif %}
+
+	{% if unavailable %}
+		<p class="strata-warning">
+			{{ 'The local indexes could not be read: @why'|t({'@why': unavailable}) }}
+		</p>
+	{% endif %}
+
+	{% if figures is not empty %}
+		<div class="strata-cards" role="group" aria-label="{{ 'How much work is protected'|t }}">
+			{% for figure in figures %}
+				<div class="strata-card strata-card--{{ figure.severity }}">
+					<span class="strata-card__label">{{ figure.label }}</span>
+					<span class="strata-card__value{{ figure.wide ? ' strata-card__value--long' : '' }}">
+						{{ figure.value }}
+					</span>
+					<span class="strata-card__note">{{ figure.note }}</span>
+				</div>
+			{% endfor %}
+		</div>
+	{% endif %}
+
+	<section class="strata-section">
+		<h3 class="strata-section__title">{{ 'Checks'|t }}</h3>
+		<table class="strata-table">
+			<thead>
+				<tr>
+					<th>{{ 'Check'|t }}</th>
+					<th>{{ 'Result'|t }}</th>
+					<th>{{ 'Detail'|t }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for requirement in requirements %}
+					<tr class="strata-table__row--{{ requirement.severity }}">
+						<th scope="row">{{ requirement.title }}</th>
+						<td>
+							<span class="strata-badge strata-badge--{{ requirement.severity }}">
+								{{ requirement.verdict }}
+							</span>
+							{{ requirement.value }}
+						</td>
+						<td>{{ requirement.description }}</td>
+					</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+	</section>
+
+	<section class="strata-section">
+		<h3 class="strata-section__title">{{ 'Health'|t }}</h3>
+		{% if findings is empty %}
+			<p class="strata-empty">{{ 'No finding is open.'|t }}</p>
+		{% else %}
+			<ul class="strata-tally">
+				{% for finding in findings %}
+					<li>
+						<span class="strata-badge strata-badge--{{ finding.name|lower }}">
+							{{ finding.name }}
+						</span>
+						{{ finding.count }}
+					</li>
+				{% endfor %}
+			</ul>
+		{% endif %}
+
+		{% if drill.ran %}
+			<p class="strata-drill__verdict strata-drill__verdict--{{ drill.verdict|lower }}">
+				<strong>{{ drill.verdict }}</strong> {{ drill.detail }}
+				<span class="strata-drill__when">{{ drill.when }}</span>
+			</p>
+		{% else %}
+			<p class="strata-empty">
+				{{ 'No restore drill has run, so that the backups restore is a claim rather than a measurement.'|t }}
+			</p>
+		{% endif %}
+	</section>
+
+	{% if links is not empty %}
+		<section class="strata-section">
+			<h3 class="strata-section__title">{{ 'Where to Go Next'|t }}</h3>
+			<ul class="strata-links">
+				{% for link in links %}
+					<li class="strata-links__item">
+						<a class="strata-links__link" href="{{ link.url }}">{{ link.title }}</a>
+						<span class="strata-links__description">{{ link.description }}</span>
+					</li>
+				{% endfor %}
+			</ul>
+		</section>
+	{% endif %}
+</div>

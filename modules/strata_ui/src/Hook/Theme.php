@@ -103,6 +103,19 @@ final class Theme
 			'strata_status' => [
 				'variables' => ['rows' => [], 'severity' => 'ok', 'url' => ''],
 			],
+			'strata_status_page' => [
+				'variables' => [
+					'capturing' => false,
+					'verdict' => '',
+					'severity' => 'ok',
+					'requirements' => [],
+					'figures' => [],
+					'findings' => [],
+					'drill' => [],
+					'links' => [],
+					'unavailable' => '',
+				],
+			],
 		];
 	}
 }
