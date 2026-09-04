@@ -6,6 +6,8 @@ namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\Core\Queue\QueueInterface;
+use Drupal\Core\Queue\QueueWorkerInterface;
+use Drupal\Core\Queue\RequeueException;
 use Drupal\strata\Event\CommitEvent;
 use Drupal\strata\Event\StrataEvents;
 use Drupal\strata\Event\Webhook\WebhookDispatcher;
@@ -19,6 +21,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\MockObject\MockObject;
+use stdClass;
 
 /**
  * Proves a delivery is queued rather than posted, and what the queue item is allowed to carry.
@@ -511,6 +514,75 @@ class WebhookTest extends StrataKernelTestBase
 		$this->assertSame($item['delivery'], $headers[WebhookSignature::DELIVERY_HEADER]);
 		$this->assertSame(7, $options['timeout']);
 		$this->assertFalse($options['http_errors']);
+	}
+
+	#[Test]
+	#[TestDox('a delivery does not follow a redirect, so the endpoint cannot choose another one')]
+	#[Group('strata/webhook')]
+	public function aDeliveryDoesNotFollowARedirect(): void
+	{
+		$this->subscribe([['url' => self::URL, 'secret' => self::SECRET]]);
+		$this->dispatcher()->dispatch($this->event());
+		$this->dispatcher()->attempt($this->take());
+
+		[, , $options] = $this->requests[0];
+
+		// guzzle follows five by default. an endpoint answering 302 - or whoever controls its dns -
+		// would otherwise decide where a signed payload describing this site's history goes next,
+		// and the operator who approved the subscription never saw that address
+		$this->assertFalse($options['allow_redirects']);
+	}
+
+	#endregion
+
+	#region The Queue Worker
+
+	#[Test]
+	#[TestDox('an item that is not due yet is requeued rather than delivered')]
+	#[Group('strata/webhook')]
+	public function anItemThatIsNotDueIsRequeued(): void
+	{
+		$this->expectException(RequeueException::class);
+
+		$this->worker()->processItem(['url' => self::URL, 'delay_until' => $this->now() + 3600]);
+	}
+
+	#[Test]
+	#[TestDox('a malformed item fails its own delivery rather than the whole cron run')]
+	#[Group('strata/webhook')]
+	public function aMalformedItemDoesNotAbortCron(): void
+	{
+		$this->subscribe([['url' => self::URL]]);
+
+		// Cron::processQueues() catches Exception and nothing wider, so an Error raised here does not
+		// fail this item - it aborts the run, and every module whose cron had not gone yet is skipped
+		$this->worker()->processItem(['url' => new stdClass()]);
+
+		$this->assertSame([], $this->requests, 'nothing was posted');
+		$this->assertSame(0, $this->queue()->numberOfItems(), 'and nothing was left half-queued');
+	}
+
+	#[Test]
+	#[TestDox('an item that is not an array at all is dropped')]
+	#[Group('strata/webhook')]
+	public function aNonArrayItemIsDropped(): void
+	{
+		$this->worker()->processItem('not an item');
+
+		$this->assertSame([], $this->requests);
+	}
+
+	/**
+	 * The queue worker, built the way cron builds it.
+	 *
+	 * @return QueueWorkerInterface
+	 *   The worker.
+	 */
+	private function worker(): QueueWorkerInterface
+	{
+		return $this->container
+			->get('plugin.manager.queue_worker')
+			->createInstance(WebhookDispatcher::QUEUE);
 	}
 
 	#endregion

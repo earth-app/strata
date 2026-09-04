@@ -241,6 +241,11 @@ final class WebhookDispatcher
 				'body' => $body,
 				'timeout' => $subscription->timeout,
 				'http_errors' => false,
+				// a redirect is not a delivery. guzzle follows five by default, so an endpoint that
+				// answers 302 - or whoever controls the dns for it - decides where a signed payload
+				// describing this site's history is posted next, and the operator who approved the
+				// subscription never saw that address
+				'allow_redirects' => false,
 			]);
 
 			$status = $response->getStatusCode();

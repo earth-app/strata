@@ -12,7 +12,9 @@ use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\Queue\RequeueException;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strata\Event\Webhook\WebhookDispatcher;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Throwable;
 
 /**
  * Posts one queued webhook delivery.
@@ -50,6 +52,8 @@ final class WebhookDelivery extends QueueWorkerBase implements ContainerFactoryP
 	 *   Performs the attempt.
 	 * @param TimeInterface $time
 	 *   Decides whether an item is due.
+	 * @param LoggerInterface $logger
+	 *   Records a delivery that failed in a way the dispatcher did not expect.
 	 */
 	public function __construct(
 		array $configuration,
@@ -57,6 +61,7 @@ final class WebhookDelivery extends QueueWorkerBase implements ContainerFactoryP
 		$pluginDefinition,
 		protected readonly WebhookDispatcher $dispatcher,
 		protected readonly TimeInterface $time,
+		protected readonly LoggerInterface $logger,
 	) {
 		parent::__construct($configuration, $pluginId, $pluginDefinition);
 	}
@@ -76,17 +81,24 @@ final class WebhookDelivery extends QueueWorkerBase implements ContainerFactoryP
 			$plugin_definition,
 			$container->get('strata.webhooks'),
 			$container->get('datetime.time'),
+			$container->get('logger.channel.strata'),
 		);
 	}
 
 	/**
 	 * {@inheritdoc}
 	 *
+	 * **Everything below the requeue is caught, including an Error.** `Cron::processQueues()` catches
+	 * `Exception` and nothing wider, so a TypeError raised by a malformed item does not fail that
+	 * item - it aborts the whole cron run, and every module whose cron had not gone yet is skipped
+	 * for as long as the lock is held. A webhook that cannot be delivered is not worth that.
+	 *
 	 * @param mixed $data
 	 *   The queue item.
 	 *
 	 * @throws RequeueException
-	 *   When the item is not due yet.
+	 *   When the item is not due yet. Thrown past the catch, since it is how a worker says "later"
+	 *   rather than a failure.
 	 */
 	public function processItem($data): void
 	{
@@ -100,6 +112,12 @@ final class WebhookDelivery extends QueueWorkerBase implements ContainerFactoryP
 			throw new RequeueException('Not due yet');
 		}
 
-		$this->dispatcher->attempt($data);
+		try {
+			$this->dispatcher->attempt($data);
+		} catch (Throwable $error) {
+			$this->logger->error('Strata could not deliver a webhook: @message', [
+				'@message' => $error->getMessage(),
+			]);
+		}
 	}
 }
