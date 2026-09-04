@@ -3,6 +3,7 @@ description: 'Mails and webhooks a site when a restore fails, a budget ceiling i
 type: module
 package: Strata
 core_version_requirement: ^11.2
+configure: strata_notify.settings
 
 dependencies:
   - strata:strata

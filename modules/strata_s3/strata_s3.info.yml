@@ -1,7 +1,9 @@
 name: 'Strata S3'
+description: 'Stores history on AWS S3, Cloudflare R2 or any s3-compatible endpoint, signing its own requests with sigv4.'
 type: module
 package: Strata
 core_version_requirement: ^11.2
+configure: strata_s3.settings
 
 dependencies:
   - strata:strata

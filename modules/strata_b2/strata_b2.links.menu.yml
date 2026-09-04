@@ -1,0 +1,6 @@
+strata_b2.settings:
+  title: 'B2 Credentials'
+  description: 'Bucket and application key for Backblaze B2.'
+  route_name: strata_b2.settings
+  parent: strata.settings
+  weight: 23

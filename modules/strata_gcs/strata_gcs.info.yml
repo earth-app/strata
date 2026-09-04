@@ -3,6 +3,7 @@ description: 'Stores history on Google Cloud Storage over the native json api, w
 type: module
 package: Strata
 core_version_requirement: ^11.2
+configure: strata_gcs.settings
 
 dependencies:
   - strata:strata

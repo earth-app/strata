@@ -1,0 +1,6 @@
+strata_s3.settings:
+  title: 'S3 Credentials'
+  description: 'Endpoint, bucket and keys for AWS S3, Cloudflare R2 or any s3-compatible store.'
+  route_name: strata_s3.settings
+  parent: strata.settings
+  weight: 20

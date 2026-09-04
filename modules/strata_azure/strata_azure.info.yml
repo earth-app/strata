@@ -3,6 +3,7 @@ description: 'Stores history on Azure Blob Storage over the native Blob REST API
 type: module
 package: Strata
 core_version_requirement: ^11.2
+configure: strata_azure.settings
 
 dependencies:
   - strata:strata

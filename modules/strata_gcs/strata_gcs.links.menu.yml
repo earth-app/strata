@@ -1,0 +1,6 @@
+strata_gcs.settings:
+  title: 'GCS Credentials'
+  description: 'Bucket and service account or workload identity token for Google Cloud Storage.'
+  route_name: strata_gcs.settings
+  parent: strata.settings
+  weight: 22

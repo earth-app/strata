@@ -1,0 +1,6 @@
+strata_notify.settings:
+  title: 'Notifications'
+  description: 'Who is mailed and which endpoint is posted to when something needs a person.'
+  route_name: strata_notify.settings
+  parent: strata.settings
+  weight: 30

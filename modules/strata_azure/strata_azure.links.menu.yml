@@ -1,0 +1,6 @@
+strata_azure.settings:
+  title: 'Azure Credentials'
+  description: 'Account, container and key or sas token for Azure Blob Storage.'
+  route_name: strata_azure.settings
+  parent: strata.settings
+  weight: 21

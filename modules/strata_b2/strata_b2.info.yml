@@ -3,6 +3,7 @@ description: 'Stores history on Backblaze B2 over the native api, which accepts 
 type: module
 package: Strata
 core_version_requirement: ^11.2
+configure: strata_b2.settings
 
 dependencies:
   - strata:strata
