@@ -21,9 +21,11 @@ use RuntimeException;
  * throughput. Dictionary support outranks raw ratio, because DeltaCodec cannot produce a delta
  * without it.
  *
- * ZstdPipeCodec is never the hot-path choice. A process spawn dominates the work at frame sizes -
- * 1,000 invocations measured 5.88 seconds - so it is registered for reading and for batch work,
- * and a host without the extension gets gzip on the flush path instead.
+ * A PipeCodec is never the hot-path choice. A process spawn dominates the work at frame sizes -
+ * 1,000 invocations measured 5.88 seconds - so `zstd` and `brotli` on disk are registered for
+ * reading and for batch work, and a host with neither extension gets deflate on the flush path
+ * instead. What they buy is that a frame stays readable when a site moves to a host whose PHP was
+ * built without the extension that wrote it.
  *
  * @see CompressionCodecInterface
  * @see DeltaCodec
@@ -82,6 +84,7 @@ final class CodecRegistry
 		// registered for reading and batch work only and never wins the flush path
 		$registry->register(new ZstdPipeCodec(), false);
 		$registry->register(new BrotliCodec());
+		$registry->register(new BrotliPipeCodec(), false);
 		// before gzip, and only for the reason that decides everything else here: it carries a
 		// dictionary on a stock php where gzip cannot, and delta coding measures 63.70x against
 		// gzip's 3.52x standalone

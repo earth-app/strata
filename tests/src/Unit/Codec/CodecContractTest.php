@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Unit\Codec;
 
+use Drupal\strata\Codec\BrotliCodec;
+use Drupal\strata\Codec\BrotliPipeCodec;
 use Drupal\strata\Codec\CompressionCodecInterface;
 use Drupal\strata\Codec\DeflateDictCodec;
 use Drupal\strata\Codec\GzipCodec;
 use Drupal\strata\Codec\NoneCodec;
+use Drupal\strata\Codec\PipeCodec;
 use Drupal\strata\Codec\ZstdCodec;
 use Drupal\strata\Codec\ZstdPipeCodec;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -22,7 +25,10 @@ use RuntimeException;
 #[CoversClass(GzipCodec::class)]
 #[CoversClass(DeflateDictCodec::class)]
 #[CoversClass(ZstdCodec::class)]
+#[CoversClass(BrotliCodec::class)]
+#[CoversClass(PipeCodec::class)]
 #[CoversClass(ZstdPipeCodec::class)]
+#[CoversClass(BrotliPipeCodec::class)]
 class CodecContractTest extends TestCase
 {
 	#region Contract
@@ -40,6 +46,8 @@ class CodecContractTest extends TestCase
 			'deflate with a dictionary' => [new DeflateDictCodec()],
 			'zstd extension' => [new ZstdCodec()],
 			'zstd binary' => [new ZstdPipeCodec()],
+			'brotli extension' => [new BrotliCodec()],
+			'brotli binary' => [new BrotliPipeCodec()],
 		];
 	}
 
@@ -209,42 +217,52 @@ class CodecContractTest extends TestCase
 
 	#endregion
 
-	#region Zstd binary
+	#region Binary Codecs
 
-	#[Test]
-	#[TestDox('the zstd binary codec round-trips $_dataName exactly')]
-	#[Group('strata/codec')]
-	#[DataProvider('payloadProvider')]
-	public function zstdPipeRoundTrips(string $payload): void
+	/**
+	 * Every codec that drives a binary on disk, paired with the extension covering the same format.
+	 *
+	 * @return array<string, array{PipeCodec, CompressionCodecInterface}>
+	 */
+	public static function pipeCodecProvider(): array
 	{
-		$codec = new ZstdPipeCodec();
-
-		if (!$codec->isAvailable()) {
-			$this->markTestSkipped(
-				'the zstd binary is not on PATH: ' . $codec->unavailableReason(),
-			);
-		}
-
-		$this->assertSame($payload, $codec->decompress($codec->compress($payload)));
+		return [
+			'zstd' => [new ZstdPipeCodec(), new ZstdCodec()],
+			'brotli' => [new BrotliPipeCodec(), new BrotliCodec()],
+		];
 	}
 
 	#[Test]
-	#[TestDox('a batch of 50 buffers costs one process, not fifty')]
+	#[TestDox('the $_dataName binary codec round-trips every payload shape exactly')]
 	#[Group('strata/codec')]
-	public function batchSpawnsOneProcess(): void
+	#[DataProvider('pipeCodecProvider')]
+	public function binaryCodecsRoundTrip(PipeCodec $codec): void
 	{
-		$codec = new ZstdPipeCodec();
+		$this->skipUnless($codec);
 
-		if (!$codec->isAvailable()) {
-			$this->markTestSkipped('the zstd binary is not on PATH');
+		foreach (self::payloadProvider() as $name => [$payload]) {
+			$this->assertSame(
+				$payload,
+				$codec->decompress($codec->compress($payload)),
+				sprintf('%s survives the %s binary', $name, $codec->id()),
+			);
 		}
+	}
+
+	#[Test]
+	#[TestDox('a batch of 50 buffers through $_dataName costs one process, not fifty')]
+	#[Group('strata/codec')]
+	#[DataProvider('pipeCodecProvider')]
+	public function batchSpawnsOneProcess(PipeCodec $codec): void
+	{
+		$this->skipUnless($codec);
 
 		$buffers = [];
 		for ($i = 0; $i < 50; $i++) {
 			$buffers[] = str_repeat("frame $i payload ", 100);
 		}
 
-		$compressed = $codec->compressBatch($buffers, 19);
+		$compressed = $codec->compressBatch($buffers, $codec->levels()['dense']);
 		$this->assertSame(1, $codec->spawnCount(), 'compressing 50 buffers must cost one spawn');
 
 		$this->assertSame($buffers, $codec->decompressBatch($compressed));
@@ -252,33 +270,80 @@ class CodecContractTest extends TestCase
 	}
 
 	#[Test]
-	#[TestDox('an empty batch does no work and spawns nothing')]
+	#[TestDox('an empty batch through $_dataName does no work and spawns nothing')]
 	#[Group('strata/codec')]
-	public function emptyBatchSpawnsNothing(): void
+	#[DataProvider('pipeCodecProvider')]
+	public function emptyBatchSpawnsNothing(PipeCodec $codec): void
 	{
-		$codec = new ZstdPipeCodec();
-
 		$this->assertSame([], $codec->compressBatch([]));
 		$this->assertSame([], $codec->decompressBatch([]));
 		$this->assertSame(0, $codec->spawnCount());
 	}
 
 	#[Test]
-	#[TestDox('a dictionary changes the bytes and is required to read them back')]
+	#[TestDox('a frame written by the $_dataName extension reads back through the binary')]
 	#[Group('strata/codec')]
-	public function dictionaryIsHonouredAndRequired(): void
-	{
-		$codec = new ZstdPipeCodec();
+	#[DataProvider('pipeCodecProvider')]
+	public function theBinaryReadsWhatTheExtensionWrote(
+		PipeCodec $binary,
+		CompressionCodecInterface $extension,
+	): void {
+		$this->skipUnless($binary);
 
-		if (!$codec->isAvailable()) {
-			$this->markTestSkipped('the zstd binary is not on PATH');
+		if (!$extension->isAvailable()) {
+			$this->markTestSkipped((string) $extension->unavailableReason());
+		}
+
+		// the whole reason a pipe codec is registered: a bucket written on a host with the extension
+		// has to stay readable on a host whose php was built without it
+		$payload = str_repeat('{"nid":[{"value":42}],"title":[{"value":"A node"}]}', 40);
+
+		$this->assertSame($payload, $binary->decompress($extension->compress($payload)));
+		$this->assertSame($payload, $extension->decompress($binary->compress($payload)));
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a frame the $_dataName binary wrote against a dictionary reads back through the extension',
+		),
+	]
+	#[Group('strata/codec')]
+	#[DataProvider('pipeCodecProvider')]
+	public function theTwoAgreeOnDictionaries(
+		PipeCodec $binary,
+		CompressionCodecInterface $extension,
+	): void {
+		$this->skipUnless($binary);
+
+		if (!$extension->isAvailable()) {
+			$this->markTestSkipped((string) $extension->unavailableReason());
 		}
 
 		$dictionary = str_repeat('strata rollback commit frame segment ', 300);
 		$payload = 'strata rollback commit frame segment strata rollback commit';
 
-		$plain = $codec->compress($payload, 19);
-		$withDictionary = $codec->compress($payload, 19, $dictionary);
+		$this->assertSame(
+			$payload,
+			$extension->decompress($binary->compress($payload, null, $dictionary), $dictionary),
+			'the binary takes a raw dictionary the extension understands',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a dictionary changes what $_dataName writes and is required to read it back')]
+	#[Group('strata/codec')]
+	#[DataProvider('pipeCodecProvider')]
+	public function dictionaryIsHonouredAndRequired(PipeCodec $codec): void
+	{
+		$this->skipUnless($codec);
+
+		$dictionary = str_repeat('strata rollback commit frame segment ', 300);
+		$payload = 'strata rollback commit frame segment strata rollback commit';
+		$dense = $codec->levels()['dense'];
+
+		$plain = $codec->compress($payload, $dense);
+		$withDictionary = $codec->compress($payload, $dense, $dictionary);
 
 		$this->assertNotSame($plain, $withDictionary);
 		$this->assertSame($payload, $codec->decompress($withDictionary, $dictionary));
@@ -300,11 +365,27 @@ class CodecContractTest extends TestCase
 	}
 
 	#[Test]
-	#[TestDox('the binary and the extension share one codec id, so either can read the other')]
+	#[TestDox('a binary and its extension share one codec id, so either can read the other')]
 	#[Group('strata/codec')]
-	public function bothZstdCodecsShareAnId(): void
+	#[DataProvider('pipeCodecProvider')]
+	public function bothImplementationsShareAnId(
+		PipeCodec $binary,
+		CompressionCodecInterface $extension,
+	): void {
+		$this->assertSame($extension->id(), $binary->id());
+	}
+
+	/**
+	 * Skips when this host cannot run the binary a case needs.
+	 *
+	 * @param PipeCodec $codec
+	 *   The codec under test.
+	 */
+	private function skipUnless(PipeCodec $codec): void
 	{
-		$this->assertSame((new ZstdCodec())->id(), (new ZstdPipeCodec())->id());
+		if (!$codec->isAvailable()) {
+			$this->markTestSkipped((string) $codec->unavailableReason());
+		}
 	}
 
 	#endregion
