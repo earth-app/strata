@@ -39,11 +39,19 @@ abstract class SettingsFormBase extends ConfigFormBase
 
 	/**
 	 * {@inheritdoc}
+	 *
+	 * **The engine is asked for, never required.** `composer.json` PSR-4 maps `Drupal\strata\` onto
+	 * `src/`, so every class here loads off composer's autoloader whether or not the module is in
+	 * `core.extension`, while `strata.services.yml` reaches the container only when it is. A router
+	 * table still holding this route after the module left - a failed install, a `composer remove`
+	 * with no uninstall - therefore resolves the class, calls this, and answered 500 with
+	 * `ServiceNotFoundException` until 1.0.3. The property is nullable and every use of it is
+	 * null-safe, so asking is the whole fix.
 	 */
 	public static function create(ContainerInterface $container): static
 	{
 		$form = parent::create($container);
-		$form->engine = $container->get('strata.engine');
+		$form->engine = $container->has('strata.engine') ? $container->get('strata.engine') : null;
 
 		return $form;
 	}
