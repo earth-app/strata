@@ -235,6 +235,127 @@ class ExtensionTest extends TestCase
 
 	#endregion
 
+	#region Callables
+
+	#[Test]
+	#[TestDox('every route names a controller or a form that exists and can be called')]
+	#[Group('strata/extension')]
+	public function everyRoutedCallableExists(): void
+	{
+		foreach ($this->callables() as $route => $callable) {
+			[$class, $method] = $callable;
+
+			$this->assertTrue(
+				class_exists($class),
+				sprintf('%s names %s, which no file defines', $route, $class),
+			);
+
+			if ($method === null) {
+				$this->assertTrue(
+					is_subclass_of($class, 'Drupal\Core\Form\FormInterface'),
+					sprintf('%s names %s as a form, so it has to be one', $route, $class),
+				);
+
+				continue;
+			}
+
+			$this->assertTrue(
+				method_exists($class, $method),
+				sprintf(
+					'%s calls %s::%s(), which the class does not declare',
+					$route,
+					$class,
+					$method,
+				),
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('no module routes to a class another module in this repository owns')]
+	#[Group('strata/extension')]
+	public function noRouteReachesAcrossExtensions(): void
+	{
+		$owners = array_keys($this->extensions());
+
+		foreach ($this->callables() as $route => $callable) {
+			$module = strtok($route, '.');
+			$namespace = $this->extensionOf((string) $callable[0], $owners);
+
+			// a core class is fair game; system's menu block controller is what a section root uses
+			if ($namespace === null || $namespace === $module) {
+				continue;
+			}
+
+			$this->fail(
+				sprintf(
+					'%s is declared by %s and calls into %s; a route only exists while its own ' .
+						'module is enabled, so the class it names has to ship with that module or ' .
+						'the page answers "not callable" the moment the other one is turned off',
+					$route,
+					(string) $module,
+					$namespace,
+				),
+			);
+		}
+	}
+
+	#endregion
+
+	#region Reachability
+
+	#[Test]
+	#[TestDox('every permission this module declares is read by a route or by code')]
+	#[Group('strata/extension')]
+	public function everyDeclaredPermissionIsChecked(): void
+	{
+		$readers = $this->sources() . $this->metadata();
+
+		foreach (array_keys($this->permissions()) as $permission) {
+			$this->assertStringContainsString(
+				(string) $permission,
+				$readers,
+				sprintf(
+					'%s is declared and nothing reads it; a permission no route requires and no ' .
+						'access check names describes an authorisation this module never performs',
+					$permission,
+				),
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('every event the notifier can announce is announced by something')]
+	#[Group('strata/extension')]
+	public function everyEventHasAProducer(): void
+	{
+		$notifier = (string) file_get_contents($this->root() . '/src/Event/Notifier.php');
+
+		preg_match_all('/public function ([a-z][a-zA-Z]*)\(/', $notifier, $matches);
+
+		$methods = array_values(array_diff($matches[1], ['__construct']));
+
+		$this->assertNotSame([], $methods, 'the notifier announces something');
+
+		// Notifier dispatches through its own private fire(), so concatenating it into the haystack
+		// cannot make one of its public methods look called
+		$sources = $this->sources();
+
+		foreach ($methods as $method) {
+			$this->assertStringContainsString(
+				'>' . $method . '(',
+				$sources,
+				sprintf(
+					'Notifier::%s() has no caller, so the event it fires can never reach a webhook ' .
+						'subscription or a notification however either is configured',
+					$method,
+				),
+			);
+		}
+	}
+
+	#endregion
+
 	#region Links
 
 	#[Test]
@@ -387,6 +508,96 @@ class ExtensionTest extends TestCase
 	}
 
 	/**
+	 * The class every route hands the request to.
+	 *
+	 * A `_controller` is a class and a method; a `_form` is a class Drupal instantiates and drives
+	 * itself. Both are read verbatim from the routing file, because the string in that file is what
+	 * `ControllerResolver` and `ClassResolver` are handed at runtime - a route naming a class that
+	 * moved answers `The controller for URI "..." is not callable` with nothing else logged.
+	 *
+	 * @return array<string, array{0: string, 1: string|null}>
+	 *   Route name keyed to the class and, for a controller, the method it calls.
+	 */
+	private function callables(): array
+	{
+		$callables = [];
+
+		foreach ($this->routeDefinitions() as $name => $route) {
+			$defaults = (array) ($route['defaults'] ?? []);
+			$controller = (string) ($defaults['_controller'] ?? '');
+			$form = (string) ($defaults['_form'] ?? '');
+
+			if ($controller !== '') {
+				[$class, $method] = array_pad(explode('::', $controller, 2), 2, '');
+
+				$this->assertNotSame(
+					'',
+					$method,
+					sprintf('%s names a controller as class::method', $name),
+				);
+
+				$callables[$name] = [$class, $method];
+
+				continue;
+			}
+			if ($form !== '') {
+				$callables[$name] = [$form, null];
+			}
+		}
+
+		$this->assertNotSame([], $callables, 'this repository routes to something');
+
+		return $callables;
+	}
+
+	/**
+	 * Which extension in this repository owns a class, if any.
+	 *
+	 * @param string $class
+	 *   A fully qualified class name.
+	 * @param list<string> $owners
+	 *   Every extension name this repository ships.
+	 *
+	 * @return string|null
+	 *   The extension name, or NULL when the class comes from core or a contributed module.
+	 */
+	private function extensionOf(string $class, array $owners): ?string
+	{
+		foreach ($owners as $name) {
+			if (str_starts_with($class, 'Drupal\\' . $name . '\\')) {
+				return $name;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Every route every extension declares, whole.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 *   Route name keyed to its definition.
+	 */
+	private function routeDefinitions(): array
+	{
+		$routes = [];
+
+		foreach (array_keys($this->extensions()) as $name) {
+			$file = $this->directoryOf($name) . '/' . $name . '.routing.yml';
+
+			if (!file_exists($file)) {
+				continue;
+			}
+
+			foreach ((array) Yaml::decode((string) file_get_contents($file)) as $route => $data) {
+				$routes[(string) $route] = is_array($data) ? $data : [];
+			}
+		}
+
+		return $routes;
+	}
+
+	/**
 	 * Every path anything in this repository answers on, keyed by what claims it.
 	 *
 	 * Route paths and views page paths are compared in the same shape: a route path leads with a
@@ -465,6 +676,12 @@ class ExtensionTest extends TestCase
 	 * Core's own modules ship with `drupal/core` and this module's own submodules ship with this
 	 * package, so neither needs anything in composer.json.
 	 *
+	 * **Decided by whether core ships the module, never by the project part of the dependency
+	 * string.** `Dependency::createFromString()` discards that part, so `drupal:key` and `key:key`
+	 * install identically - and reading it made this check blind to the first spelling, which is how
+	 * a missing `drupal/key` reached 1.0.1 and stayed until 1.0.3. Reverting the info file to that
+	 * spelling has to fail this test, not empty it.
+	 *
 	 * @param string $name
 	 *   The extension name.
 	 *
@@ -476,14 +693,82 @@ class ExtensionTest extends TestCase
 		$projects = [];
 
 		foreach ((array) ($this->extensions()[$name]['dependencies'] ?? []) as $dependency) {
-			[$project] = explode(':', (string) $dependency, 2);
+			$parts = explode(':', (string) $dependency, 2);
+			$module = $parts[1] ?? $parts[0];
 
-			if ($project !== 'drupal' && $project !== 'strata') {
-				$projects[$project] = $project;
+			if ($module === 'strata' || $this->isCoreModule($module)) {
+				continue;
 			}
+
+			$projects[$module] = $module;
 		}
 
 		return array_values($projects);
+	}
+
+	/**
+	 * Whether a module ships with Drupal core.
+	 *
+	 * @param string $module
+	 *   The module name, with any project prefix already stripped.
+	 *
+	 * @return bool
+	 *   TRUE when core owns it.
+	 */
+	private function isCoreModule(string $module): bool
+	{
+		$core = $this->root() . '/vendor/drupal/core/modules';
+
+		// with no synthesised root there is nothing to compare against, and reading everything as
+		// contrib fails loudly rather than passing blind
+		return is_dir($core) && is_dir($core . '/' . $module);
+	}
+
+	/**
+	 * Every permission this repository declares as a literal.
+	 *
+	 * The generated per-realm rollback permissions are not here, because they come from
+	 * `StrataPermissions::permissions()` and are read by the same class that makes them.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 *   Permission name keyed to its definition.
+	 */
+	private function permissions(): array
+	{
+		$declared = (array) Yaml::decode(
+			(string) file_get_contents($this->root() . '/strata.permissions.yml'),
+		);
+
+		unset($declared['permission_callbacks']);
+
+		$this->assertNotSame([], $declared, 'this repository declares permissions');
+
+		return $declared;
+	}
+
+	/**
+	 * Every routing, links, services and install file, concatenated.
+	 *
+	 * Where a permission is named as a requirement rather than in PHP.
+	 *
+	 * @return string
+	 *   The metadata.
+	 */
+	private function metadata(): string
+	{
+		$text = (string) file_get_contents($this->root() . '/strata.install');
+
+		foreach (array_keys($this->extensions()) as $name) {
+			foreach (['routing', 'links.menu', 'links.task', 'links.action', 'services'] as $kind) {
+				$file = $this->directoryOf($name) . '/' . $name . '.' . $kind . '.yml';
+
+				if (file_exists($file)) {
+					$text .= (string) file_get_contents($file);
+				}
+			}
+		}
+
+		return $text;
 	}
 
 	/**

@@ -11,6 +11,8 @@ use Drupal\Core\Database\Event\StatementExecutionEndEvent;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\strata\Capture\CaptureScope;
 use Drupal\strata\Capture\EventSubscriber\StatementCaptureSubscriber;
+use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\HealthLedgerInterface;
 use Drupal\strata\Journal\JournalFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Group;
@@ -88,6 +90,46 @@ class StatementCaptureSubscriberTest extends TestCase
 	}
 
 	#[Test]
+	#[TestDox('the tap switching itself off reaches the health dashboard, not only the log')]
+	#[Group('strata/capture')]
+	public function aFailureIsRecordedAsAFinding(): void
+	{
+		$recorded = null;
+		$ledger = $this->createMock(HealthLedgerInterface::class);
+		$ledger
+			->expects($this->once())
+			->method('record')
+			->willReturnCallback(function (Finding $finding) use (&$recorded): void {
+				$recorded = $finding;
+			});
+
+		$this->tapping($this->failingConnection(), ledger: $ledger)->onStatement($this->write());
+
+		$this->assertInstanceOf(Finding::class, $recorded);
+		$this->assertSame('capture.tap_disabled', $recorded->code);
+		$this->assertSame(
+			Finding::WARN,
+			$recorded->severity,
+			'WARN, because severity picks the repair rung and no unattended pass fixes a tap',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a ledger that is itself broken does not turn a dropped capture into a failed query')]
+	#[Group('strata/capture')]
+	public function aBrokenLedgerStillDoesNotFailTheQuery(): void
+	{
+		$ledger = $this->createMock(HealthLedgerInterface::class);
+		$ledger->method('record')->willThrowException(new RuntimeException('the table is gone'));
+
+		$subscriber = $this->tapping($this->failingConnection(), ledger: $ledger);
+
+		$subscriber->onStatement($this->write());
+
+		$this->assertFalse($subscriber->isTapping());
+	}
+
+	#[Test]
 	#[TestDox('a request is served even when the tap cannot decide whether to run')]
 	#[Group('strata/capture')]
 	public function aRequestIsServedWhenTheTapCannotStart(): void
@@ -139,6 +181,8 @@ class StatementCaptureSubscriberTest extends TestCase
 	 *   The connection, or NULL for one that records nothing.
 	 * @param LoggerInterface|null $logger
 	 *   The logger, or NULL for one that records nothing.
+	 * @param HealthLedgerInterface|null $ledger
+	 *   The ledger, or NULL for a subscriber that records no finding.
 	 *
 	 * @return StatementCaptureSubscriber
 	 *   The subscriber.
@@ -147,6 +191,7 @@ class StatementCaptureSubscriberTest extends TestCase
 		CaptureScope $scope,
 		?Connection $connection = null,
 		?LoggerInterface $logger = null,
+		?HealthLedgerInterface $ledger = null,
 	): StatementCaptureSubscriber {
 		$database = $connection ?? $this->connection();
 
@@ -160,6 +205,7 @@ class StatementCaptureSubscriberTest extends TestCase
 			$scope,
 			$this->createMock(AccountProxyInterface::class),
 			$logger ?? $this->createMock(LoggerInterface::class),
+			$ledger,
 		);
 	}
 
@@ -170,6 +216,8 @@ class StatementCaptureSubscriberTest extends TestCase
 	 *   The connection.
 	 * @param LoggerInterface|null $logger
 	 *   The logger, or NULL for one that records nothing.
+	 * @param HealthLedgerInterface|null $ledger
+	 *   The ledger, or NULL for a subscriber that records no finding.
 	 *
 	 * @return StatementCaptureSubscriber
 	 *   The subscriber, tapping.
@@ -177,8 +225,9 @@ class StatementCaptureSubscriberTest extends TestCase
 	private function tapping(
 		Connection $connection,
 		?LoggerInterface $logger = null,
+		?HealthLedgerInterface $ledger = null,
 	): StatementCaptureSubscriber {
-		$subscriber = $this->subscriber($this->workingScope(), $connection, $logger);
+		$subscriber = $this->subscriber($this->workingScope(), $connection, $logger, $ledger);
 		$subscriber->enable();
 
 		return $subscriber;

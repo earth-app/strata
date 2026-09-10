@@ -12,6 +12,8 @@ use Drupal\strata\Capture\CaptureScope;
 use Drupal\strata\Capture\Reconciler;
 use Drupal\strata\Capture\SqlStatement;
 use Drupal\strata\Capture\TableWrites;
+use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\HealthLedgerInterface;
 use Drupal\strata\Journal\JournalFactory;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\JournalOp;
@@ -126,6 +128,9 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 	 *   Attributes an operation to whoever caused it.
 	 * @param LoggerInterface $logger
 	 *   Records a capture that failed.
+	 * @param HealthLedgerInterface|null $ledger
+	 *   Records the tap switching itself off, so the failure reaches the health dashboard and not
+	 *   only dblog. NULL leaves the log line as the only trace.
 	 * @param string $requestId
 	 *   Groups every operation captured in one request.
 	 */
@@ -135,6 +140,7 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 		private readonly CaptureScope $scope,
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
+		private readonly ?HealthLedgerInterface $ledger = null,
 		private readonly string $requestId = '',
 	) {}
 
@@ -316,6 +322,42 @@ final class StatementCaptureSubscriber implements EventSubscriberInterface
 			$this->logger->error('Strata stopped watching statements after a failure: %message', [
 				'%message' => $error->getMessage(),
 			]);
+			$this->recordDisabled($error);
+		}
+	}
+
+	/**
+	 * Puts the tap switching itself off in front of an operator.
+	 *
+	 * Table capture stops for the rest of the request when this happens, and until 1.0.3 the only
+	 * trace was a log line - so a site could stop capturing writes and its own health dashboard
+	 * would still read clean.
+	 *
+	 * Recorded at WARN rather than ERROR on purpose. Severity picks the repair rung, and everything
+	 * ERROR and above is automatic; there is no unattended pass that fixes a statement tap, so an
+	 * ERROR here would spend a bucket-wide reindex on a problem a reindex cannot touch.
+	 *
+	 * @param Throwable $error
+	 *   What the tap failed with.
+	 */
+	private function recordDisabled(Throwable $error): void
+	{
+		// this runs immediately after a failure whose cause may be the database itself, so the write
+		// that reports it gets the same treatment as the write that failed
+		try {
+			$this->ledger?->record(
+				new Finding(
+					'capture.tap_disabled',
+					Finding::WARN,
+					$this->requestId,
+					sprintf(
+						'Table capture stopped for this request and needs a person: %s',
+						$error->getMessage(),
+					),
+				),
+			);
+		} catch (Throwable) {
+			// the log line above is the record
 		}
 	}
 
