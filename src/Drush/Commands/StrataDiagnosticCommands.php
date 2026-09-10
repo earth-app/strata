@@ -926,18 +926,19 @@ final class StrataDiagnosticCommands extends DrushCommands
 			return;
 		}
 
-		if ($rung === 'reindex') {
-			$this->announce(true, $this->engine->reindexer()->reindex()->summary());
+		$report = $this->engine->repairPass()->runCode($code);
+
+		if ($report->ran === []) {
+			$this->prose()->text(sprintf('%s sits at "%s", which only watches.', $code, $rung));
 
 			return;
 		}
-		if ($rung === 'refetch' || $rung === 'rebuild') {
-			$this->announce(true, $this->engine->verifier()->verify()->summary());
 
-			return;
+		foreach ($report->ran as $line) {
+			$this->prose()->text($line);
 		}
 
-		$this->prose()->text(sprintf('%s sits at "%s", which only watches.', $code, $rung));
+		$this->announce($report->failed === 0, $report->summary());
 	}
 
 	/**
@@ -951,13 +952,7 @@ final class StrataDiagnosticCommands extends DrushCommands
 	 */
 	private function passFor(string $rung): string
 	{
-		return match ($rung) {
-			'reindex' => 'rebuild the local indexes',
-			'refetch', 'rebuild' => 'fetch and decode every frame',
-			'quarantine' => 'stop using the objects as restore targets',
-			'refuse' => 'block a restore outright',
-			default => 'watch only',
-		};
+		return $this->engine->repairPass()->describe($rung);
 	}
 
 	#endregion
