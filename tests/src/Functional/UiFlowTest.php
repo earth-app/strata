@@ -70,6 +70,7 @@ class UiFlowTest extends StrataFunctionalTestBase
 			'branch strata config',
 			'merge strata config',
 			'rollback strata content',
+			'create strata snapshot',
 		]);
 	}
 
@@ -94,6 +95,8 @@ class UiFlowTest extends StrataFunctionalTestBase
 	#[Group('strata/functional')]
 	public function theStatusPageReportsAWorkingSite(): void
 	{
+		// a real key, because a site storing frames in the clear is a warning and not a clean bill
+		$this->encryptWith();
 		$this->content('Protected');
 		$this->flush();
 
@@ -104,6 +107,19 @@ class UiFlowTest extends StrataFunctionalTestBase
 		$this->assertSession()->pageTextContains('Unprotected Work');
 		$this->assertSession()->pageTextContains('Restore Points');
 		$this->assertSession()->pageTextContains('Strata storage');
+		$this->assertSession()->pageTextNotContains('Getting Started');
+	}
+
+	#[Test]
+	#[TestDox('storing frames in the clear is said on the status page rather than passing quietly')]
+	#[Group('strata/functional')]
+	public function theStatusPageSaysWhenNothingIsEncrypted(): void
+	{
+		$this->drupalGet('/admin/reports/strata');
+
+		$this->assertSession()->statusCodeEquals(200);
+		$this->assertSession()->pageTextContains('Strata encryption key');
+		$this->assertSession()->pageTextContains('stored unencrypted');
 	}
 
 	#[Test]
@@ -111,7 +127,9 @@ class UiFlowTest extends StrataFunctionalTestBase
 	#[Group('strata/functional')]
 	public function theStatusPageReportsAnUnusableStore(): void
 	{
-		$this->configure(['local_path' => $this->storeRoot . '/never-created']);
+		// two levels down, so the parent is missing too and nothing could create the root; one level
+		// down is created at the first flush and is correctly not reported as a fault
+		$this->configure(['local_path' => $this->storeRoot . '/absent/never-created']);
 
 		$this->drupalGet('/admin/reports/strata');
 
@@ -147,7 +165,66 @@ class UiFlowTest extends StrataFunctionalTestBase
 		$this->drupalGet('/admin/reports/strata');
 
 		$this->assertSession()->pageTextContains('Nothing captured yet');
-		$this->assertSession()->pageTextContains('No restore drill has run');
+		$this->assertSession()->pageTextContains('Nothing has proved a restore works here yet');
+	}
+
+	#endregion
+
+	#region Getting Started
+
+	#[Test]
+	#[TestDox('every step of the checklist links somewhere the reader can actually act')]
+	#[Group('strata/functional')]
+	public function everySetupStepGoesSomewhere(): void
+	{
+		$this->assertNull($this->head(), 'the checklist is showing because nothing is sealed');
+
+		$this->drupalGet('/admin/reports/strata');
+
+		$this->assertSession()->pageTextContains('Getting Started');
+
+		// the last step said "wait for cron, or run a drush command" and linked nowhere until 1.0.3,
+		// which is a dead end on a site whose operator has neither
+		$this->assertSession()->linkExists('Seal the first window');
+	}
+
+	#[Test]
+	#[TestDox('sealing from the checklist finishes the setup and the checklist goes away')]
+	#[Group('strata/functional')]
+	public function sealingFromTheChecklistFinishesSetup(): void
+	{
+		$this->content('Sealed From the Checklist');
+
+		$this->drupalGet('/admin/reports/strata');
+		$this->clickLink('Seal the first window');
+
+		$this->assertSession()->statusCodeEquals(200);
+		$this->assertSession()->pageTextContains('Waiting to Seal');
+
+		$this->submitForm([], 'Seal Now');
+
+		$this->assertSession()->statusCodeEquals(200);
+		$this->assertSession()->pageTextNotContains('Getting Started');
+		$this->assertNotNull($this->head(), 'the button sealed a commit');
+	}
+
+	#[Test]
+	#[TestDox('sealing an empty window says so rather than reporting a commit nobody wrote')]
+	#[Group('strata/functional')]
+	public function sealingNothingSaysSo(): void
+	{
+		// capture off and the journal drained, so the window is empty however many requests the
+		// browser made getting here
+		$this->configure(['enabled' => false]);
+		$this->engine()
+			->journal()
+			->trim(PHP_INT_MAX);
+
+		$this->drupalGet('/admin/config/system/strata/flush');
+		$this->submitForm([], 'Seal Now');
+
+		$this->assertSession()->pageTextContains('nothing to seal');
+		$this->assertNull($this->head());
 	}
 
 	#endregion

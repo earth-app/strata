@@ -7,6 +7,8 @@ namespace Drupal\Tests\strata\Kernel;
 use Drupal\Component\Serialization\Yaml;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\strata\Cas\Hash;
+use Drupal\strata\Hook\Help;
+use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 use Drupal\strata\Tree\Commit;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -347,6 +349,44 @@ class InstallTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('a configured codec this host cannot run is named on the status report')]
+	#[Group('strata/install')]
+	public function aCodecTheHostCannotRunIsNamed(): void
+	{
+		$this->settings()->set('codec.id', 'gone_from_this_host')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_codecs'];
+
+		$this->assertSame(RequirementSeverity::Warning, $requirement['severity']);
+		$this->assertStringContainsString(
+			'gone_from_this_host',
+			(string) $requirement['description'],
+			'the row names the codec that is missing rather than saying compression is degraded',
+		);
+	}
+
+	#[Test]
+	#[TestDox('the codec row is read from the host every time, so nothing has to be refreshed')]
+	#[Group('strata/install')]
+	public function theCodecRowFollowsTheHost(): void
+	{
+		$this->settings()->set('codec.id', 'gone_from_this_host')->save();
+
+		$this->assertSame(
+			RequirementSeverity::Warning,
+			strata_requirements('runtime')['strata_codecs']['severity'],
+		);
+
+		// no cache, no state entry and no button: the row is recomputed from what the host can do
+		$this->settings()->set('codec.id', '')->save();
+
+		$this->assertSame(
+			RequirementSeverity::OK,
+			strata_requirements('runtime')['strata_codecs']['severity'],
+		);
+	}
+
+	#[Test]
 	#[TestDox('hook_requirements reports nothing outside the runtime phase')]
 	#[Group('strata/install')]
 	public function requirementsAreRuntimeOnly(): void
@@ -397,18 +437,64 @@ class InstallTest extends StrataKernelTestBase
 	}
 
 	#[Test]
-	#[TestDox('a local directory that is not there is an error rather than a silent first flush')]
+	#[TestDox('a directory the first flush will create is not reported as a fault')]
 	#[Group('strata/install')]
-	public function aMissingLocalDirectoryIsAnError(): void
+	public function aDirectoryTheFlushWillCreateIsNotAFault(): void
+	{
+		// LocalStorage creates its root at the first write, so this is what a fresh install looks
+		// like and an Error here is a red mark on a site that has done nothing wrong
+		$path = $this->siteDirectory . '/never-created';
+
+		$this->settings()->set('provider', 'local')->set('local_path', $path)->save();
+
+		$this->assertDirectoryDoesNotExist($path);
+
+		$requirement = (array) strata_requirements('runtime')['strata_storage'];
+
+		$this->assertSame(RequirementSeverity::OK, $requirement['severity']);
+		$this->assertArrayHasKey('description', $requirement);
+	}
+
+	#[Test]
+	#[TestDox('a directory whose parent is missing too is an error, since nothing can create it')]
+	#[Group('strata/install')]
+	public function aDirectoryWithNoParentIsAnError(): void
 	{
 		$this->settings()
 			->set('provider', 'local')
-			->set('local_path', $this->siteDirectory . '/never-created')
+			->set('local_path', $this->siteDirectory . '/absent/deeper')
 			->save();
 
 		$requirement = (array) strata_requirements('runtime')['strata_storage'];
 
 		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+	}
+
+	#[Test]
+	#[TestDox('the requirement agrees with the provider that would do the writing')]
+	#[Group('strata/install')]
+	public function theLocalRequirementAgreesWithTheProvider(): void
+	{
+		// the two disagreed until 1.0.3, and the requirement was the one that was wrong. asserting
+		// them against each other is what stops them drifting apart again
+		foreach (['/strata-agrees', '/never-created', '/absent/deeper'] as $suffix) {
+			$path = $this->siteDirectory . $suffix;
+
+			if ($suffix === '/strata-agrees') {
+				mkdir($path, 0777, true);
+			}
+
+			$this->settings()->set('provider', 'local')->set('local_path', $path)->save();
+
+			$requirement = (array) strata_requirements('runtime')['strata_storage'];
+			$reachable = (new LocalStorage($path))->isReachable();
+
+			$this->assertSame(
+				$reachable,
+				$requirement['severity'] !== RequirementSeverity::Error,
+				sprintf('%s is judged the same way by both', $path),
+			);
+		}
 	}
 
 	#[Test]
@@ -475,6 +561,184 @@ class InstallTest extends StrataKernelTestBase
 
 		$this->assertArrayHasKey('strata_storage', $requirements);
 		$this->assertArrayHasKey('strata_codecs', $requirements);
+	}
+
+	#[Test]
+	#[TestDox('encryption on with no key chosen is an error naming the page that fixes it')]
+	#[Group('strata/install')]
+	public function noKeyChosenIsAnError(): void
+	{
+		$this->settings()->set('cipher.id', 'xchacha20poly1305')->set('key', '')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_key'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+		$this->assertStringContainsString(
+			'admin/config/system/strata/storage',
+			(string) $requirement['description'],
+		);
+	}
+
+	#[Test]
+	#[TestDox('a key that holds nothing is an error rather than a first flush that refuses')]
+	#[Group('strata/install')]
+	public function anEmptyKeyIsAnError(): void
+	{
+		$this->createKey('strata_empty', '');
+		$this->settings()
+			->set('cipher.id', 'xchacha20poly1305')
+			->set('key', 'strata_empty')
+			->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_key'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+		$this->assertStringContainsString('strata_empty', (string) $requirement['description']);
+	}
+
+	#[Test]
+	#[TestDox('a key of the wrong length is an error carrying the ciphers own reason')]
+	#[Group('strata/install')]
+	public function aShortKeyIsAnError(): void
+	{
+		$this->createKey('strata_short', 'nowhere near thirty two bytes');
+		$this->settings()
+			->set('cipher.id', 'xchacha20poly1305')
+			->set('key', 'strata_short')
+			->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_key'];
+
+		$this->assertSame(RequirementSeverity::Error, $requirement['severity']);
+		$this->assertStringContainsString('32 bytes', (string) $requirement['description']);
+	}
+
+	#[Test]
+	#[TestDox('a key of the right length is reported as chosen, in raw bytes or in hex')]
+	#[Group('strata/install')]
+	public function aUsableKeyIsReportedChosen(): void
+	{
+		foreach (
+			['strata_raw' => str_repeat('k', 32), 'strata_hex' => str_repeat('ab', 32)]
+			as $id => $value
+		) {
+			$this->createKey($id, $value);
+			$this->settings()->set('cipher.id', 'xchacha20poly1305')->set('key', $id)->save();
+
+			$requirement = (array) strata_requirements('runtime')['strata_key'];
+
+			$this->assertSame(
+				RequirementSeverity::OK,
+				$requirement['severity'],
+				sprintf('%s is usable', $id),
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('encryption switched off says so rather than reporting a missing key')]
+	#[Group('strata/install')]
+	public function encryptionOffIsAWarningNotAKeyError(): void
+	{
+		$this->settings()->set('cipher.id', 'none')->set('key', '')->save();
+
+		$requirement = (array) strata_requirements('runtime')['strata_key'];
+
+		$this->assertSame(RequirementSeverity::Warning, $requirement['severity']);
+		$this->assertStringContainsString('unencrypted', (string) $requirement['description']);
+	}
+
+	#[Test]
+	#[TestDox('capture being off is reported, since the shipped default backs nothing up')]
+	#[Group('strata/install')]
+	public function captureOffIsReported(): void
+	{
+		$this->settings()->set('enabled', false)->save();
+
+		$off = (array) strata_requirements('runtime')['strata_capture'];
+
+		$this->assertSame(RequirementSeverity::Warning, $off['severity']);
+		$this->assertStringContainsString(
+			'admin/config/system/strata/storage',
+			(string) $off['description'],
+		);
+
+		$this->settings()->set('enabled', true)->save();
+
+		$this->assertSame(
+			RequirementSeverity::OK,
+			((array) strata_requirements('runtime')['strata_capture'])['severity'],
+		);
+	}
+
+	#[Test]
+	#[TestDox('the module page carries the ordered setup steps, and every settings tab has help')]
+	#[Group('strata/install')]
+	public function helpCoversTheEngine(): void
+	{
+		$help = new Help();
+		$match = $this->container->get('current_route_match');
+
+		// help.page.strata is what puts a Help link beside the module on the Extend page and a page
+		// at admin/help. The engine had neither until 1.0.3, and it owns every decision a first
+		// install has to make
+		$steps = $help->forRoute('help.page.strata', $match);
+
+		$this->assertNotEmpty($steps);
+		$this->assertStringContainsString('Four steps turn it on', implode(' ', $steps['#items']));
+
+		foreach (array_keys(Yaml::decode($this->routingFile())) as $route) {
+			$this->assertNotEmpty(
+				$help->forRoute((string) $route, $match),
+				sprintf('%s carries help', $route),
+			);
+		}
+	}
+
+	/**
+	 * The root module's routing file, as text.
+	 *
+	 * @return string
+	 *   The YAML.
+	 */
+	private function routingFile(): string
+	{
+		return (string) file_get_contents(dirname(__DIR__, 3) . '/strata.routing.yml');
+	}
+
+	#[Test]
+	#[TestDox('every page the router names resolves, so nothing has been left behind')]
+	#[Group('strata/install')]
+	public function everyRoutedPageResolves(): void
+	{
+		$requirement = (array) strata_requirements('runtime')['strata_routes'];
+
+		// the kernel lane registers every submodule namespace in tests/bootstrap.php, so it cannot
+		// produce a class that fails to load; what it can prove is that the check runs and passes
+		$this->assertSame(RequirementSeverity::OK, $requirement['severity']);
+	}
+
+	/**
+	 * Creates a key entity holding a literal value.
+	 *
+	 * @param string $id
+	 *   The machine name.
+	 * @param string $value
+	 *   What it holds.
+	 */
+	private function createKey(string $id, string $value): void
+	{
+		$this->container
+			->get('entity_type.manager')
+			->getStorage('key')
+			->create([
+				'id' => $id,
+				'label' => $id,
+				'key_type' => 'authentication',
+				'key_provider' => 'config',
+				'key_provider_settings' => ['key_value' => $value],
+			])
+			->save();
 	}
 
 	#endregion
