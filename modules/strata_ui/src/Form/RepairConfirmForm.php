@@ -142,19 +142,19 @@ final class RepairConfirmForm extends ConfirmFormBase
 	public function submitForm(array &$form, FormStateInterface $form_state): void
 	{
 		try {
-			$report = match ($this->rung()) {
-				'reindex' => $this->engine->reindexer()->reindex(),
-				'refetch', 'rebuild' => $this->engine->verifier()->verify(),
-				default => null,
-			};
+			$report = $this->engine->repairPass()->runCode($this->code);
 
 			$this->messenger()->addStatus(
-				$report === null
+				$report->ran === []
 					? $this->t('@code was observed. Nothing needed doing.', [
 						'@code' => $this->code,
 					])
 					: $report->summary(),
 			);
+
+			foreach ($report->ran as $line) {
+				$this->messenger()->addStatus($line);
+			}
 		} catch (Throwable $error) {
 			$this->messenger()->addError(
 				$this->t('The repair did not complete: @why', ['@why' => $error->getMessage()]),
@@ -212,7 +212,7 @@ final class RepairConfirmForm extends ConfirmFormBase
 				'Re-reads every object and checks it against the address it is filed under.',
 			),
 			'rebuild' => (string) $this->t(
-				'Regenerates a derived object from what survives. Never invents a stored value.',
+				'Re-reads every object, as refetch does. Reaching here means refetch did not settle it.',
 			),
 			default => (string) $this->t('This rung is not run from here.'),
 		};

@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata_ui\Kernel;
 
+use Drupal\Component\Serialization\Yaml;
 use Drupal\Core\Form\FormState;
 use Drupal\Core\Url;
 use Drupal\Tests\strata\Kernel\StrataKernelTestBase;
 use Drupal\strata\Codec\CodecCatalog;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata_ui\Controller\CalibrateController;
+use Drupal\strata_ui\Controller\StatusController;
 use Drupal\strata_ui\Hook\Help;
 use Drupal\strata_ui\Hook\Theme;
 use Drupal\strata_ui\Render\Chart;
@@ -48,57 +50,98 @@ class UiTest extends StrataKernelTestBase
 	protected static $modules = ['system', 'user', 'key', 'strata', 'strata_ui'];
 
 	/**
-	 * Every route this module and the settings forms declare.
+	 * Render-API keys a themed build may carry that are not template variables.
+	 */
+	private const RENDER_KEYS = [
+		'theme',
+		'cache',
+		'attached',
+		'weight',
+		'access',
+		'pre_render',
+		'post_render',
+		'printed',
+		'children',
+	];
+
+	/**
+	 * A value for every placeholder any route in this repository declares.
+	 */
+	private const PLACEHOLDERS = [
+		'commit' => 'abababababababababababababababababababababababababababababababab',
+		'from' => 'abababababababababababababababababababababababababababababababab',
+		'to' => 'abababababababababababababababababababababababababababababababab',
+		'start' => '1755000000',
+		'resolution' => '60',
+		'branch' => 'release-12',
+		'code' => 'frame.missing',
+	];
+
+	/**
+	 * Every route this module and the engine's settings forms declare.
+	 *
+	 * **Read from the routing files rather than listed here.** A literal list covers the routes
+	 * somebody remembered to add to it: `strata.settings.tiers` was missing from this provider from
+	 * the day it shipped, so `TierSettingsForm` was never built in this lane and every check below
+	 * that sweeps the provider - that a route is gated, that its permission exists - skipped it.
 	 *
 	 * @return array<string, array{string, array<string, string>}>
 	 *   Route name and its parameters.
 	 */
 	public static function routeProvider(): array
 	{
-		$commit = str_repeat('ab', 32);
+		$root = dirname(__DIR__, 5);
+		$cases = [];
 
-		return [
-			'the timeline' => ['strata_ui.timeline', []],
-			'the graphs' => ['strata_ui.graphs', []],
-			'the diff' => ['strata_ui.diff', []],
-			'a diff between two commits' => [
-				'strata_ui.diff.pair',
-				['from' => $commit, 'to' => $commit],
-			],
-			'the health dashboard' => ['strata_ui.health', []],
-			'the storage explorer' => ['strata_ui.explorer', []],
-			'what a commit holds' => ['strata_ui.explorer.commit', ['commit' => $commit]],
-			'the estimator' => ['strata_ui.estimate', []],
-			'the calibration report' => ['strata_ui.calibrate', []],
-			'the branch listing' => ['strata_ui.branches', []],
-			'a merge' => ['strata_ui.merge', ['branch' => 'release-12']],
-			'a rollback' => ['strata_ui.rollback', ['commit' => $commit]],
-			'a quarantine' => ['strata_ui.quarantine', ['commit' => $commit]],
-			'a prune' => ['strata_ui.prune', []],
-			'a repair' => ['strata_ui.repair', ['code' => 'frame.missing']],
-			'storage settings' => ['strata.settings.storage', []],
-			'capture settings' => ['strata.settings.capture', []],
-			'retention settings' => ['strata.settings.retention', []],
-			'webhook settings' => ['strata.settings.webhooks', []],
-			'telemetry settings' => ['strata.settings.telemetry', []],
-		];
+		foreach (
+			['strata' => $root, 'strata_ui' => $root . '/modules/strata_ui']
+			as $module => $at
+		) {
+			$routes = (array) Yaml::decode(
+				(string) file_get_contents($at . '/' . $module . '.routing.yml'),
+			);
+
+			foreach ($routes as $name => $route) {
+				$path = (string) ($route['path'] ?? '');
+				$parameters = [];
+
+				foreach (self::PLACEHOLDERS as $placeholder => $value) {
+					if (str_contains($path, '{' . $placeholder . '}')) {
+						$parameters[$placeholder] = $value;
+					}
+				}
+
+				$cases[(string) $name] = [(string) $name, $parameters];
+			}
+		}
+
+		return $cases;
 	}
 
 	/**
 	 * The settings forms, each of which must build and save.
+	 *
+	 * Read from the engine's routing file for the reason above.
 	 *
 	 * @return array<string, array{string}>
 	 *   The form class.
 	 */
 	public static function settingsFormProvider(): array
 	{
-		return [
-			'storage' => ['Drupal\strata\Form\StorageSettingsForm'],
-			'capture' => ['Drupal\strata\Form\CaptureSettingsForm'],
-			'retention' => ['Drupal\strata\Form\RetentionSettingsForm'],
-			'webhooks' => ['Drupal\strata\Form\WebhookSettingsForm'],
-			'telemetry' => ['Drupal\strata\Form\TelemetrySettingsForm'],
-		];
+		$routes = (array) Yaml::decode(
+			(string) file_get_contents(dirname(__DIR__, 5) . '/strata.routing.yml'),
+		);
+		$forms = [];
+
+		foreach ($routes as $name => $route) {
+			$class = (string) ($route['defaults']['_form'] ?? '');
+
+			if ($class !== '') {
+				$forms[(string) $name] = [$class];
+			}
+		}
+
+		return $forms;
 	}
 
 	#region Routing
@@ -117,6 +160,21 @@ class UiTest extends StrataKernelTestBase
 			(string) Url::fromRoute($name, $parameters)->toString(),
 			'the route builds a URL',
 		);
+
+		// building a URL says the route exists, not that anything can answer it. `_controller` and
+		// `_form` are strings handed to ControllerResolver and ClassResolver at request time, and a
+		// class that moved answers "the controller for URI ... is not callable" with nothing logged
+		$callable = (string) ($route->getDefault('_controller') ?? $route->getDefault('_form'));
+		[$class, $method] = array_pad(explode('::', $callable, 2), 2, '');
+
+		$this->assertTrue(
+			class_exists($class),
+			sprintf('%s names %s, which exists', $name, $class),
+		);
+
+		if ($method !== '') {
+			$this->assertTrue(method_exists($class, $method), $callable);
+		}
 	}
 
 	#[Test]
@@ -583,6 +641,67 @@ class UiTest extends StrataKernelTestBase
 				sprintf('%s/%s.html.twig', $directory, str_replace('_', '-', (string) $hook)),
 				(string) $hook,
 			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('every variable a themed page passes is one its theme hook declares')]
+	#[Group('strata/ui')]
+	public function everyThemeVariableIsDeclared(): void
+	{
+		// an undeclared "#key" is dropped in silence, so a section guarded by it never renders and
+		// the page still looks correct; markup assertions cannot reach this
+		$this->settings()->set('local_path', $this->storeRoot)->set('cipher.id', 'none')->save();
+
+		$hooks = (new Theme())->hooks();
+		$request = new Request();
+		$builds = [
+			'strata_status_page' => StatusController::create($this->container)->page(),
+			'strata_timeline' => $this->controller('timeline')->page($request),
+			'strata_graphs' => $this->controller('graphs')->page($request),
+			'strata_explorer' => $this->controller('explorer')->page(),
+			'strata_health' => $this->controller('health')->page(),
+			'strata_branches' => $this->controller('branches')->page(),
+			'strata_status' => $this->container
+				->get('plugin.manager.block')
+				->createInstance('strata_status')
+				->build(),
+		];
+
+		// naming what is left out is what keeps this general: a hook added to Theme and not driven
+		// here fails this line rather than quietly staying outside the sweep
+		$this->assertSame(
+			['strata_diff'],
+			array_values(array_diff(array_keys($hooks), array_keys($builds))),
+			'the diff page themes itself only once two commits exist, and is driven by ReportPageTest',
+		);
+
+		foreach ($builds as $hook => $build) {
+			$this->assertArrayHasKey($hook, $hooks, $hook);
+			$this->assertSame(
+				$hook,
+				$build['#theme'] ?? '',
+				sprintf('%s is themed by itself', $hook),
+			);
+
+			$declared = array_keys((array) $hooks[$hook]['variables']);
+
+			foreach (array_keys($build) as $key) {
+				$name = ltrim((string) $key, '#');
+
+				if (
+					!str_starts_with((string) $key, '#') ||
+					in_array($name, self::RENDER_KEYS, true)
+				) {
+					continue;
+				}
+
+				$this->assertContains(
+					$name,
+					$declared,
+					sprintf('%s passes #%s, so hook_theme() has to declare it', $hook, $name),
+				);
+			}
 		}
 	}
 

@@ -8,6 +8,7 @@ use Drupal\Core\Config\Config;
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\strata\Engine;
+use Drupal\strata\Storage\StorageProviderManager;
 use Drupal\strata_azure\AzureEndpoint;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Throwable;
@@ -35,9 +36,19 @@ final class AzureSettingsForm extends ConfigFormBase
 	public const SETTINGS = 'strata.settings';
 
 	/**
+	 * The provider id this form configures, which is not what the site necessarily writes to.
+	 */
+	private const PROVIDER = 'azure';
+
+	/**
 	 * The engine, reset after a save so the next request uses the new endpoint.
 	 */
 	protected ?Engine $engine = null;
+
+	/**
+	 * The provider registry, which can probe one provider by id without building the store.
+	 */
+	protected ?StorageProviderManager $providers = null;
 
 	/**
 	 * {@inheritdoc}
@@ -45,7 +56,10 @@ final class AzureSettingsForm extends ConfigFormBase
 	public static function create(ContainerInterface $container): static
 	{
 		$form = parent::create($container);
-		$form->engine = $container->get('strata.engine');
+		$form->engine = $container->has('strata.engine') ? $container->get('strata.engine') : null;
+		$form->providers = $container->has('strata.storage_providers')
+			? $container->get('strata.storage_providers')
+			: null;
 
 		return $form;
 	}
@@ -321,7 +335,11 @@ final class AzureSettingsForm extends ConfigFormBase
 	}
 
 	/**
-	 * A sentence saying whether the provider can be reached.
+	 * A sentence saying whether the provider this form configures can be reached.
+	 *
+	 * Probed by id through the provider manager rather than through `Engine::provider()`, which
+	 * resolves whatever `strata.settings` names. A fresh install names `local`, so this page used to
+	 * answer "local answered." on the form for a container nobody had reached yet.
 	 *
 	 * Reported rather than thrown: a form that fataled on an unreachable container could never be
 	 * used to fix the container.
@@ -331,24 +349,18 @@ final class AzureSettingsForm extends ConfigFormBase
 	 */
 	private function reachability(): string
 	{
-		if ($this->engine === null) {
-			return (string) $this->t('The engine is unavailable, so nothing could be checked.');
+		if ($this->providers === null) {
+			return (string) $this->t('Strata is not registered here, so nothing could be checked.');
 		}
 
-		try {
-			$provider = $this->engine->provider();
-		} catch (Throwable $error) {
-			return (string) $this->t('Not configured yet: @why', ['@why' => $error->getMessage()]);
-		}
+		$reason = $this->providers->reachability(self::PROVIDER);
 
-		if ($provider->isReachable()) {
-			return (string) $this->t('@id answered.', ['@id' => $provider->id()]);
-		}
-
-		return (string) $this->t('@id did not answer: @why', [
-			'@id' => $provider->id(),
-			'@why' => (string) ($provider->unreachableReason() ?? $this->t('no reason given')),
-		]);
+		return $reason === null
+			? (string) $this->t('@id answered.', ['@id' => self::PROVIDER])
+			: (string) $this->t('@id did not answer: @why', [
+				'@id' => self::PROVIDER,
+				'@why' => $reason,
+			]);
 	}
 
 	/**
