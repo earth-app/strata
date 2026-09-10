@@ -52,6 +52,8 @@ class ReportPageTest extends StrataFunctionalTestBase
 			}
 		}
 
+		$this->assertNotSame([], $permissions, 'the routes are gated by something');
+
 		return array_values($permissions);
 	}
 
@@ -153,7 +155,7 @@ class ReportPageTest extends StrataFunctionalTestBase
 
 		$this->assertSession()->statusCodeEquals(200);
 		$this->assertSession()->pageTextContains('Nothing is open.');
-		$this->assertSession()->pageTextContains('No drill has run');
+		$this->assertSession()->pageTextContains('Nothing has proved a restore works here yet');
 	}
 
 	#[Test]

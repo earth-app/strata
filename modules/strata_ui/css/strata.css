@@ -538,6 +538,39 @@
 
 /* #endregion */
 
+/* #region Getting Started */
+
+.strata-setup__steps {
+	margin: 0;
+	padding-left: 1.5rem;
+}
+
+.strata-setup__step {
+	margin-bottom: 0.5rem;
+}
+
+.strata-setup__step--done {
+	color: var(--strata-ink-dim);
+}
+
+.strata-setup__title {
+	display: block;
+	font-weight: 600;
+}
+
+.strata-setup__step--done .strata-setup__title::after {
+	content: ' \2713';
+	color: var(--strata-ok);
+}
+
+.strata-setup__detail {
+	display: block;
+	color: var(--strata-ink-dim);
+	font-size: 0.875rem;
+}
+
+/* #endregion */
+
 /* #region Notes and Status */
 
 .strata-note,

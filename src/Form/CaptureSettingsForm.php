@@ -70,7 +70,7 @@ final class CaptureSettingsForm extends SettingsFormBase
 			'#title' => $this->t('Realms'),
 			'#open' => true,
 			'#description' => $this->t(
-				'A realm that is off is not captured and cannot be restored.',
+				'A realm is one kind of thing this site holds: content, configuration, files, database rows. One that is off is not captured and cannot be restored.',
 			),
 		];
 

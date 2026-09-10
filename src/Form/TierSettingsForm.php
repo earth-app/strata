@@ -136,6 +136,14 @@ final class TierSettingsForm extends SettingsFormBase
 			'#tree' => false,
 		];
 
+		$form['ladder']['example'] = [
+			'#type' => 'item',
+			'#title' => $this->t('A Worked Ladder'),
+			'#markup' => $this->t(
+				'Tier 0 on the bucket this site already writes to, taking everything. Tier 1 pointed at a cheaper storage class, taking objects older than 2592000 seconds, which is 30 days. Keep the copy below it until a verify has read the far one back.',
+			),
+		];
+
 		for ($tier = 0; $tier < self::TIERS; $tier++) {
 			$this->addTier($form['ladder'], $tier, $configured[$tier] ?? []);
 		}
@@ -287,7 +295,7 @@ final class TierSettingsForm extends SettingsFormBase
 		];
 
 		foreach ($this->engine?->providerIds() ?? [] as $id) {
-			$options[$id] = $id;
+			$options[$id] = StorageSettingsForm::providerLabel($id);
 		}
 
 		return $options;

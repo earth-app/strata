@@ -6,6 +6,7 @@ namespace Drupal\strata_ui\Controller;
 
 use Drupal\Core\Url;
 use Drupal\strata\Explore\StorageExplorer;
+use Drupal\strata\Journal\Realm;
 use Drupal\strata_ui\Render\Format;
 
 /**
@@ -49,15 +50,17 @@ final class ExplorerController extends StrataControllerBase
 
 		return [
 			'#theme' => 'strata_explorer',
+			// keyed by what the page should say rather than by the property name, because the
+			// template renders the key and "raw" is not a column heading
 			'#totals' => [
-				'frames' => Format::count($report->frames),
-				'commits' => Format::count($report->commits),
-				'dictionaries' => Format::count($report->dictionaries),
-				'raw' => Format::bytes($report->rawBytes),
-				'stored' => Format::bytes($report->storedBytes),
-				'ratio' => Format::ratio($report->ratio()),
+				(string) $this->t('Frames') => Format::count($report->frames),
+				(string) $this->t('Restore Points') => Format::count($report->commits),
+				(string) $this->t('Dictionaries') => Format::count($report->dictionaries),
+				(string) $this->t('Captured') => Format::bytes($report->rawBytes),
+				(string) $this->t('Stored') => Format::bytes($report->storedBytes),
+				(string) $this->t('Compression') => Format::ratio($report->ratio()),
 			],
-			'#reachable' => $report->reachable,
+			'#reachable' => $this->reachable($report->reachable),
 			'#by_realm' => $this->realms($report->byRealm),
 			'#complete' => $report->complete,
 			'#collectable' => $report->collectableCount(),
@@ -66,8 +69,10 @@ final class ExplorerController extends StrataControllerBase
 			'#incomplete_note' => (string) $this->t(
 				'The reachability walk did not finish, so a prune would refuse. Run strata:verify.',
 			),
+			// the sum is over the journal table, which a flush empties, so this measures the window
+			// that has not been sealed yet rather than anything the store holds
 			'#realm_note' => (string) $this->t(
-				'These are captured bytes, not bytes on disk. A frame carries no realm of its own.',
+				'Captured bytes still waiting to be sealed, not what the store holds. A frame carries no realm of its own.',
 			),
 			'#largest' => $this->largest($explorer),
 			'#prune_url' => Url::fromRoute('strata_ui.prune')->toString(),
@@ -183,7 +188,38 @@ final class ExplorerController extends StrataControllerBase
 		$rows = [];
 
 		foreach ($byRealm as $realm => $bytes) {
-			$rows[] = [$realm, Format::bytes($bytes)];
+			$rows[] = [Realm::tryFrom((string) $realm)?->label() ?? $realm, Format::bytes($bytes)];
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * The reachability counts, keyed by what to call each one on screen.
+	 *
+	 * `trees` appears nowhere else in the UI and means nothing to a site builder, so the walk's own
+	 * keys are translated here rather than rendered raw.
+	 *
+	 * @param array<string, int> $counts
+	 *   What the walk found, keyed by its own names.
+	 *
+	 * @return array<string, int>
+	 *   The same counts, keyed by their labels.
+	 */
+	private function reachable(array $counts): array
+	{
+		$labels = [
+			'commits' => (string) $this->t('Live Restore Points'),
+			'trees' => (string) $this->t('Commit Indexes'),
+			'frames' => (string) $this->t('Live Frames'),
+			'dictionaries' => (string) $this->t('Dictionaries'),
+			'unreadable' => (string) $this->t('Unreadable'),
+		];
+
+		$rows = [];
+
+		foreach ($counts as $key => $count) {
+			$rows[$labels[$key] ?? (string) $key] = $count;
 		}
 
 		return $rows;

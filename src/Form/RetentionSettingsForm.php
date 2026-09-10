@@ -196,7 +196,9 @@ final class RetentionSettingsForm extends SettingsFormBase
 			'#type' => 'details',
 			'#title' => $this->t('Retention Ladder'),
 			'#open' => true,
-			'#description' => $this->t('Each level folds the one below it into wider windows.'),
+			'#description' => $this->t(
+				'A window is how much time one folded commit covers, and retained is how long that level is kept. The shipped ladder keeps every 15 second window for an hour, then one a minute for a day, one an hour for a week, one a day for 90 days, and one a month forever.',
+			),
 			'#tree' => false,
 		];
 

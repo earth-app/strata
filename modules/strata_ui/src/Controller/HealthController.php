@@ -130,7 +130,7 @@ final class HealthController extends StrataControllerBase
 			return [
 				'ran' => false,
 				'note' => (string) $this->t(
-					'No drill has run, so that the backups restore is a claim, not a measurement.',
+					'Nothing has proved a restore works here yet. Run a drill to turn that claim into a measurement.',
 				),
 			];
 		}

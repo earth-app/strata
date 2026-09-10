@@ -78,6 +78,10 @@
 						<td>{{ row.0 }}</td>
 						<td>{{ row.1 }}</td>
 					</tr>
+				{% else %}
+					<tr>
+						<td colspan="2">{{ 'Nothing is waiting to be sealed.'|t }}</td>
+					</tr>
 				{% endfor %}
 			</tbody>
 		</table>
@@ -103,6 +107,10 @@
 						<td>{{ row.2 }}</td>
 						<td>{{ row.3 }}</td>
 						<td>{{ row.4.data }}</td>
+					</tr>
+				{% else %}
+					<tr>
+						<td colspan="5">{{ 'No restore point has been sealed yet.'|t }}</td>
 					</tr>
 				{% endfor %}
 			</tbody>
