@@ -125,6 +125,184 @@ class SettingsFormTest extends StrataFunctionalTestBase
 		$this->assertSame('none', $this->settings()->get('cipher.id'));
 	}
 
+	#[Test]
+	#[
+		TestDox(
+			'the storage form saves the provider, which is the one field a first run must change',
+		),
+	]
+	#[Group('strata/functional')]
+	public function storageFormSavesTheProvider(): void
+	{
+		$this->save('/admin/config/system/strata/storage', ['provider' => 's3']);
+
+		$this->assertSame('s3', $this->settings()->get('provider'));
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+		$this->assertSession()->fieldValueEquals('provider', 's3');
+	}
+
+	#[Test]
+	#[TestDox('the storage form still loads for a provider no price table is shipped for')]
+	#[Group('strata/functional')]
+	public function storageFormLoadsForEveryProviderItOffers(): void
+	{
+		// four tables are shipped and the select offers every registered submodule, so picking one
+		// of the others used to make the page that changes it back raise InvalidArgumentException
+		foreach (['null', 'azure', 'gcs', 'b2', 's3', 'local'] as $provider) {
+			$this->settings()->set('provider', $provider)->save();
+			$this->resetEngine();
+
+			$this->drupalGet('/admin/config/system/strata/storage');
+
+			$this->assertSession()->statusCodeEquals(200);
+			$this->assertSession()->fieldExists('provider');
+		}
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'the storage form offers the keys this site has rather than asking for a machine name',
+		),
+	]
+	#[Group('strata/functional')]
+	public function storageFormOffersTheKeysThisSiteHas(): void
+	{
+		$this->drupalGet('/admin/config/system/strata/storage');
+
+		$this->assertSession()->statusCodeEquals(200);
+		$this->assertSession()->elementExists('css', 'select[name="key"]');
+		$this->assertSession()->pageTextContains('create a new key');
+	}
+
+	#[Test]
+	#[TestDox('the storage form refuses a key of the wrong length before the first flush needs it')]
+	#[Group('strata/functional')]
+	public function storageFormRefusesAKeyOfTheWrongLength(): void
+	{
+		$this->createKey('strata_short', 'too short');
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+		$this->submitForm(
+			['cipher__id' => 'xchacha20poly1305', 'key' => 'strata_short'],
+			self::SAVE,
+		);
+
+		$this->assertSession()->pageTextContains('That key cannot seal a frame');
+		$this->assertSession()->pageTextNotContains(self::SAVED);
+	}
+
+	#[Test]
+	#[TestDox('the storage form accepts a key of the right length and turns encryption on')]
+	#[Group('strata/functional')]
+	public function storageFormAcceptsAUsableKey(): void
+	{
+		$this->createKey('strata_usable', str_repeat('a', 32));
+
+		$this->save('/admin/config/system/strata/storage', [
+			'cipher__id' => 'xchacha20poly1305',
+			'key' => 'strata_usable',
+		]);
+
+		$this->assertSame('strata_usable', $this->settings()->get('key'));
+		$this->assertSame('xchacha20poly1305', $this->settings()->get('cipher.id'));
+	}
+
+	#[Test]
+	#[TestDox('the storage form makes a working key for an install that has none')]
+	#[Group('strata/functional')]
+	public function storageFormGeneratesAKey(): void
+	{
+		// the state a fresh install is actually in: encryption on, no key, so the form cannot be
+		// saved and every flush refuses. the button has to work from exactly here
+		$this->configure(['cipher.id' => 'xchacha20poly1305', 'key' => '']);
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+		$this->submitForm([], 'Generate a Key');
+
+		$this->refreshVariables();
+		$id = (string) $this->settings()->get('key');
+
+		$this->assertNotSame('', $id, 'the button chose the key it made');
+		$this->assertSession()->pageTextContains('was created');
+
+		$value = (string) $this->container->get('key.repository')->getKey($id)?->getKeyValue();
+
+		$this->assertSame(32, strlen($value), 'the key is the length the cipher needs');
+	}
+
+	#[Test]
+	#[TestDox('a generated key lets the site seal a window, which nothing before it could')]
+	#[Group('strata/functional')]
+	public function aGeneratedKeyLetsTheSiteFlush(): void
+	{
+		$this->configure(['cipher.id' => 'xchacha20poly1305', 'key' => '']);
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+		$this->submitForm([], 'Generate a Key');
+		$this->refreshVariables();
+		$this->resetEngine();
+
+		$this->content('Sealed With a Generated Key');
+
+		$this->assertTrue($this->flush()->ran, 'the window sealed under the generated key');
+		$this->assertNotNull($this->head());
+	}
+
+	#[Test]
+	#[TestDox('replacing a key retires the old one rather than stranding what it sealed')]
+	#[Group('strata/functional')]
+	public function replacingAKeyRetiresTheOldOne(): void
+	{
+		$this->createKey('strata_outgoing', str_repeat('a', 32));
+		$this->configure(['cipher.id' => 'xchacha20poly1305', 'key' => 'strata_outgoing']);
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+		$this->submitForm([], 'Replace With a New Key');
+		$this->refreshVariables();
+
+		$this->assertNotSame('strata_outgoing', $this->settings()->get('key'));
+		$this->assertSame(['strata_outgoing'], $this->settings()->get('retired_keys'));
+		$this->assertSession()->pageTextContains('strata:rotate-key');
+	}
+
+	#[Test]
+	#[TestDox('the key button is rendered with encryption off, so switching it on needs no reload')]
+	#[Group('strata/functional')]
+	public function theKeyButtonSurvivesEncryptionBeingOff(): void
+	{
+		$this->configure(['cipher.id' => 'none', 'key' => '']);
+
+		$this->drupalGet('/admin/config/system/strata/storage');
+
+		// hidden by #states rather than removed, which is how the key select beside it behaves too
+		$this->assertSession()->buttonExists('Generate a Key');
+	}
+
+	/**
+	 * Creates a key entity holding a literal value.
+	 *
+	 * @param string $id
+	 *   The machine name.
+	 * @param string $value
+	 *   What it holds.
+	 */
+	private function createKey(string $id, string $value): void
+	{
+		$this->container
+			->get('entity_type.manager')
+			->getStorage('key')
+			->create([
+				'id' => $id,
+				'label' => $id,
+				'key_type' => 'authentication',
+				'key_provider' => 'config',
+				'key_provider_settings' => ['key_value' => $value],
+			])
+			->save();
+	}
+
 	#endregion
 
 	#region Capture

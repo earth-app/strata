@@ -36,6 +36,9 @@ use GuzzleHttp\ClientInterface;
 use InvalidArgumentException;
 use Drupal\strata\Branch\BranchIndex;
 use Drupal\strata\Branch\BranchStore;
+use Drupal\strata\Budget\BudgetAssessment;
+use Drupal\strata\Budget\BudgetGuard;
+use Drupal\strata\Budget\EscalationLadder;
 use Drupal\strata\Branch\MergeBase;
 use Drupal\strata\Branch\Merger;
 use Drupal\strata\Branch\ThreeWayMerge;
@@ -79,7 +82,10 @@ use Drupal\strata\File\ShiftDetector;
 use Drupal\strata\File\StorageClassPolicy;
 use Drupal\strata\Flush\Flusher;
 use Drupal\strata\Flush\Lease;
+use Drupal\strata\Health\CircuitBreaker;
+use Drupal\strata\Health\Finding;
 use Drupal\strata\Health\HealthLedgerInterface;
+use Drupal\strata\Health\RepairPass;
 use Drupal\strata\Health\TripwireRegistry;
 use Drupal\strata\Journal\FlushPolicy;
 use Drupal\strata\Journal\JournalInterface;
@@ -124,6 +130,7 @@ use Drupal\strata\Verify\Reindexer;
 use Drupal\strata\Verify\Verifier;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
+use Throwable;
 
 /**
  * Assembles the pipeline from configuration.
@@ -644,6 +651,61 @@ final class Engine
 	}
 
 	/**
+	 * The guard that prices this site against the ceilings it set.
+	 *
+	 * @return BudgetGuard
+	 *   The guard, holding whichever ceilings are configured. Both zero means no ceiling, which the
+	 *   guard reports as the normal rung rather than as an error.
+	 */
+	public function budgetGuard(): BudgetGuard
+	{
+		return new BudgetGuard(
+			max(0, (int) ($this->settings()->get('budget.bytes_per_month') ?? 0)),
+			max(0.0, (float) ($this->settings()->get('budget.dollars_per_month') ?? 0)),
+		);
+	}
+
+	/**
+	 * What a month of the traffic in a window would cost, and which rung that lands on.
+	 *
+	 * The window comes out of the per-day stat table rather than from this process's accumulator,
+	 * which holds only what this request has done. Storage is what the frame index says the store
+	 * holds now.
+	 *
+	 * The rung is held to `budget.action`: that setting is what the operator chose to happen at the
+	 * ceiling, and letting the measured rung exceed it would stop capture on a site that asked to
+	 * be warned.
+	 *
+	 * @param int $seconds
+	 *   How far back to read. Defaults to thirty days, which is the window the ceilings are set in.
+	 *
+	 * @return BudgetAssessment
+	 *   The reading.
+	 */
+	public function budgetAssessment(int $seconds = 2_592_000): BudgetAssessment
+	{
+		$window = max(1, $seconds);
+		$now = $this->time->getRequestTime();
+		$stats = ProviderStats::fromOperations(
+			$this->providerStatStore()->byOperation($now - $window, $now),
+		);
+		$statistics = $this->index->statistics();
+
+		$assessment = $this->budgetGuard()->assess(
+			(int) $statistics['storedBytes'],
+			$stats,
+			$window,
+		);
+
+		return $assessment->withRung(
+			EscalationLadder::cap(
+				$assessment->rung,
+				(string) ($this->settings()->get('budget.action') ?: EscalationLadder::WARN),
+			),
+		);
+	}
+
+	/**
 	 * The journal a flush drains.
 	 *
 	 * Read by the status panels, which report what is captured and not yet sealed.
@@ -681,6 +743,17 @@ final class Engine
 	public function ledger(): HealthLedgerInterface
 	{
 		return $this->ledger;
+	}
+
+	/**
+	 * The notifier every producer announces through.
+	 *
+	 * @return Notifier
+	 *   The notifier.
+	 */
+	public function notifier(): Notifier
+	{
+		return $this->notifier;
 	}
 
 	/**
@@ -791,16 +864,69 @@ final class Engine
 	}
 
 	/**
-	 * The codec registry.
+	 * The codec registry, following the configured codec where this host can run it.
+	 *
+	 * Availability is a property of the host and a host changes: a PHP rebuilt without `ext-zstd`, a
+	 * container image swapped, a move between two servers. `CodecRegistry::prefer()` refuses a codec
+	 * it cannot write frames with, which suits a form deciding whether a choice can be honoured; here
+	 * the raise would reach every report page and every flush at once. So a pinned codec the host
+	 * cannot run falls back to the write preference and records a finding. The store is unaffected
+	 * either way: every reader stays registered, so frames written under the old codec still decode.
 	 *
 	 * @return CodecRegistry
 	 *   The registry, holding every codec this release ships.
 	 */
 	public function codecs(): CodecRegistry
 	{
-		return $this->codecs ??= CodecRegistry::withShippedCodecs()->prefer(
-			(string) $this->settings()->get('codec.id'),
+		if ($this->codecs !== null) {
+			return $this->codecs;
+		}
+
+		$registry = CodecRegistry::withShippedCodecs();
+		$pinned = (string) $this->settings()->get('codec.id');
+
+		// ask rather than call prefer(), whose raise would reach every report page and every flush
+		if ($pinned !== '' && !$registry->canWritePerFrame($pinned)) {
+			$this->reportLostCodec($pinned, $registry);
+
+			return $this->codecs = $registry;
+		}
+
+		return $this->codecs = $registry->prefer($pinned);
+	}
+
+	/**
+	 * Says that the configured codec is gone and what is being written instead.
+	 *
+	 * WARN rather than ERROR because severity picks the repair rung and everything at ERROR and above
+	 * runs an unattended pass. Nothing automatic installs a PHP extension, and the store is not
+	 * damaged: frames written under the old codec still read, and new ones are written under a codec
+	 * that works.
+	 *
+	 * @param string $pinned
+	 *   The codec id configuration asks for.
+	 * @param CodecRegistry $registry
+	 *   The registry as this host built it.
+	 */
+	private function reportLostCodec(string $pinned, CodecRegistry $registry): void
+	{
+		$reasons = $registry->unavailable()[$pinned] ?? [];
+		$context = sprintf(
+			'Codec "%s" is configured and cannot write on this host, so "%s" is being used instead: %s',
+			$pinned,
+			$registry->writer()->id(),
+			implode('; ', $reasons) ?: 'it is not registered',
 		);
+
+		$this->logger->warning($context);
+
+		try {
+			$this->ledger->record(
+				new Finding('codec.pin_unavailable', Finding::WARN, $pinned, $context),
+			);
+		} catch (Throwable) {
+			// the log line above is the record
+		}
 	}
 
 	/**
@@ -1166,6 +1292,7 @@ final class Engine
 			$this->keyValue,
 			$this->currentUser,
 			$this->logger,
+			$this->notifier,
 		);
 	}
 
@@ -1259,6 +1386,7 @@ final class Engine
 			$this->state,
 			$this->currentUser,
 			$this->logger,
+			$this->notifier,
 		);
 
 		$restore->addStrategy(new TruncateRestoreStrategy());
@@ -1404,6 +1532,7 @@ final class Engine
 			$this->rollup(),
 			$this->tierMigrator(),
 			$this->tiers() === null ? null : $this->placementIndex(),
+			$this->notifier,
 		);
 	}
 
@@ -1550,9 +1679,7 @@ final class Engine
 	 */
 	public function priceTable(): PriceTable
 	{
-		$id = (string) $this->settings()->get('provider');
-
-		return isset(PriceTable::all()[$id]) ? PriceTable::of($id) : PriceTable::local();
+		return PriceTable::forProvider((string) $this->settings()->get('provider'));
 	}
 
 	/**
@@ -1708,6 +1835,44 @@ final class Engine
 	}
 
 	/**
+	 * The repair pass over the open findings.
+	 *
+	 * The two passes are handed over as closures rather than as objects, so asking what there is to
+	 * repair costs a query rather than an assembled store: both `reindexer()` and `verifier()` build
+	 * the provider and the cipher, and a site that has not chosen an encryption key cannot build
+	 * either. Nothing should have to be configured before Strata can say there is nothing to fix.
+	 *
+	 * @return RepairPass
+	 *   The pass.
+	 */
+	public function repairPass(): RepairPass
+	{
+		return new RepairPass($this->ledger, $this->circuitBreaker(), $this->logger, [
+			'reindex' => fn(): string => $this->reindexer()->reindex()->summary(),
+			'refetch' => fn(): string => $this->verifier()->verify()->summary(),
+			'rebuild' => fn(): string => $this->verifier()->verify()->summary(),
+		]);
+	}
+
+	/**
+	 * The breaker that stops a repair rung retrying a fault that keeps failing.
+	 *
+	 * Both dials are clamped rather than passed through. `CircuitBreaker` refuses a threshold below
+	 * one and a negative cooldown, the form's `#min` does not reach `drush config:set`, and the raise
+	 * would land inside a cron stage where it would take the rest of the run with it.
+	 *
+	 * @return CircuitBreaker
+	 *   The breaker, configured as the site asked.
+	 */
+	private function circuitBreaker(): CircuitBreaker
+	{
+		return new CircuitBreaker(
+			max(1, (int) ($this->settings()->get('health.circuit_threshold') ?? 3)),
+			max(0, (int) ($this->settings()->get('health.circuit_cooldown') ?? 300)),
+		);
+	}
+
+	/**
 	 * A reindexer over the configured store.
 	 *
 	 * @return Reindexer
@@ -1765,6 +1930,8 @@ final class Engine
 			$this->lease,
 			$this->logger,
 			$this->commitIndex,
+			$this->notifier,
+			$this->site->id(),
 		);
 	}
 
@@ -1842,12 +2009,7 @@ final class Engine
 			return null;
 		}
 
-		// a key stored as hex is the common shape, and is accepted alongside raw bytes
-		if (strlen($key) === KeyProviderInterface::KEY_BYTES * 2 && ctype_xdigit($key)) {
-			return StaticKeyProvider::fromHex($key);
-		}
-
-		return new StaticKeyProvider($key);
+		return StaticKeyProvider::fromStored($key);
 	}
 
 	/**

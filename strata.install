@@ -9,11 +9,13 @@ declare(strict_types=1);
 
 use Drupal\Core\Database\Statement\FetchAs;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
-use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strata\Codec\CodecCatalog;
 use Drupal\strata\Codec\CodecProfile;
 use Drupal\strata\Codec\CodecRegistry;
+use Drupal\strata\Crypto\KeyProviderInterface;
+use Drupal\strata\Crypto\StaticKeyProvider;
+use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 
 /**
  * Implements hook_schema().
@@ -1077,19 +1079,29 @@ function strata_requirements(string $phase): array
 	$usableIds = implode(', ', array_map(static fn(CodecProfile $p): string => $p->id, $usable));
 	$missingIds = implode(', ', array_map(static fn(CodecProfile $p): string => $p->id, $missing));
 
+	// nothing caches availability, so this row follows the host with no refresh button anywhere
+	$pinned = (string) Drupal::config('strata.settings')->get('codec.id');
+	$lost = $pinned !== '' && !$registry->canWritePerFrame($pinned);
+
 	$requirements['strata_codecs'] = [
 		'title' => new TranslatableMarkup('Strata compression'),
 		'value' => new TranslatableMarkup('@codec on the flush path; usable: @usable', [
 			'@codec' => $registry->writer()->id(),
 			'@usable' => $usableIds ?: 'none',
 		]),
-		'severity' => $hasDictionary ? RequirementSeverity::OK : RequirementSeverity::Warning,
-		'description' => $hasDictionary
-			? new TranslatableMarkup('Delta coding is available.')
-			: new TranslatableMarkup(
-				'No dictionary-capable codec is available, so delta coding is off. Missing: @missing.',
+		'severity' =>
+			$hasDictionary && !$lost ? RequirementSeverity::OK : RequirementSeverity::Warning,
+		'description' => match (true) {
+			$lost => new TranslatableMarkup(
+				'Compression is set to @pinned, which cannot run here, so @codec is being used instead. Stored frames still read back. Install the extension and restart PHP, or choose another codec at admin/config/system/strata/storage.',
+				['@pinned' => $pinned, '@codec' => $registry->writer()->id()],
+			),
+			!$hasDictionary => new TranslatableMarkup(
+				'No dictionary-capable codec is available, so delta coding is off. Missing: @missing. A new PHP extension is seen once PHP is restarted; a binary on PATH is seen on the next request.',
 				['@missing' => $missingIds ?: 'none'],
 			),
+			default => new TranslatableMarkup('Delta coding is available.'),
+		},
 	];
 
 	$requirements['strata_sodium'] = [
@@ -1105,9 +1117,251 @@ function strata_requirements(string $phase): array
 			: new TranslatableMarkup('ext-sodium is not loaded, so frames cannot be encrypted.'),
 	];
 
-	$requirements['strata_storage'] = strata_storage_requirement();
+	// the storage row is the only one that touches the network and the only one built from submodule
+	// code, which can raise anything at all. this hook renders /admin/reports/status for the whole
+	// site, so one module's row raising is every other module's row gone as well
+	try {
+		$requirements['strata_storage'] = strata_storage_requirement();
+	} catch (Throwable $e) {
+		$requirements['strata_storage'] = [
+			'title' => new TranslatableMarkup('Strata storage'),
+			'value' => new TranslatableMarkup('Could not be checked'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'Strata could not check the store it writes backups to: @reason',
+				['@reason' => $e->getMessage()],
+			),
+		];
+	}
+
+	$requirements['strata_key'] = strata_key_requirement();
+	$requirements['strata_capture'] = strata_capture_requirement();
+	$requirements['strata_routes'] = strata_route_requirement();
 
 	return $requirements;
+}
+
+/**
+ * Reports any Strata route the router still names that nothing can answer.
+ *
+ * A route lives in the `router` table, not in the module, so removing a module without uninstalling
+ * it - a failed install, a `composer remove` with no `drush pmu`, a deployment that swapped the code
+ * before the cache was rebuilt - leaves its rows behind. Drupal then matches the route, fails to
+ * build the controller, and answers 500 with a message that names neither the module nor the fix:
+ *
+ * `InvalidArgumentException: The controller for URI "/admin/reports/strata" is not callable.`
+ *
+ * That is what a real site reported against 1.0.2 for `strata_ui.status`, alongside
+ * `ServiceNotFoundException: You have requested a non-existent service "strata.engine"` on
+ * `strata.settings.storage` - one condition, two messages, because `composer.json` PSR-4 maps
+ * `Drupal\strata\` and no submodule has its own package, so the root module's classes still load
+ * while a submodule's do not.
+ *
+ * This check reads the router in memory and resolves nothing, so it costs a loop. It cannot fire
+ * when `strata` itself has left the container, because then no hook of this module runs at all; the
+ * common case it does catch is the asymmetric one, where the engine is installed and a submodule's
+ * rows are stale.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_route_requirement(): array
+{
+	$title = new TranslatableMarkup('Strata pages');
+	$stale = [];
+
+	try {
+		foreach (Drupal::service('router.route_provider')->getAllRoutes() as $name => $route) {
+			if (!str_starts_with((string) $name, 'strata')) {
+				continue;
+			}
+
+			$callable = (string) ($route->getDefault('_controller') ?? $route->getDefault('_form'));
+			$class = (string) strtok($callable, ':');
+
+			// a controller may also name a service rather than a class, and a service id carries no
+			// backslash; asking class_exists() about one would report every such route as stale
+			if (str_contains($class, '\\') && !class_exists($class)) {
+				$stale[] = (string) $name;
+			}
+		}
+	} catch (Throwable $e) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Could not be checked'),
+			'severity' => RequirementSeverity::Warning,
+			'description' => new TranslatableMarkup('The router could not be read: @reason', [
+				'@reason' => $e->getMessage(),
+			]),
+		];
+	}
+
+	if ($stale === []) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Every page answers'),
+			'severity' => RequirementSeverity::OK,
+		];
+	}
+
+	return [
+		'title' => $title,
+		'value' => new TranslatableMarkup('@count cannot be answered', [
+			'@count' => count($stale),
+		]),
+		'severity' => RequirementSeverity::Error,
+		'description' => new TranslatableMarkup(
+			'The router still lists @routes, and the code behind them is not installed, so those pages answer 500. Run drush cache:rebuild. If they persist, a module was removed without being uninstalled first.',
+			['@routes' => implode(', ', $stale)],
+		),
+	];
+}
+
+/**
+ * Reports whether an encryption key has been chosen, and whether it can be used.
+ *
+ * Encryption is on by default with no key, which is the single most common state a fresh install
+ * sits in: every flush refuses, two report pages refuse, and until 1.0.3 the status report said
+ * nothing at all about it. An operator asking "why is nothing being backed up" was told about the
+ * bucket and never about the key.
+ *
+ * Read through the key repository rather than through `strata.engine`, for the reason
+ * `strata_storage_requirement()` already carries: assembling the engine's store is exactly what
+ * refuses here, so routing this check through it would report the symptom as the diagnosis.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_key_requirement(): array
+{
+	$title = new TranslatableMarkup('Strata encryption key');
+	$settings = Drupal::config('strata.settings');
+	$cipher = (string) ($settings->get('cipher.id') ?: 'xchacha20poly1305');
+	$name = trim((string) $settings->get('key'));
+
+	if ($cipher === 'none') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Not needed'),
+			'severity' => RequirementSeverity::Warning,
+			'description' => new TranslatableMarkup(
+				'Encryption is off, so frames are stored unencrypted. Anyone who can read the bucket can read this site.',
+			),
+		];
+	}
+	if ($name === '') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Not chosen'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'Encryption is on and no key is chosen, so every flush refuses and nothing is being stored. Choose one at admin/config/system/strata/storage.',
+			),
+		];
+	}
+
+	return strata_key_value_requirement($title, $name);
+}
+
+/**
+ * Reports on the key a site has already named.
+ *
+ * Split out because the checks below all need the key entity, and none of them is reachable until
+ * one has been named at all.
+ *
+ * @param TranslatableMarkup $title
+ *   The requirement title, shared with the branch above.
+ * @param string $name
+ *   The key entity id from configuration.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_key_value_requirement(TranslatableMarkup $title, string $name): array
+{
+	try {
+		$value = (string) Drupal::service('key.repository')->getKey($name)?->getKeyValue();
+	} catch (Throwable $e) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Could not be read'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup('Key "@key" could not be read: @reason', [
+				'@key' => $name,
+				'@reason' => $e->getMessage(),
+			]),
+		];
+	}
+
+	if ($value === '') {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Holds nothing'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'Key "@key" is chosen but holds no value, so every flush refuses. Give it @want bytes, or @hex hex characters, at admin/config/system/keys.',
+				[
+					'@key' => $name,
+					'@want' => KeyProviderInterface::KEY_BYTES,
+					'@hex' => KeyProviderInterface::KEY_BYTES * 2,
+				],
+			),
+		];
+	}
+
+	// the same call the engine makes, so this row cannot accept a key the first flush refuses
+	try {
+		StaticKeyProvider::fromStored($value);
+	} catch (Throwable $e) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Not usable'),
+			'severity' => RequirementSeverity::Error,
+			'description' => new TranslatableMarkup(
+				'Key "@key" cannot seal a frame: @reason. Fix it at admin/config/system/keys.',
+				['@key' => $name, '@reason' => $e->getMessage()],
+			),
+		];
+	}
+
+	return [
+		'title' => $title,
+		'value' => new TranslatableMarkup('Chosen, @key', ['@key' => $name]),
+		'severity' => RequirementSeverity::OK,
+	];
+}
+
+/**
+ * Reports whether anything is being captured at all.
+ *
+ * `enabled` ships FALSE, so a site that chose a provider and a key and walked away is still backing
+ * nothing up. The status page says so; Drupal's own status report is where an operator looks when
+ * they have not thought about Strata for a month.
+ *
+ * @return array<string, mixed>
+ *   The requirement.
+ */
+function strata_capture_requirement(): array
+{
+	$title = new TranslatableMarkup('Strata capture');
+	$enabled = (bool) Drupal::config('strata.settings')->get('enabled');
+
+	if (!$enabled) {
+		return [
+			'title' => $title,
+			'value' => new TranslatableMarkup('Off'),
+			'severity' => RequirementSeverity::Warning,
+			'description' => new TranslatableMarkup(
+				'Nothing on this site is being backed up. Turn capture on at admin/config/system/strata/storage.',
+			),
+		];
+	}
+
+	return [
+		'title' => $title,
+		'value' => new TranslatableMarkup('On'),
+		'severity' => RequirementSeverity::OK,
+	];
 }
 
 /**
@@ -1184,6 +1438,13 @@ function strata_storage_requirement(): array
  * A directory that is missing or read-only fails at the first flush, in a queue worker, where the
  * only trace is a log line. The status report is where an operator can still be told.
  *
+ * **The verdict is the provider's own, not a second opinion.** `LocalStorage` creates its root at the
+ * first write, so a missing directory under a writable parent is the normal state of a fresh install
+ * and not a fault; this row reported it as an Error until 1.0.3, which is a red mark on the status
+ * report of every site that had done nothing wrong. Asking the class that does the writing is also
+ * the only way the two cannot drift - it takes a path and nothing else, so there is no engine to
+ * assemble and no key to refuse over.
+ *
  * @param TranslatableMarkup $title
  *   The requirement title, shared with the remote branch.
  *
@@ -1205,22 +1466,16 @@ function strata_local_storage_requirement(TranslatableMarkup $title): array
 		];
 	}
 
-	// the shipped default is private://strata, and a site that never configured a private file
-	// system has no such wrapper; is_dir() on it raises a php warning rather than answering.
-	// stream_get_wrappers() rather than the stream wrapper manager, because what decides whether
-	// is_dir() can answer is what PHP has registered, not what Drupal knows about
-	$scheme = StreamWrapperManager::getScheme($path);
+	$reason = (new LocalStorage($path))->unreachableReason();
 
-	if ($scheme !== false && !in_array($scheme, stream_get_wrappers(), true)) {
+	if ($reason !== null) {
 		return [
 			'title' => $title,
-			'value' => new TranslatableMarkup('Local, @scheme:// is not configured', [
-				'@scheme' => $scheme,
-			]),
+			'value' => new TranslatableMarkup('Local, not usable'),
 			'severity' => RequirementSeverity::Error,
 			'description' => new TranslatableMarkup(
-				'Backups are set to go to @path, and this site has no @scheme:// file system, so a flush has nowhere to write.',
-				['@path' => $path, '@scheme' => $scheme],
+				'Backups are set to go to @path and a flush could not write there: @reason.',
+				['@path' => $path, '@reason' => $reason],
 			),
 		];
 	}
@@ -1228,20 +1483,10 @@ function strata_local_storage_requirement(TranslatableMarkup $title): array
 	if (!is_dir($path)) {
 		return [
 			'title' => $title,
-			'value' => new TranslatableMarkup('Local, directory missing'),
-			'severity' => RequirementSeverity::Error,
-			'description' => new TranslatableMarkup('@path is not a directory.', [
-				'@path' => $path,
-			]),
-		];
-	}
-	if (!is_writable($path)) {
-		return [
-			'title' => $title,
-			'value' => new TranslatableMarkup('Local, not writable'),
-			'severity' => RequirementSeverity::Error,
+			'value' => new TranslatableMarkup('Local, created at the first flush'),
+			'severity' => RequirementSeverity::OK,
 			'description' => new TranslatableMarkup(
-				'@path cannot be written to, so a flush would fail.',
+				'@path does not exist yet and will be created when the first window is sealed.',
 				['@path' => $path],
 			),
 		];

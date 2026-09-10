@@ -205,6 +205,26 @@ final class PriceTable implements JsonSerializable
 		return $tables[$id];
 	}
 
+	/**
+	 * The table to cost a storage provider with, falling back rather than raising.
+	 *
+	 * Four tables are shipped and the provider select offers every registered submodule, so
+	 * `azure`, `gcs`, `b2` and `null` all name a provider with no published prices - as does any id
+	 * an add-on registers. PriceTable::of() is the right shape for a caller naming a table it knows
+	 * exists; a caller naming whatever a site happens to have configured needs this one, because the
+	 * throw lands on the settings page the operator would use to change the provider back.
+	 *
+	 * @param string $id
+	 *   A storage provider id, which may be empty or unknown.
+	 *
+	 * @return self
+	 *   The table for that provider, or the local one, which charges nothing.
+	 */
+	public static function forProvider(string $id): self
+	{
+		return self::all()[$id] ?? self::local();
+	}
+
 	#endregion
 
 	#region Costing

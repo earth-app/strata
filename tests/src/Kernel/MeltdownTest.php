@@ -444,6 +444,82 @@ class MeltdownTest extends StrataKernelTestBase
 
 	#endregion
 
+	#region The Codec Is Gone
+
+	#[Test]
+	#[
+		TestDox(
+			'a configured codec this host cannot run falls back rather than taking every page down',
+		),
+	]
+	#[Group('strata/meltdown')]
+	public function aVanishedCodecFallsBack(): void
+	{
+		// what an operator does to reach this is nothing: they pinned a codec while the extension
+		// was loaded and the host was later rebuilt, migrated or re-imaged without it
+		$this->config('strata.settings')->set('codec.id', 'gone_from_this_host')->save();
+		$this->engine()->reset();
+
+		$writer = $this->engine()->codecs()->writer();
+
+		$this->assertNotSame('gone_from_this_host', $writer->id());
+		$this->assertTrue($writer->isAvailable(), 'the fallback is a codec that actually runs');
+	}
+
+	#[Test]
+	#[TestDox('a site whose codec vanished keeps backing itself up')]
+	#[Group('strata/meltdown')]
+	public function aVanishedCodecStillFlushes(): void
+	{
+		$this->config('strata.settings')->set('codec.id', 'gone_from_this_host')->save();
+		$this->engine()->reset();
+
+		$this->history(2);
+
+		$this->assertNotNull($this->engine()->commitLog()->head(), 'history was still sealed');
+		$this->assertTrue($this->engine()->verifier()->verify()->isClean());
+	}
+
+	#[Test]
+	#[TestDox('the fallback is put in front of a person rather than only in a log')]
+	#[Group('strata/meltdown')]
+	public function aVanishedCodecIsRecorded(): void
+	{
+		$this->config('strata.settings')->set('codec.id', 'gone_from_this_host')->save();
+		$this->engine()->reset();
+		$this->engine()->codecs();
+
+		$codes = [];
+
+		foreach ($this->container->get('strata.health_ledger')->open() as $finding) {
+			$codes[] = $finding->code;
+		}
+
+		$this->assertContains('codec.pin_unavailable', $codes);
+	}
+
+	#[Test]
+	#[TestDox('the same fallback seen on every request is one row, not one row a page load')]
+	#[Group('strata/meltdown')]
+	public function aVanishedCodecIsRecordedOnce(): void
+	{
+		$this->config('strata.settings')->set('codec.id', 'gone_from_this_host')->save();
+
+		for ($request = 0; $request < 5; $request++) {
+			$this->engine()->reset();
+			$this->engine()->codecs();
+		}
+
+		$rows = array_filter(
+			$this->container->get('strata.health_ledger')->open(),
+			static fn($finding): bool => $finding->code === 'codec.pin_unavailable',
+		);
+
+		$this->assertCount(1, $rows);
+	}
+
+	#endregion
+
 	#region Fixtures
 
 	/**
