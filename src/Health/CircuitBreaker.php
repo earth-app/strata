@@ -112,6 +112,28 @@ final class CircuitBreaker
 		$this->clock = $clock === null ? time(...) : $clock(...);
 	}
 
+	/**
+	 * Failures a code may take before its circuit opens.
+	 *
+	 * @return int
+	 *   The threshold.
+	 */
+	public function threshold(): int
+	{
+		return $this->threshold;
+	}
+
+	/**
+	 * Seconds an open circuit stays open.
+	 *
+	 * @return int
+	 *   The cooldown.
+	 */
+	public function cooldown(): int
+	{
+		return $this->cooldown;
+	}
+
 	#region Decisions
 
 	/**
