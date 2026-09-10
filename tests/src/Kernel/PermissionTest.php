@@ -131,8 +131,6 @@ class PermissionTest extends StrataKernelTestBase
 				'quarantine strata',
 				'delete strata snapshots',
 				'manage strata storage',
-				'export strata archive',
-				'import strata archive',
 			]
 			as $permission
 		) {
@@ -148,7 +146,6 @@ class PermissionTest extends StrataKernelTestBase
 				'rollback strata full site',
 				'merge strata config',
 				'delete strata snapshots',
-				'export strata archive',
 			]
 			as $restricted
 		) {

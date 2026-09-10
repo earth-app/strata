@@ -22,7 +22,7 @@
 
 'view strata health':
   title: 'View Strata Health'
-  description: 'See open findings, repair rungs and circuit-breaker state.'
+  description: 'See open findings, their repair rungs and what the last drill proved.'
 
 'create strata snapshot':
   title: 'Create a Strata Snapshot'
@@ -80,16 +80,6 @@
 'manage strata storage':
   title: 'Manage Strata Storage'
   description: 'Change the storage provider, its credentials and its bucket.'
-  restrict access: true
-
-'export strata archive':
-  title: 'Export a Strata Archive'
-  description: 'Download a portable archive of stored history, including its payloads.'
-  restrict access: true
-
-'import strata archive':
-  title: 'Import a Strata Archive'
-  description: 'Load history from a portable archive produced elsewhere.'
   restrict access: true
 
 permission_callbacks:
