@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<phpunit
+	bootstrap="tests/bootstrap.php"
+	colors="true"
+	failOnRisky="true"
+	failOnWarning="true"
+	cacheDirectory=".phpunit.cache"
+	displayDetailsOnTestsThatTriggerDeprecations="true"
+	displayDetailsOnPhpunitDeprecations="true"
+	testdox="true"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/schema/11.4.xsd"
+>
+	<php>
+		<ini
+			name="memory_limit"
+			value="2G"
+		/>
+		<ini
+			name="max_execution_time"
+			value="0"
+		/>
+		<env
+			name="SIMPLETEST_DB"
+			value="sqlite://localhost/sites/default/files/.ht.functional.sqlite"
+		/>
+		<env
+			name="SIMPLETEST_BASE_URL"
+			value="http://localhost:8087"
+		/>
+		<env
+			name="BROWSERTEST_OUTPUT_DIRECTORY"
+			value="/tmp/strata-browser"
+		/>
+	</php>
+	<testsuites>
+		<testsuite name="Functional">
+			<directory>tests/src/Functional</directory>
+			<directory>modules/*/tests/src/Functional</directory>
+		</testsuite>
+	</testsuites>
+	<source>
+		<include>
+			<directory suffix=".php">src</directory>
+			<directory suffix=".php">modules</directory>
+		</include>
+		<exclude>
+			<directory suffix=".php">modules/*/tests</directory>
+		</exclude>
+	</source>
+</phpunit>
