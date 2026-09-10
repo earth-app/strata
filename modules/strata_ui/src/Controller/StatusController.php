@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\strata_ui\Controller;
 
+use Drupal\Core\Config\Config;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\Core\Url;
 use Drupal\strata\Health\Finding;
@@ -51,12 +52,24 @@ final class StatusController extends StrataControllerBase
 	 */
 	public function page(): array
 	{
+		// every section below guards itself; this is the backstop for anything they do not reach
+		return $this->guard(fn(): array => $this->build());
+	}
+
+	/**
+	 * The page itself.
+	 *
+	 * @return array<string, mixed>
+	 *   The render array, before the library is attached.
+	 */
+	private function build(): array
+	{
 		$settings = $this->config('strata.settings');
 		$capturing = (bool) $settings->get('enabled');
 		$requirements = $this->requirements();
 		$worst = $this->worstOf($requirements);
 
-		return $this->render([
+		return [
 			'#theme' => 'strata_status_page',
 			'#capturing' => $capturing,
 			'#verdict' => $this->verdict($capturing, $worst),
@@ -65,12 +78,108 @@ final class StatusController extends StrataControllerBase
 			'#figures' => $this->figures(),
 			'#findings' => $this->findings(),
 			'#drill' => $this->drill(),
+			'#setup' => $this->setup($settings, $capturing),
 			'#links' => $this->links(),
 			'#unavailable' => $this->unavailable,
-		]);
+		];
 	}
 
 	#region Sections
+
+	/**
+	 * The ordered steps that turn a fresh install into a site that is backed up.
+	 *
+	 * Strata ships doing nothing: capture is off, encryption is on with no key, and the shipped
+	 * local directory is a stream wrapper a site without a private file system does not have. Every
+	 * one of those was reported somewhere - a form error, a status row, a refusal on another page -
+	 * and none of them was reported in order, on the page a new install opens first.
+	 *
+	 * Returned empty once every step is done, so the checklist disappears rather than becoming
+	 * furniture on a site that has been running for a year.
+	 *
+	 * @param Config $settings
+	 *   The module settings.
+	 * @param bool $capturing
+	 *   Whether capture is switched on.
+	 *
+	 * @return list<array{title: string, detail: string, done: bool, url: string}>
+	 *   One step each, in the order they have to be done.
+	 */
+	private function setup(Config $settings, bool $capturing): array
+	{
+		$encrypted = (string) ($settings->get('cipher.id') ?: 'xchacha20poly1305') !== 'none';
+		$hasKey = trim((string) $settings->get('key')) !== '';
+		$provider = (string) $settings->get('provider');
+
+		$steps = [
+			[
+				'title' => (string) $this->t('Choose an encryption key'),
+				'detail' => $encrypted
+					? (string) $this->t(
+						'Frames are sealed before they leave this server. The settings page can make a key for you.',
+					)
+					: (string) $this->t('Encryption is off, so frames are stored in the clear.'),
+				'done' => !$encrypted || $hasKey,
+				'url' => $this->pathOf('strata.settings.storage'),
+			],
+			[
+				'title' => (string) $this->t('Choose where backups go'),
+				'detail' =>
+					$provider === 'null'
+						? (string) $this->t('The current choice keeps nothing.')
+						: (string) $this->t(
+							'A remote provider needs its own Strata submodule enabled.',
+						),
+				'done' => $provider !== '' && $provider !== 'null',
+				'url' => $this->pathOf('strata.settings.storage'),
+			],
+			[
+				'title' => (string) $this->t('Turn capture on'),
+				'detail' => (string) $this->t('Nothing is watched until this is ticked.'),
+				'done' => $capturing,
+				'url' => $this->pathOf('strata.settings.storage'),
+			],
+			[
+				'title' => (string) $this->t('Seal the first window'),
+				'detail' => (string) $this->t(
+					'Nothing has proved this works until one commit exists. Cron does it on its own schedule.',
+				),
+				'done' => $this->engine->commitIndex()->newest() !== null,
+				'url' => $this->pathOf('strata_ui.flush'),
+			],
+		];
+
+		foreach ($steps as $step) {
+			if (!$step['done']) {
+				return $steps;
+			}
+		}
+
+		return [];
+	}
+
+	/**
+	 * A route's path, or an empty string when this account cannot follow it.
+	 *
+	 * A step that links somewhere the reader gets a 403 on is worse than a step that only says what
+	 * to do, so a denied route degrades to plain text rather than to a dead link.
+	 *
+	 * @param string $route
+	 *   The route name.
+	 *
+	 * @return string
+	 *   The path.
+	 */
+	private function pathOf(string $route): string
+	{
+		try {
+			$url = Url::fromRoute($route);
+
+			return $url->access() ? $url->toString() : '';
+		} catch (Throwable) {
+			return '';
+		}
+	}
 
 	/**
 	 * This module's rows on Drupal's status report.
@@ -82,9 +191,19 @@ final class StatusController extends StrataControllerBase
 	{
 		$this->moduleHandler()->loadInclude('strata', 'install');
 
+		try {
+			$requirements = (array) strata_requirements('runtime');
+		} catch (Throwable $error) {
+			// the storage row probes the configured provider; a provider that raises instead of
+			// answering must not take this page with it
+			$this->unavailable = $error->getMessage();
+
+			return [];
+		}
+
 		$rows = [];
 
-		foreach ((array) strata_requirements('runtime') as $name => $requirement) {
+		foreach ($requirements as $name => $requirement) {
 			$severity = $requirement['severity'] ?? RequirementSeverity::OK;
 			$severity =
 				$severity instanceof RequirementSeverity ? $severity : RequirementSeverity::OK;
@@ -274,6 +393,13 @@ final class StatusController extends StrataControllerBase
 				'description' => (string) $this->t('What is stored and what a removal frees'),
 			],
 			[
+				'route' => 'strata_ui.flush',
+				'title' => (string) $this->t('Seal Now'),
+				'description' => (string) $this->t(
+					'Store what is captured without waiting for cron',
+				),
+			],
+			[
 				'route' => 'strata.settings.storage',
 				'title' => (string) $this->t('Settings'),
 				'description' => (string) $this->t('Where backups go and what is captured'),
@@ -283,17 +409,23 @@ final class StatusController extends StrataControllerBase
 		$links = [];
 
 		foreach ($candidates as $candidate) {
-			$url = Url::fromRoute($candidate['route']);
+			// strata_ui may be uninstalled with its rows still in the router table, and this page
+			// belongs to the module that would be missing
+			try {
+				$url = Url::fromRoute($candidate['route']);
 
-			if (!$url->access()) {
+				if (!$url->access()) {
+					continue;
+				}
+
+				$links[] = [
+					'title' => $candidate['title'],
+					'url' => $url->toString(),
+					'description' => $candidate['description'],
+				];
+			} catch (Throwable) {
 				continue;
 			}
-
-			$links[] = [
-				'title' => $candidate['title'],
-				'url' => $url->toString(),
-				'description' => $candidate['description'],
-			];
 		}
 
 		return $links;

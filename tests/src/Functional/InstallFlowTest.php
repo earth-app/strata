@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Functional;
 
+use Drupal\Core\Cache\Cache;
+use Drupal\Core\Database\Statement\FetchAs;
 use Drupal\Core\Extension\ModuleInstallerInterface;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
@@ -53,25 +55,83 @@ class InstallFlowTest extends StrataFunctionalTestBase
 	#region Every Page Answers
 
 	#[Test]
-	#[TestDox('every route both modules declare answers rather than 404ing')]
+	#[TestDox('every route both modules declare answers with a page rather than an error')]
 	#[Group('strata/functional')]
 	public function everyDeclaredRouteAnswers(): void
 	{
 		$this->user($this->everyPermission());
 
 		foreach (['strata', 'strata_ui'] as $module) {
-			foreach ($this->routesOf($module) as $name => $route) {
+			$routes = $this->routesOf($module);
+
+			// every assertion below is inside the loop, so a moved routing file would otherwise
+			// turn the broadest sweep in the suite into one that asserts nothing
+			$this->assertNotSame([], $routes, sprintf('%s declares routes', $module));
+
+			foreach ($routes as $name => $route) {
 				$path = $this->pathOf($route, $this->placeholders());
 
 				$this->drupalGet($path);
 
-				$this->assertNotSame(
-					404,
+				// 200 and not merely "not 404": this is the only sweep across both modules with every
+				// permission granted, and until 1.0.3 a 500 passed it
+				$this->assertSame(
+					200,
 					$this->getSession()->getStatusCode(),
 					sprintf('%s answers at %s', $name, $path),
 				);
 			}
 		}
+	}
+
+	#[Test]
+	#[TestDox('the engine pages still answer when the router outlives the module that owns them')]
+	#[Group('strata/functional')]
+	public function aStaleRouterDoesNotFatal(): void
+	{
+		$this->user($this->everyPermission());
+
+		$paths = [];
+
+		foreach ($this->routesOf('strata') as $name => $route) {
+			$paths[$name] = $this->pathOf($route, $this->placeholders());
+		}
+
+		$this->orphan(['strata', 'strata_ui']);
+
+		foreach ($paths as $name => $path) {
+			$this->drupalGet($path);
+
+			// `composer.json` PSR-4 maps `Drupal\strata\`, so these classes load whether or not the
+			// module is installed and the request reaches their create(). Anything below 500 is a
+			// legitimate answer, including the 200 `strata.settings` keeps because its controller is
+			// one of core's own; a 500 is the ServiceNotFoundException a real site reported
+			$this->assertLessThan(
+				500,
+				$this->getSession()->getStatusCode(),
+				sprintf('%s at %s refuses cleanly once its services are gone', $name, $path),
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('a page whose code has gone is named on the status report, with the fix')]
+	#[Group('strata/functional')]
+	public function aStaleRouteIsReportedOnTheStatusReport(): void
+	{
+		$this->user(array_merge($this->everyPermission(), ['administer site configuration']));
+
+		// only the UI: a submodule ships no composer package, so its namespace is registered by
+		// Drupal alone and its controllers stop existing the moment it leaves the module list. That
+		// is the half of the condition this module can still see, because the engine is still here
+		$this->orphan(['strata_ui']);
+
+		$this->drupalGet('/admin/reports/status');
+
+		$this->assertSession()->statusCodeEquals(200);
+		$this->assertSession()->pageTextContains('Strata pages');
+		$this->assertSession()->pageTextContains('strata_ui.status');
+		$this->assertSession()->pageTextContains('drush cache:rebuild');
 	}
 
 	#[Test]
@@ -271,7 +331,57 @@ class InstallFlowTest extends StrataFunctionalTestBase
 			}
 		}
 
+		$this->assertNotSame([], $permissions, 'the routes are gated by something');
+
 		return array_values($permissions);
+	}
+
+	/**
+	 * Leaves both modules' rows in the router table with neither module installed.
+	 *
+	 * This is the state a real site reported against 1.0.2, and no lane could reach it before: every
+	 * test here runs against a site where `core.extension` and the `router` table agree, and that is
+	 * the only state in which either reported error is impossible.
+	 *
+	 * **Not built with the uninstaller, which would prove nothing.** A real uninstall rebuilds the
+	 * router, and `user_modules_uninstalled()` strips the module's permissions out of every role -
+	 * so every route answers 403 at the access check and no controller is ever resolved. What the
+	 * operator did was delete the code, which runs no hook at all: the roles keep the permissions,
+	 * the router keeps the rows, and the request reaches a class that is not there.
+	 *
+	 * So `core.extension` is edited directly and the container is invalidated. That is the one
+	 * operation that drops the module's services without asking anything to rebuild the router.
+	 *
+	 * @param list<string> $modules
+	 *   The modules to take out of the module list, dependents first.
+	 */
+	private function orphan(array $modules): void
+	{
+		$rows = $this->container
+			->get('database')
+			->select('router', 'r')
+			->fields('r', ['name'])
+			->condition('name', 'strata%', 'LIKE')
+			->countQuery()
+			->execute()
+			?->fetchField();
+
+		$this->assertGreaterThan(0, (int) $rows, 'the router held rows to orphan');
+
+		$extension = $this->config('core.extension');
+		$installed = (array) $extension->get('module');
+
+		foreach ($modules as $module) {
+			unset($installed[$module]);
+		}
+
+		$extension->set('module', $installed)->save(true);
+
+		// invalidateContainer() and not drupal_flush_all_caches(): the latter rebuilds the router,
+		// which is the very thing a site in this state has not done
+		$this->container->get('kernel')->invalidateContainer();
+
+		Cache::invalidateTags(['routes']);
 	}
 
 	/**

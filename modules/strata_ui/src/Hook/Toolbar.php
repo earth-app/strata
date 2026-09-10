@@ -55,6 +55,23 @@ final class Toolbar
 			return [];
 		}
 
+		// the whole body, not only the label: this renders on every admin page, and Url::fromRoute()
+		// raises on a site whose router still names a route the module no longer registers
+		try {
+			return $this->build();
+		} catch (Throwable) {
+			return [];
+		}
+	}
+
+	/**
+	 * The toolbar item itself.
+	 *
+	 * @return array<string, mixed>
+	 *   The item.
+	 */
+	private function build(): array
+	{
 		return [
 			'strata' => [
 				'#type' => 'toolbar_item',

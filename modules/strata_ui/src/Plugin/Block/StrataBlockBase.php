@@ -104,8 +104,11 @@ abstract class StrataBlockBase extends BlockBase implements ContainerFactoryPlug
 	 */
 	public function build(): array
 	{
+		// the detail url is inside the guard with the rows: a block sits on pages that are nothing to
+		// do with Strata, and Url::fromRoute() raises on a route the router no longer knows
 		try {
 			$rows = $this->rows();
+			$url = Url::fromRoute($this->detailRoute())->toString();
 		} catch (Throwable $error) {
 			return [
 				'#theme' => 'strata_status',
@@ -127,7 +130,7 @@ abstract class StrataBlockBase extends BlockBase implements ContainerFactoryPlug
 			'#theme' => 'strata_status',
 			'#rows' => $rows,
 			'#severity' => $this->severityFor($rows),
-			'#url' => Url::fromRoute($this->detailRoute())->toString(),
+			'#url' => $url,
 			'#attached' => ['library' => ['strata_ui/strata']],
 			'#cache' => ['max-age' => 0],
 		];
