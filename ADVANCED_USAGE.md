@@ -68,53 +68,53 @@ Every recipe reads from `strata.settings`, which exports with the rest of your s
 Each recipe lists what it needs under **Prerequisites**. This is the catalog of what those keys are
 and where the values come from.
 
-| Key                                                | What it is                                       | Example                                 | Where it comes from                                 |
-| -------------------------------------------------- | ------------------------------------------------ | --------------------------------------- | --------------------------------------------------- |
-| `provider`                                         | Active provider id                               | `s3`, `azure`, `gcs`, `b2`              | whichever storage submodule you enabled             |
-| `site_id`                                          | Prefix every key sits under                      | `earth-prod`                            | defaults to a digest of the database identity       |
-| `key`                                              | `drupal/key` entity holding the encryption key   | `strata_encryption`                     | `/admin/config/system/keys`, 32 bytes hex           |
-| `retired_keys`                                     | Keys still needed to open old frames             | `[strata_2025]`                         | filled by `drush strata:rotate-key`                 |
-| `s3.bucket` / `.region` / `.endpoint`              | S3 target                                        | `backups` / `us-east-1`                 | your bucket; endpoint only for non-AWS              |
-| `s3.access_key_id` / `.secret_access_key`          | S3 credentials                                   | `AKIA...`                               | leave empty to use env, `~/.aws` or an EC2 role     |
-| `s3.path_style`                                    | Address the bucket in the path, not the host     | `true` for MinIO                        | required by MinIO, Ceph and Garage                  |
-| `azure.account` / `.container`                     | Azure target                                     | `earthapp` / `strata`                   | the storage account and a blob container            |
-| `azure.account_key` / `.sas_token`                 | Azure credentials                                | a base64 key, or a SAS                  | portal, Access keys or Shared access signature      |
-| `gcs.bucket`                                       | GCS target                                       | `earth-strata`                          | your bucket                                         |
-| `gcs.service_account`                              | Service-account JSON                             | `{"type":"service_account"...}`         | IAM, a key for an account with Storage Object Admin |
-| `b2.bucket_name` / `.bucket_id`                    | B2 target                                        | `earth-cold`                            | B2, Buckets; the id is on the bucket's detail page  |
-| `b2.key_id` / `.application_key`                   | B2 credentials                                   | `0045...` / `K004...`                   | B2, Application Keys; scope it to the bucket        |
-| `azure.service_url` / `gcs.api_url` / `b2.api_url` | Address a different host than the vendor's       | `http://azurite:10000/devstoreaccount1` | set by `./startup.sh --provider=`                   |
-| `gcs.access_token`                                 | A pre-issued OAuth2 token instead of a key       | `ya29...`                               | GKE workload identity, or an emulator               |
-| `flush.max_age` / `.max_bytes` / `.max_ops`        | Whichever fires first seals a segment            | `15` / `4194304` / `5000`               | your recovery point objective                       |
-| `journal.backend`                                  | Where operations queue before a flush            | `database` or `redis`                   | `redis` needs `strata_redis` and `ext-redis`        |
-| `capture.*`                                        | Which realms are captured                        | `true`                                  | `/admin/config/system/strata/capture`               |
-| `capture.access_churn`                             | How `access` and `login` timestamps are recorded | `event`                                 | `event`, `full` or `off`                            |
-| `tiers`                                            | The bucket ladder                                | see recipe 3                            | `/admin/config/system/strata/tiers`                 |
-| `retention.base_interval`                          | Seconds between base anchors                     | `14400`                                 | a restore-latency dial                              |
-| `budget.bytes_per_month` / `.dollars_per_month`    | Monthly ceilings                                 | `10737418240` / `5.00`                  | what you are willing to spend                       |
-| `drill.enabled` / `.sample`                        | Scheduled restore drills                         | `true` / `50`                           | how much to prove per run                           |
-| `merge.base_ceiling` / `.walk_limit`               | How far a merge looks                            | `10000` / `5000`                        | raise on a very long history                        |
-| `telemetry.endpoint`                               | OpenTelemetry collector                          | `http://otel:4318`                      | your collector                                      |
+| Key                                                | What it is                                       | Example                                 | Where it comes from                                     |
+| -------------------------------------------------- | ------------------------------------------------ | --------------------------------------- | ------------------------------------------------------- |
+| `provider`                                         | Active provider id                               | `s3`, `azure`, `gcs`, `b2`              | whichever storage submodule you enabled                 |
+| `site_id`                                          | Prefix every key sits under                      | `earth-prod`                            | defaults to a digest of the database identity           |
+| `key`                                              | `drupal/key` entity holding the encryption key   | `strata_encryption`                     | Generate a Key on the storage page, or `strata:new-key` |
+| `retired_keys`                                     | Keys still needed to open old frames             | `[strata_2025]`                         | filled by whichever of those two replaced a key         |
+| `s3.bucket` / `.region` / `.endpoint`              | S3 target                                        | `backups` / `us-east-1`                 | your bucket; endpoint only for non-AWS                  |
+| `s3.access_key_id` / `.secret_access_key`          | S3 credentials                                   | `AKIA...`                               | leave empty to use env, `~/.aws` or an EC2 role         |
+| `s3.path_style`                                    | Address the bucket in the path, not the host     | `true` for MinIO                        | required by MinIO, Ceph and Garage                      |
+| `azure.account` / `.container`                     | Azure target                                     | `earthapp` / `strata`                   | the storage account and a blob container                |
+| `azure.account_key` / `.sas_token`                 | Azure credentials                                | a base64 key, or a SAS                  | portal, Access keys or Shared access signature          |
+| `gcs.bucket`                                       | GCS target                                       | `earth-strata`                          | your bucket                                             |
+| `gcs.service_account`                              | Service-account JSON                             | `{"type":"service_account"...}`         | IAM, a key for an account with Storage Object Admin     |
+| `b2.bucket_name` / `.bucket_id`                    | B2 target                                        | `earth-cold`                            | B2, Buckets; the id is on the bucket's detail page      |
+| `b2.key_id` / `.application_key`                   | B2 credentials                                   | `0045...` / `K004...`                   | B2, Application Keys; scope it to the bucket            |
+| `azure.service_url` / `gcs.api_url` / `b2.api_url` | Address a different host than the vendor's       | `http://azurite:10000/devstoreaccount1` | set by `./startup.sh --provider=`                       |
+| `gcs.access_token`                                 | A pre-issued OAuth2 token instead of a key       | `ya29...`                               | GKE workload identity, or an emulator                   |
+| `flush.max_age` / `.max_bytes` / `.max_ops`        | Whichever fires first seals a segment            | `15` / `4194304` / `5000`               | your recovery point objective                           |
+| `journal.backend`                                  | Where operations queue before a flush            | `database` or `redis`                   | `redis` needs `strata_redis` and `ext-redis`            |
+| `capture.*`                                        | Which realms are captured                        | `true`                                  | `/admin/config/system/strata/capture`                   |
+| `capture.access_churn`                             | How `access` and `login` timestamps are recorded | `event`                                 | `event`, `full` or `off`                                |
+| `tiers`                                            | The bucket ladder                                | see recipe 3                            | `/admin/config/system/strata/tiers`                     |
+| `retention.base_interval`                          | Seconds between base anchors                     | `14400`                                 | a restore-latency dial                                  |
+| `budget.bytes_per_month` / `.dollars_per_month`    | Monthly ceilings                                 | `10737418240` / `5.00`                  | what you are willing to spend                           |
+| `drill.enabled` / `.sample`                        | Scheduled restore drills                         | `true` / `50`                           | how much to prove per run                               |
+| `merge.base_ceiling` / `.walk_limit`               | How far a merge looks                            | `10000` / `5000`                        | raise on a very long history                            |
+| `telemetry.endpoint`                               | OpenTelemetry collector                          | `http://otel:4318`                      | your collector                                          |
 
 ## 📚 Recipe Index
 
-| Recipe                                                             | Uses                                 | What it gets you                                      |
-| ------------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------------- |
-| [Undo One Field](#-undo-one-field)                                 | `strata`, `strata_ui`                | A surgical rollback that leaves everything else alone |
-| [Recover From a Bad Deploy](#-recover-from-a-bad-deploy)           | code realm + config realm            | Code and settings back, content untouched             |
-| [Tiered Buckets](#-tiered-buckets)                                 | `tiers`, `strata:tiers`              | Old history on colder storage, automatically          |
-| [Two Vendors, One History](#-two-vendors-one-history)              | `strata_s3` + `strata_b2`            | A copy that survives losing an entire account         |
-| [Many Sites, One Bucket](#-many-sites-one-bucket)                  | `site_id`, `SiteScopedProvider`      | Shared deduplication with separate histories          |
-| [High-Traffic Tuning](#-high-traffic-tuning)                       | `flush`, `journal`, `capture`        | Capture that stays under 10 us per mutation           |
-| [A Configuration Release Branch](#-a-configuration-release-branch) | `strata:branch`, `strata:merge`      | Settings staged and merged like code                  |
-| [Prove the Backups Work](#-prove-the-backups-work)                 | `drill.*`, `strata:verify`           | A pass or fail verdict instead of an assumption       |
-| [Survive a Meltdown](#-survive-a-meltdown)                         | tripwires, `strata:heal`             | Automatic repair, and a clear refusal when it cannot  |
-| [Move to Another Provider](#-move-to-another-provider)             | `strata:export`, `strata:reindex`    | A migration with the history intact                   |
-| [Rotate the Encryption Key](#-rotate-the-encryption-key)           | `strata:rotate-key`                  | A new key without losing what the old one sealed      |
-| [Watch It From Outside](#-watch-it-from-outside)                   | webhooks, `strata_notify`, telemetry | An alert when the store falls behind                  |
-| [Rehearse a Whole-Site Restore](#-rehearse-a-whole-site-restore)   | `--dry-run`, physical restore        | A rehearsal that never touches production             |
-| [Large Media Libraries](#-large-media-libraries)                   | `strata_files`                       | Terabytes of media without paying for it twice        |
-| [Stay Inside a Free Tier](#-stay-inside-a-free-tier)               | `budget`, `strata:estimate`          | A hard ceiling that degrades instead of overspending  |
+| Recipe                                                             | Uses                                  | What it gets you                                      |
+| ------------------------------------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
+| [Undo One Field](#-undo-one-field)                                 | `strata`, `strata_ui`                 | A surgical rollback that leaves everything else alone |
+| [Recover From a Bad Deploy](#-recover-from-a-bad-deploy)           | code realm + config realm             | Code and settings back, content untouched             |
+| [Tiered Buckets](#-tiered-buckets)                                 | `tiers`, `strata:tiers`               | Old history on colder storage, automatically          |
+| [Two Vendors, One History](#-two-vendors-one-history)              | `strata_s3` + `strata_b2`             | A copy that survives losing an entire account         |
+| [Many Sites, One Bucket](#-many-sites-one-bucket)                  | `site_id`, `SiteScopedProvider`       | Shared deduplication with separate histories          |
+| [High-Traffic Tuning](#-high-traffic-tuning)                       | `flush`, `journal`, `capture`         | Capture that stays under 10 us per mutation           |
+| [A Configuration Release Branch](#-a-configuration-release-branch) | `strata:branch`, `strata:merge`       | Settings staged and merged like code                  |
+| [Prove the Backups Work](#-prove-the-backups-work)                 | `drill.*`, `strata:verify`            | A pass or fail verdict instead of an assumption       |
+| [Survive a Meltdown](#-survive-a-meltdown)                         | tripwires, `strata:heal`              | Automatic repair, and a clear refusal when it cannot  |
+| [Move to Another Provider](#-move-to-another-provider)             | `strata:export`, `strata:reindex`     | A migration with the history intact                   |
+| [Rotate the Encryption Key](#-rotate-the-encryption-key)           | `strata:new-key`, `strata:rotate-key` | A new key without losing what the old one sealed      |
+| [Watch It From Outside](#-watch-it-from-outside)                   | webhooks, `strata_notify`, telemetry  | An alert when the store falls behind                  |
+| [Rehearse a Whole-Site Restore](#-rehearse-a-whole-site-restore)   | `--dry-run`, physical restore         | A rehearsal that never touches production             |
+| [Large Media Libraries](#-large-media-libraries)                   | `strata_files`                        | Terabytes of media without paying for it twice        |
+| [Stay Inside a Free Tier](#-stay-inside-a-free-tier)               | `budget`, `strata:estimate`           | A hard ceiling that degrades instead of overspending  |
 
 ---
 
@@ -477,9 +477,17 @@ drush strata:reindex
 drush strata:reindex --adopt-ref   # the ref was deleted but the commits are there
 ```
 
-`observe`, `reindex`, `refetch` and `rebuild` run automatically, gated by a circuit breaker keyed on
-the finding code, so a persistent fault escalates instead of looping. `quarantine` and `refuse` never
-run on their own, because both remove or block a restore target.
+`observe`, `reindex`, `refetch` and `rebuild` run on cron while `health.auto_repair` is on. Each
+rung's pass runs once per cron run however many codes sit on it, and a code whose pass raises climbs
+one rung; from `rebuild` that reaches `quarantine`, which takes the code out of the automatic set
+until a person looks at it. A circuit breaker keyed on the finding code stops a code that has failed
+three times within a run. `quarantine` and `refuse` never run on their own, because both remove or
+block a restore target.
+
+Open findings for a code are resolved before its pass runs, not after. A pass that completes proves
+the work was done, never that the symptom is gone, and only `refetch` and `rebuild` sweep the
+tripwires again on their way through; clearing afterwards would delete a symptom the pass had just
+re-confirmed.
 
 Nothing invents data. A preflight classifies every subject as `restorable`, `degraded` or
 `unrestorable`, and a degraded subject is skipped, listed in the manifest and recorded in the audit
@@ -495,7 +503,8 @@ log. Filling one with defaults is opt-in per scope and the confirm form spells o
 ### Prerequisites
 
 - **Both providers enabled** during the move, so you can read the old one and write the new one.
-- **`export strata archive`** and **`import strata archive`** permissions.
+- **Shell access.** The archive commands are Drush only, and `strata:import` writes nothing without
+  `--apply`.
 
 An archive is self-contained: it carries its dictionaries and its delta anchors, so it restores
 somewhere that has never seen the original store.
@@ -525,11 +534,11 @@ from an older dump than the bucket.
 
 ## 🔐 Rotate the Encryption Key
 
-**Uses:** `strata:rotate-key`: [`KeyRotationTest.php`](./tests/src/Kernel/KeyRotationTest.php)
+**Uses:** `strata:new-key`, `strata:rotate-key`:
+[`KeyRotationTest.php`](./tests/src/Kernel/KeyRotationTest.php)
 
 ### Prerequisites
 
-- **A new `key` entity**, 32 bytes of hex. Keep the old one.
 - **`manage strata storage`** permission.
 
 Frames are sealed with XChaCha20-Poly1305 at 391 MB/s. Rotation is a keyring operation: the new key
@@ -537,20 +546,27 @@ becomes active, the old one is retired but still tried, and re-sealing happens p
 than frame by frame.
 
 ```bash
-# make the new key and hand it to strata
-drush key:save strata_2026 --label='Strata 2026' --key-type=encryption \
-	--key-provider=config --key-provider-settings='{"key_value":"'"$(openssl rand -hex 32)"'"}'
-
-drush config:set strata.settings key strata_2026
+# creates the key, selects it, and pushes the outgoing one into retired_keys
+drush strata:new-key --id=strata_2026
 
 # re-seal what still opens under a retired key, whole packs at a time
 drush strata:rotate-key --dry-run
 drush strata:rotate-key
 ```
 
-Do not remove the old key from `retired_keys` until `strata:rotate-key` reports nothing left. A frame
-whose key is gone raises `frame.aead_fail`, and `key.rotated_mid_flight` fires if the active key
-changes while a flush is in progress.
+`/admin/config/system/strata/storage` does the same thing through **Replace With a New Key**.
+
+Do not create the key by hand. `drush config:set strata.settings key strata_2026` on its own points
+the active key at the new entity and leaves nothing able to open what the old one sealed. Both entry
+points above retire the outgoing key.
+
+Keep the old key until `strata:rotate-key` reports nothing left. A frame whose key is gone raises
+`frame.aead_fail`, and `key.rotated_mid_flight` fires if the active key changes while a flush is in
+progress.
+
+A generated key is stored in this site's configuration, which means a configuration export carries it
+and a site that loses both loses the history. To hold it elsewhere, edit the entity at
+`/admin/config/system/keys` and point it at the `file` or `env` provider.
 
 **Use case:** an annual rotation policy, or a key you have reason to think leaked.
 
@@ -676,9 +692,8 @@ cost and everything after it is nearly free.
 
 ## 💸 Stay Inside a Free Tier
 
-**Uses:** `budget`, `strata:estimate`:
-[`CompactionTest.php`](./tests/src/Kernel/CompactionTest.php),
-[`InstallTest.php`](./tests/src/Kernel/InstallTest.php)
+**Uses:** `budget`, `strata:estimate`: [`BudgetTest.php`](./tests/src/Kernel/BudgetTest.php),
+[`CompactionTest.php`](./tests/src/Kernel/CompactionTest.php)
 
 ### Prerequisites
 
@@ -699,9 +714,16 @@ drush config:set strata.settings budget.bytes_per_month 10737418240
 drush strata:status
 ```
 
-The guard escalates rather than cutting off: it warns, then reduces retention, then pauses
-non-critical capture, raising `budget.exceeded` at each step and logging what it did. Files are on
-their own ladder and their own budget line, so media growth cannot quietly evict database history.
+The guard runs as a cron stage, and only when a ceiling is set. It prices the last thirty days of
+recorded traffic plus what the store holds now, projects a month from it, and lands on a rung: warn at
+80% of the ceiling, reduce at 100%, pause non-critical capture at 125%, stop at 150%. Every rung above
+normal raises `budget.exceeded` in the health ledger and fires `strata.budget.breached`; a month that
+comes back under the ceiling clears the finding.
+
+`budget.action` is a ceiling on that ladder rather than a separate switch. A site set to **Warn Only**
+is reported at warn however far past the ceiling it goes, which is what "warn only" has to mean.
+Files are on their own ladder and their own budget line, so media growth cannot quietly evict database
+history.
 
 Compaction is what buys headroom back. It recompresses at zstd level 19 with a trained dictionary,
 5.86x against the flush path's 4.28x, and re-anchors delta chains. Collapse gains almost nothing below

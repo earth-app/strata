@@ -56,6 +56,20 @@ its four never run without real credentials.
 
 `bun run test:kernel --filter <ClassName>` while iterating.
 
+**The Functional lane cannot use the in-memory SQLite `phpunit.xml.dist` declares**, because the test
+runner and the web server are two processes and an in-memory database is not shared between them. The
+failure names nothing useful: the browser gets a 500 whose assertion header reads
+`The service file "core/core.services.yml" is not valid`, on every test, in `setUp()`. PHPUnit cannot
+scope an `<env>` to one testsuite, so the lane has its own config file:
+
+```bash
+bun run serve &         # php tests/drupal-root.php, then php -S localhost:8087
+bun run test:functional # phpunit -c phpunit.functional.xml
+```
+
+`phpunit.functional.xml` carries the file-backed DSN. The path in it is relative and both processes
+resolve it against the Drupal root, which is how one file reaches both.
+
 **A green SQLite run is not a green suite.** `phpunit.xml.dist` points at in-memory SQLite, and
 SQLite hides two whole classes of defect: it implements a table prefix as an attached database rather
 than as a name prefix, and it stores any byte sequence in any column. Four separate bugs have reached
@@ -114,7 +128,19 @@ lane proves and why.
 **One spec file per domain.** Never create `*-expansion`, `*-additional` or `*-part2` alongside an
 existing spec; extend the existing one.
 
-Two things this suite does deliberately and should keep doing:
+**A stale-router fixture cannot be built with the uninstaller.** A real uninstall rebuilds the router
+AND `user_modules_uninstalled()` strips the module's permissions out of every role, so every route
+answers 403 at the access check and no controller is ever resolved - the reproduction passes for the
+wrong reason. What an operator does is delete the code, which runs no hook: the roles keep the
+permissions and the router keeps the rows. `InstallFlowTest::orphan()` edits `core.extension` and
+calls `$kernel->invalidateContainer()`, which is the one operation that drops a module's services
+without asking anything to rebuild the router. Never `drupal_flush_all_caches()` there.
+
+Three things this suite does deliberately and should keep doing:
+
+- **Assert a status code, not the absence of one.** `everyDeclaredRouteAnswers()` asserted
+  `assertNotSame(404, ...)` until 1.0.3, so the only sweep across both modules with every permission
+  granted passed on a 500.
 
 - **Drive every report page on an empty store as well as a populated one.** A fresh install is the
   first thing a user sees, and code that divides by a total or indexes the newest commit works on a
@@ -122,6 +148,12 @@ Two things this suite does deliberately and should keep doing:
   found: encryption is on by default with no key until somebody chooses one.
 - **Assert the claim a docblock makes, not the code that implements it.** Several docblocks here have
   turned out to be wrong, and in every case a test found it.
+- **Never end a sweep's assertions inside a loop with no guard that the loop runs.**
+  `ExtensionTest::theRootModuleRequiresWhatItDependsOn()` skipped every dependency whose project part
+  was `drupal`, so with `drupal:key` in the info file it iterated nothing and asserted nothing while
+  reporting green - the test written to catch a missing `drupal/key` could not see `key` at all. The
+  filter is now a lookup against `vendor/drupal/core/modules`, so both spellings resolve. Every other
+  sweep that reads a file list carries `assertNotSame([], ...)` before the loop for the same reason.
 
 ## Where Things Live
 
@@ -140,7 +172,7 @@ Two things this suite does deliberately and should keep doing:
 | `src/Health/`                                             | Tripwires, findings, repair ladder, circuit breaker, ledger         |
 | `src/Timeline/` `src/Diff/` `src/Metrics/` `src/Explore/` | Read models the UI renders                                          |
 | `src/Branch/`                                             | Config-only branches, merge base, three-way merge, merge commits    |
-| `src/Drush/Commands/`                                     | 27 commands, thin over `Engine`                                     |
+| `src/Drush/Commands/`                                     | 28 commands, thin over `Engine`                                     |
 | `modules/strata_ui/`                                      | Controllers, forms, blocks, toolbar, templates, CSS, one JS file    |
 
 `Engine` is the only place that reads settings and decides which parts a site gets. Nothing is built
@@ -234,6 +266,113 @@ Do not "fix" these without measuring first.
   nothing.** It is monotonic rather than resettable: a caller measuring one window takes the
   difference across it, and two callers sharing a store cannot clear each other's reading.
 
+- **`composer.json` PSR-4 maps `Drupal\strata\` onto `src/`, and no submodule has its own package.**
+  So every class in the root module loads off composer's autoloader whether or not the module is in
+  `core.extension`, while `Drupal\strata_ui\` is registered by Drupal alone. One condition - the
+  router still holding rows for a module that has left the module list - therefore produces two
+  different 500s, which is exactly what a real site reported against 1.0.2:
+  `ServiceNotFoundException: strata.engine` on `strata.settings.storage`, and
+  `The controller for URI "/admin/reports/strata" is not callable` on `strata_ui.status`. Neither is
+  a code defect on a correctly installed site; the remedy is `drush cache:rebuild`, and
+  `strata_route_requirement()` says so on the status report.
+- **A `*SettingsForm::create()` must ask the container, never require it.** `ClassResolver` calls the
+  static factory before the form object exists, so there is no `guard()` to reach and no page to
+  degrade into: whatever `create()` demands is a hard requirement of the route answering at all. Use
+  `$container->has(...) ? $container->get(...) : null` against a nullable property.
+  `SettingsFormTest` drives every routed form against a container holding no Strata services.
+- **`PriceTable::of()` raises for a provider it ships no table for, and four are shipped.** The
+  provider select offers every registered submodule, so `azure`, `gcs`, `b2` and `null` all reach it.
+  Anything costing whatever a site happens to have configured calls `PriceTable::forProvider()`,
+  which falls back to the local table. `StorageSettingsForm` called the raiser and made the page that
+  changes the provider back the page that was down.
+- **`CodecRegistry::prefer()` raises, and `Engine::codecs()` must not let it.** The raise is right for
+  the registry - a form asking whether a choice can be honoured wants an answer, not a silent
+  fallback - and wrong for the engine, because availability is a property of the host and a host
+  changes: a PHP rebuilt without `ext-zstd`, a container image swapped, a migration between servers.
+  A site that pinned a codec and then lost it had every report page and every flush raise at once.
+  `Engine::codecs()` asks `canWritePerFrame()` first, falls back to the write preference, and records
+  `codec.pin_unavailable` at WARN. The store is not damaged either way: every reader stays registered,
+  so frames written under the old codec still decode.
+- **Nothing caches codec availability, so there is no refresh button and must not be one.**
+  `CodecRegistry::withShippedCodecs()` is built per request and each codec answers from the host, the
+  status report and the settings form both read that live registry, and every report page is
+  `max-age: 0`. What does not update on its own is the operator's own pinned choice, which is what the
+  invariant above covers. Operator-facing text has to state when each probe sees a change:
+  `extension_loaded()` describes the running process, so a new PHP extension needs php-fpm restarted,
+  while a binary appearing on PATH is seen by the next request.
+- **`LocalStorage` creates its root at the first write, so a missing directory is not a fault.**
+  `strata_local_storage_requirement()` reported one as an Error until 1.0.3, which is a red mark on
+  the status report of every site that had done nothing wrong. It now asks
+  `LocalStorage::unreachableReason()` rather than repeating the rules, which is also the only way the
+  two cannot drift; the class takes a path and nothing else, so there is no engine to assemble.
+- **A key entity is generated with the `config` provider and `base64_encoded` on.** Raw random bytes
+  are not valid UTF-8 and configuration is YAML, so the value has to be encoded and the provider
+  decodes it on the way back out; `key_type_settings.key_size` is in BITS while
+  `KeyProviderInterface::KEY_BYTES` is in bytes. `KeyMaker::create()` never overwrites an existing id
+  and suffixes instead, because the value inside a key is the only copy of it.
+- **Making a new key always retires the old one, and neither entry point offers a flag to skip it.**
+  Everything sealed before the change stays readable only while the key that sealed it is on the ring,
+  and a store whose key was dropped is indistinguishable from a corrupt one. `StorageSettingsForm`'s
+  button and `strata:new-key` both push the outgoing id into `retired_keys` and name
+  `strata:rotate-key` as the pass that ends the rotation.
+- **The generate button carries `#limit_validation_errors => []` and saves configuration itself.** The
+  state it exists for is the one where the form cannot be saved at all - encryption on, no key chosen -
+  so it has to be pressable while validation fails, and the rest of the submitted values are therefore
+  unchecked and must not be written.
+- **A shipped config key, permission or public method that nothing reads is the defect class this
+  module keeps producing.** Four instances so far: `health.auto_repair` (default TRUE, a form
+  checkbox writing it, nothing reading it), `CircuitBreaker` (231 lines, a full unit suite, no
+  caller), `create strata snapshot` (a permission with no route), and the whole `src/Budget/`
+  subsystem (two classes, two unit suites, never constructed). **A unit test that instantiates a
+  class proves the class works and says nothing about whether anything reaches it.** Two structural
+  checks now close the two halves that can be decided from source: `everyDeclaredPermissionIsChecked()`
+  and `everyEventHasAProducer()` in `ExtensionTest`. The half neither can decide - a config key read
+  by nothing - is covered per-key by asserting the built object carries the configured value, which is
+  what `BudgetTest` does for the ceilings and the circuit.
+- **`budget.action` is a ceiling on the escalation ladder, not a separate switch.**
+  `EscalationLadder::rungFor()` reads the measured overspend alone, so without
+  `EscalationLadder::cap()` a site that chose Warn Only had its capture stopped at 1.5x - the opposite
+  of what it asked for. The measurement is never changed by the cap; `BudgetAssessment::withRung()`
+  moves the rung and leaves the fraction alone.
+- **The budget stage is skipped outright when no ceiling is set**, which is the shipped state. Pricing
+  a site against no ceiling costs a read of the stat table and the frame index every cron run for an
+  answer that cannot change anything.
+- **`ProviderStats::fromOperations()` is the inverse of `byOperation()` and exists because replaying
+  `record()` is O(requests).** A month of traffic is millions of calls to reproduce three totals. It
+  does not reproduce latency samples, because the stat table does not hold them, so `p95()` on a
+  rebuilt window reports nothing while the counts, volumes and failures are exact.
+- **A notifier call belongs on the private method every entry point funnels through, never on one of
+  them.** `LogicalRestore` has three public ways in - `restore()`, `restoreAll()` and `apply()` - and
+  announcing from `apply()` alone would have left two of them silent. `RestoreTest` drives all three
+  and counts the announcements.
+- **A `#key` a theme hook does not declare in `variables` is dropped in silence.** The template's
+  variable is simply undefined, so a section guarded by it never renders and nothing anywhere says
+  why. The setup checklist shipped invisible for exactly this reason, and no assertion on a page's
+  markup could have found it: the page renders perfectly well without the section. `UiTest`'s
+  `everyThemeVariableIsDeclared()` compares a controller's build against `Theme::hooks()` instead.
+- **`create strata snapshot` shipped in 1.0.0 with no route, form or command asking for it**, the same
+  shape as `health.auto_repair`. `strata_ui.flush` is what now uses it, and it is also the answer to a
+  setup checklist whose last step linked nowhere: a site with no working cron and no shell had no way
+  to seal its first window, and no report shows anything until one commit exists.
+- **A finding's severity picks its repair rung, so severity is now a cost decision.**
+  `RepairLadder::initialRung()` sends anything at or above `ERROR` to an automatic pass, and since
+  1.0.3 those passes actually run on cron. `capture.tap_disabled` is `WARN` for that reason: nothing
+  unattended repairs a statement tap, and an `ERROR` would spend a bucket-wide reindex on it.
+- **`RepairPass` clears a code's findings before running its pass and puts them back if it raises.**
+  `Verifier::verify()` re-records what is still true on its way through and `Reindexer::reindex()`
+  does not, so clearing afterwards deletes a symptom the pass just re-confirmed - and clearing
+  before, with no restore on failure, makes a broken store look healthy. Both directions have a test.
+- **A PipeCodec is built on the one convention `zstd` and `brotli` share**: given several files each
+  writes beside its input, adding the suffix when compressing and stripping it when decompressing. So
+  a batch is laid out as `<n>` and `<n><suffix>` and read back by name, and neither
+  `--output-dir-flat` nor `-o` is needed. They disagree on exactly one flag: `-q` is quiet for zstd
+  and quality for brotli.
+- **`drupal:key` in an info file resolves the same as `key:key`, which is why it was wrong for two
+  releases without breaking anything.** `Dependency::createFromString()` discards the project part.
+  What it did break is `ExtensionTest::theRootModuleRequiresWhatItDependsOn()`, which skips a
+  dependency whose project is `drupal` - so the test written to catch a missing `drupal/key` in
+  composer could not see `key` at all.
+
 ## Error Handling Invariants
 
 - **`StatementCaptureSubscriber::onStatement()` must never throw.** It runs inside
@@ -251,18 +390,30 @@ Do not "fix" these without measuring first.
   answering 302 - or whoever controls the DNS for it - would otherwise choose where a signed payload
   describing this site's history is posted next, and the operator who approved the subscription never
   saw that address. `allow_redirects => false` on every delivery.
-- **A toolbar item renders on every admin page, so its whole body is inside the guard.** Reading the
-  commit index is cheap and safe; building the telemetry pass reads settings and can refuse on a site
-  that has not finished setting up, and that half was outside the try until 1.0.2.
+- **A toolbar item renders on every admin page, so its whole body is inside the guard.** 1.0.2 moved
+  the label inside and left `Toolbar::item()` itself outside, where `Url::fromRoute()` raises on a
+  route the router no longer knows. `Hook\Toolbar::build()` is the guarded body; `item()` is the
+  try/catch around it. `StrataBlockBase::build()` had the same shape - its detail URL was built
+  outside the try that already wrapped the rows.
+- **`StatusController::page()` is guarded as a whole, on top of its sections.** It is the landing
+  page for the report section and the first thing a fresh install opens, so it is the last page that
+  may white-screen. `requirements()` and `links()` were the two unguarded halves.
+- **`strata_requirements()` renders `/admin/reports/status` for the whole site, so one row raising
+  is every other module's row gone.** The storage row is the only one that touches the network and
+  the only one built from submodule code; it has its own try/catch, and its Error branch names what
+  could not be checked rather than disappearing.
 - **`ArchiveImporter` verifies only content-addressed keys.** `frames/`, `packs/`, `commits/` and
   `bases/` are checked against the digest in their own key; `refs/`, `segments/` and `dictionaries/`
   are written as given, and the exporter includes `refs/heads/main`. So importing an archive moves
-  this site's trunk to whatever the archive says. That is gated by the restricted
-  `import strata archive` permission and by `--apply` being off by default, and it is a deliberate
-  posture rather than an oversight - but it is the one place where an operator action trusts a file's
-  contents, and anything widening who may import has to revisit it. Path traversal is closed
-  separately: `ObjectKeys::resolve()` and `LocalStorage` both refuse `..`, `.`, an empty segment and a
-  null byte by name.
+  this site's trunk to whatever the archive says. **What gates it is `--apply` being off by default
+  and the archive path being reachable from Drush alone.** It carried a `restrict access` permission
+  until 1.0.3 and that permission gated nothing - no route, form or command read it - so it was
+  removed rather than left describing an authorisation the module does not perform. Drush is trusted
+  here the way it is everywhere else in this module: it runs as uid 0 unless `--user` is passed, and
+  no command checks a permission. Anything that puts an import behind a browser has to bring the
+  permission back with it and revisit this whole entry. Path traversal is closed separately:
+  `ObjectKeys::resolve()` and `LocalStorage` both refuse `..`, `.`, an empty segment and a null byte
+  by name.
 
 ## Core Behaviour Worth Knowing
 
@@ -387,7 +538,12 @@ explanation in `hook_help`, which returns a render array of short sentences for 
   one.
 - **A new Drush command**: a method on one of the four command classes in `src/Drush/Commands/` with
   at least one `#[CLI\Usage]`. A test asserts every command name is declared exactly once and carries
-  a usage example.
+  a usage example, and the count in `DrushCommandTest`, `README.md` and the table above all move
+  together.
+- **A setup step**: an entry in `StatusController::setup()` that links somewhere the reader can act,
+  and the matching sentence in `Hook\Help`'s `help.page.strata` list. A step whose `url` is empty
+  renders as plain text, which is the right degradation for an account that may not follow it and the
+  wrong one for a step nobody can complete - the last step was the second of those until 1.0.3.
 
 ## Git
 

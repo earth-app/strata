@@ -58,7 +58,7 @@ drush strata:calibrate
     - Configuration branches & three-way merges
     - A forced snapshot before anything is written
 - **Operations**
-    - 27 Drush commands
+    - 28 Drush commands
     - Timeline, diff viewer, graphs, storage explorer & a health dashboard
     - Mail, webhook & OpenTelemetry outputs
     - Budget guards with a cost estimator
@@ -113,20 +113,47 @@ and `composer.lock` as the reference for everything in `vendor/`. The whole code
 | `ext-redis`  | Optional. Backs the journal with a stream instead of a table |
 | `drupal/key` | Required. Holds the encryption key                           |
 
-Without `ext-zstd`, Strata uses the `zstd` binary through one long-lived pipe when it is on `PATH`.
-Failing that it deflates against a preset dictionary through `ext-zlib`, which is already required,
-so delta coding keeps working on a stock VPS with nothing installed. Plain gzip is the last resort,
-and at 8 KiB frames it costs 76% more stored bytes than zstd with a dictionary.
+Where an extension is missing, Strata looks for the matching binary on `PATH` and uses it for reading
+frames, compaction, dictionary training and export. `zstd` and `brotli` are both covered, so a bucket
+written on a host with `ext-brotli` stays readable on a host without it. A binary is never chosen for
+the flush path: a process spawn costs about 5.9 ms against sub-millisecond compression.
+
+That leaves the flush path on a host with neither extension deflating against a preset dictionary
+through `ext-zlib`, which is already required, so delta coding keeps working on a stock VPS with
+nothing installed. Plain gzip is the last resort, and at 8 KiB frames it costs 76% more stored bytes
+than zstd with a dictionary.
 
 ## 🚀 Installation
 
 ```bash
 composer require earth-app/strata
-drush en strata -y
+drush en strata strata_ui -y
 ```
 
-Choose a storage provider and an encryption key at
-`/admin/config/system/strata/storage`, then confirm what the host can do:
+Strata ships doing nothing. Four steps turn it on, in this order.
+
+1. At `/admin/config/system/strata/storage`, press **Generate a Key**. It creates a key of the right
+   length and selects it. To skip encryption instead, set the cipher to `none`, which stores frames
+   in the clear.
+2. On the same page, choose where backups go and tick **Capture is On**. A remote provider needs its
+   own submodule enabled first.
+3. At `/admin/config/system/strata/capture`, choose what is watched. The defaults suit most sites.
+4. Seal the first window, either by letting cron run or from `/admin/config/system/strata/flush`.
+
+The same four steps from a shell:
+
+```bash
+drush strata:new-key
+drush cset strata.settings enabled 1 -y
+drush strata:flush
+```
+
+A generated key is stored in this site's configuration, so a configuration export carries it. Keep a
+copy somewhere the site itself cannot lose. To hold it outside configuration, point the key entity at
+the `file` or `env` provider at `/admin/config/system/keys`.
+
+`/admin/reports/strata` then says whether the site is backed up right now, and
+`/admin/reports/status` carries the same checks. Confirm what the host can do:
 
 ```bash
 drush strata:status
@@ -211,18 +238,19 @@ drush strata:branch release-12   # cut a config branch
 drush strata:merge release-12    # three-way merge it back
 drush strata:reindex             # rebuild the local index from the bucket
 drush strata:reindex --adopt-ref # recover a history whose ref was deleted
+drush strata:new-key             # create a key, select it, retire the one it replaces
 drush strata:rotate-key          # re-seal what still opens under a retired key
 drush strata:tiers               # which bucket holds what, and what a restore needs
 ```
 
-Twenty-seven commands in total, and `drush list --filter=strata` shows them all. `strata:restore`,
+Twenty-eight commands in total, and `drush list --filter=strata` shows them all. `strata:restore`,
 `strata:rollback`, `strata:prune`, `strata:import`, `strata:merge` and `strata:rotate-key` all take
 `--dry-run` and print their manifest before asking. `strata:verify` reads every frame back by default,
 and `--shallow` checks the index without the bytes.
 
 ## 📊 Reports
 
-`strata_ui` adds six pages under `/admin/reports/strata/` and `/admin/config/system/strata/`.
+`strata_ui` adds seven pages under `/admin/reports/strata/` and `/admin/config/system/strata/`.
 
 **Status.** Whether the site is backed up right now: how much captured work would be lost if the host
 died, when the last commit was sealed, what is stored, and the same checks Drupal's own status report
@@ -244,6 +272,10 @@ dictionary by frames elsewhere, so a removal is priced by what would become unre
 
 **Health dashboard.** Open findings by severity, the repair rung each sits on, and what the last
 restore drill proved.
+
+**Seal now.** Writes whatever is captured but not yet stored, as one commit, without waiting for
+cron. It is the last step of a first install, and the page a site with no working cron uses instead of
+a shell.
 
 The pages need no JavaScript. Wheel-zoom and drag-pan are added when scripting is available, and
 every navigation is also a link. Colours are taken from the admin theme's own tokens, so the pages
@@ -381,18 +413,27 @@ key rotated mid-flush, shifted files, vendor drift, unclassified growth and wate
 
 Findings go to a ledger with a bounded context column and are put on a repair ladder:
 
-| Rung         | Does                                                         | Automatic     |
-| ------------ | ------------------------------------------------------------ | ------------- |
-| `observe`    | Records only                                                 | yes           |
-| `reindex`    | Rebuilds the local index from the bucket                     | yes           |
-| `refetch`    | Re-downloads and re-verifies an object                       | yes           |
-| `rebuild`    | Regenerates a derived object from what survives              | yes           |
-| `quarantine` | Removes a commit from the restore targets, keeping its bytes | **no, human** |
-| `refuse`     | Blocks the restore entirely                                  | **no, human** |
+| Rung         | Does                                                          | Automatic     |
+| ------------ | ------------------------------------------------------------- | ------------- |
+| `observe`    | Records only                                                  | yes           |
+| `reindex`    | Rebuilds the local index from the bucket                      | yes           |
+| `refetch`    | Re-reads and re-checks every referenced object                | yes           |
+| `rebuild`    | Re-reads as `refetch` does, after `refetch` did not settle it | yes           |
+| `quarantine` | Removes a commit from the restore targets, keeping its bytes  | **no, human** |
+| `refuse`     | Blocks the restore entirely                                   | **no, human** |
 
-Automatic repair is gated by a circuit breaker keyed on the finding code, so a persistent fault
-escalates rather than looping. Anything that removes a restore target or blocks a restore is a
-decision for a person.
+The automatic rungs run on cron while `health.auto_repair` is on, and by hand through
+`drush strata:heal <code> --apply`. A rung's pass runs once however many codes name it, and open
+findings for a code are cleared before its pass rather than after, so the ledger shows the newest
+sweep instead of a running total. A pass that raises moves its code one rung up; from `rebuild` that
+reaches `quarantine`, which stops the retries and hands the code to a person. Inside a single run a
+circuit breaker keyed on the finding code stops a code that has failed three times. Anything that
+removes a restore target or blocks a restore is a decision for a person.
+
+Not every fault has an automatic repair, and those are recorded rather than retried. A statement tap
+that switched itself off and a compression codec the host no longer has both land at `observe` with a
+finding naming what a person has to do, because no pass on the ladder installs an extension or
+restarts a request.
 
 **Nothing invents data.** A preflight classifies every subject as `restorable`, `degraded` or
 `unrestorable`. A degraded subject is skipped by default, listed in the manifest and recorded in the
@@ -413,7 +454,7 @@ radii, so the check is per realm and a plan spanning three realms needs all thre
 | `view strata timeline`     | When the site changed and who changed it    |
 | `view strata diffs`        | Which fields changed between two points     |
 | `view strata payloads`     | The stored values themselves                |
-| `view strata health`       | Findings, rungs and circuit-breaker state   |
+| `view strata health`       | Findings, rungs and what a drill proved     |
 | `rollback strata content`  | Restore entities                            |
 | `rollback strata config`   | Restore configuration                       |
 | `rollback strata database` | Replace whole table contents                |
@@ -557,6 +598,41 @@ file capture would spend 5.9 hours of CPU in the chunker alone. Fixed 16 KiB fra
 at 683 MB/s, and an append-only operation log has no shifted content for chunking to find. What
 chunking was meant to buy - not re-storing a value because part of it moved - is bought instead by
 `zstd -D` against the previous version, at 63.70x on the rewrite class and at zstd speed.
+
+### I just installed `ext-zstd`. Where is the button that makes Strata notice?
+
+**Quick answer.** There isn't one, because nothing caches the answer. Restart PHP and the next page
+load already reports zstd. A binary appearing on `PATH` needs no restart at all.
+
+**Technical answer.** `CodecRegistry::withShippedCodecs()` is constructed per request and each codec
+answers `isAvailable()` from the host: `extension_loaded()` for an extension, a `PATH` walk for a
+binary. Nothing is written to state, config or the cache bin, so there is nothing stale to clear. The
+status report row, the settings form's codec list and `/admin/config/system/strata/calibrate` all read
+that same live registry, and every Strata report page carries `max-age: 0`. The two probes differ in
+when they see a change: `extension_loaded()` describes the process that is already running, so an
+extension installed under php-fpm is invisible until the pool restarts, while `is_executable()` is a
+filesystem call and sees a new binary immediately.
+
+A pinned choice does not move on its own. Compression set to a specific codec stays on that codec,
+and if the host later loses it, `Engine::codecs()` falls back to the best available writer, records a
+`codec.pin_unavailable` finding and says so on the status report. Frames written under the old codec
+still read back; only new writes move.
+
+### How do I change the encryption key without losing what the old one sealed?
+
+**Quick answer.** Press **Replace With a New Key**, or run `drush strata:new-key`. Both retire the old
+key rather than dropping it. Then run `drush strata:rotate-key` until it reports the rotation
+complete.
+
+**Technical answer.** A rotation is a state the store is in, not an event. `KeyRing` holds one active
+key and any number of retired ones, and `RotatingCipher` seals with the active key while opening with
+whichever one works, so the store stays readable from the moment the new key is configured.
+`KeyRotation::run()` is the bounded pass that ends that state: it re-seals frames that still open
+under a retired key, and because a frame is addressed by its decoded bytes, re-sealing writes the same
+address and nothing that references the frame has to change. `measure()` reports `complete` when
+nothing sampled still needs a retired key, and only then is the old key safe to delete. Removing it
+earlier makes every frame still sealed under it unreadable, and nothing afterwards can tell that apart
+from corruption.
 
 ## 🧪 Development
 
