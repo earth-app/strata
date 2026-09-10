@@ -131,6 +131,33 @@ abstract class StrataFunctionalTestBase extends BrowserTestBase
 	}
 
 	/**
+	 * Creates a usable encryption key and points the module at it.
+	 *
+	 * `configure()` turns encryption off, because most of this lane is about something else and a
+	 * site with no key cannot assemble the engine at all. A test about what a fully configured site
+	 * reports needs the other state.
+	 *
+	 * @param string $id
+	 *   The key entity machine name.
+	 */
+	protected function encryptWith(string $id = 'strata_functional'): void
+	{
+		$this->container
+			->get('entity_type.manager')
+			->getStorage('key')
+			->create([
+				'id' => $id,
+				'label' => $id,
+				'key_type' => 'authentication',
+				'key_provider' => 'config',
+				'key_provider_settings' => ['key_value' => str_repeat('s', 32)],
+			])
+			->save();
+
+		$this->configure(['cipher.id' => 'xchacha20poly1305', 'key' => $id]);
+	}
+
+	/**
 	 * Rebuilds the capture scope and the engine after a settings change.
 	 *
 	 * The engine caches the provider, the cipher and the object store on first use, so a test that

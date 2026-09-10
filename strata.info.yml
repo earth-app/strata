@@ -8,4 +8,4 @@ configure: strata.settings.storage
 dependencies:
   - drupal:system
   - drupal:user
-  - drupal:key
+  - key:key
