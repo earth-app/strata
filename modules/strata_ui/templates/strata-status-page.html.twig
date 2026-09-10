@@ -11,6 +11,7 @@
  * - figures: the cards saying how much work is protected.
  * - findings: how many codes are open at each severity.
  * - drill: what the newest restore drill proved.
+ * - setup: the ordered setup steps, empty once every one of them is done.
  * - links: where to go next.
  * - unavailable: why the local indexes could not be read, when they could not.
  *
@@ -20,10 +21,24 @@
 <div class="strata strata-overview">
 	<p class="strata-banner strata-banner--{{ severity }}">{{ verdict }}</p>
 
-	{% if not capturing %}
-		<p class="strata-note">
-			{{ 'Turn capture on at Strata Storage settings once a provider and a key are chosen.'|t }}
-		</p>
+	{% if setup is not empty %}
+		<section class="strata-section strata-setup">
+			<h3 class="strata-section__title">{{ 'Getting Started'|t }}</h3>
+			<ol class="strata-setup__steps">
+				{% for step in setup %}
+					<li class="strata-setup__step strata-setup__step--{{ step.done ? 'done' : 'todo' }}">
+						<span class="strata-setup__title">
+							{% if step.url and not step.done %}
+								<a href="{{ step.url }}">{{ step.title }}</a>
+							{% else %}
+								{{ step.title }}
+							{% endif %}
+						</span>
+						<span class="strata-setup__detail">{{ step.detail }}</span>
+					</li>
+				{% endfor %}
+			</ol>
+		</section>
 	{% endif %}
 
 	{% if unavailable %}
@@ -97,7 +112,7 @@
 			</p>
 		{% else %}
 			<p class="strata-empty">
-				{{ 'No restore drill has run, so that the backups restore is a claim rather than a measurement.'|t }}
+				{{ 'Nothing has proved a restore works here yet. Run a drill to turn that claim into a measurement.'|t }}
 			</p>
 		{% endif %}
 	</section>

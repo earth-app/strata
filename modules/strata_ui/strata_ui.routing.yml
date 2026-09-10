@@ -166,6 +166,16 @@ strata_ui.prune:
   options:
     _admin_route: TRUE
 
+strata_ui.flush:
+  path: '/admin/config/system/strata/flush'
+  defaults:
+    _form: Drupal\strata_ui\Form\FlushConfirmForm
+    _title: 'Seal the Current Window'
+  requirements:
+    _permission: 'create strata snapshot'
+  options:
+    _admin_route: TRUE
+
 strata_ui.repair:
   path: '/admin/reports/strata/repair/{code}'
   defaults:

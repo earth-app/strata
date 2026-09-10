@@ -134,25 +134,14 @@ final class Help
 					'How that one field is treated moves the total more than site size.',
 				),
 			],
-			'strata.settings.capture' => [
+			'strata_ui.flush' => [
 				(string) $this->t(
-					'Statement capture costs under 10 microseconds a mutation, measured.',
+					'Sealing writes what is captured; it never reads the site again.',
 				),
+				(string) $this->t('Cron does the same thing whenever a flush bound is reached.'),
 				(string) $this->t(
-					'That is about 0.6 milliseconds on a request making 200 queries.',
+					'One commit has to exist before any report has anything to show.',
 				),
-				(string) $this->t(
-					'It is the only source that costs anything when nothing changes.',
-				),
-				(string) $this->t('Run drush strata:calibrate for this host own numbers.'),
-			],
-			'strata.settings.retention' => [
-				(string) $this->t('The anchor interval decides how much work a restore does.'),
-				(string) $this->t(
-					'It is a weak lever on stored bytes: the two effects largely cancel.',
-				),
-				(string) $this->t('Collapse gains almost nothing below the day level.'),
-				(string) $this->t('What compaction buys at fine levels is denser compression.'),
 			],
 			default => [],
 		};
