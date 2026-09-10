@@ -112,6 +112,7 @@ final class Theme
 					'figures' => [],
 					'findings' => [],
 					'drill' => [],
+					'setup' => [],
 					'links' => [],
 					'unavailable' => '',
 				],
