@@ -6,8 +6,10 @@ namespace Drupal\strata\Drush\Commands;
 
 use Consolidation\OutputFormatters\StructuredData\PropertyList;
 use Consolidation\OutputFormatters\StructuredData\RowsOfFields;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\strata\Compaction\Compactor;
 use Drupal\strata\Compaction\PruneReceipt;
+use Drupal\strata\Crypto\KeyMaker;
 use Drupal\strata\Crypto\KeyRotation;
 use Drupal\strata\Engine;
 use Drupal\strata\Tree\RefStore;
@@ -41,9 +43,16 @@ final class StrataMaintenanceCommands extends DrushCommands
 	 *
 	 * @param Engine $engine
 	 *   Builds the compactor, the reachability set and the passes over them.
+	 * @param KeyMaker $keyMaker
+	 *   Creates the key entity `strata:new-key` selects.
+	 * @param ConfigFactoryInterface $configFactory
+	 *   Holds which key is current and which are retired.
 	 */
-	public function __construct(private readonly Engine $engine)
-	{
+	public function __construct(
+		private readonly Engine $engine,
+		private readonly KeyMaker $keyMaker,
+		private readonly ConfigFactoryInterface $configFactory,
+	) {
 		parent::__construct();
 	}
 
@@ -215,6 +224,87 @@ final class StrataMaintenanceCommands extends DrushCommands
 			'deepest' => $result['deepest'],
 			'saved' => self::bytes($result['saved']),
 			'problems' => count($result['problems']),
+		]);
+	}
+
+	/**
+	 * Creates an encryption key, selects it, and retires the one it displaced.
+	 *
+	 * Encryption ships on with no key, so a fresh install refuses every flush until somebody creates
+	 * a key entity of the right type and length in another module. This is that, in one command.
+	 *
+	 * Retiring the outgoing key is not optional and there is no flag to skip it: everything sealed
+	 * before this moment stays readable only while the key that sealed it is on the ring, and a store
+	 * whose key was dropped is indistinguishable from a corrupt one. `strata:rotate-key` is the pass
+	 * that ends that state, and it reports when the old key is safe to remove.
+	 *
+	 * @param array<string, mixed> $options
+	 *   Command options.
+	 *
+	 * @return PropertyList
+	 *   What was created and what was retired.
+	 */
+	#[CLI\Command(name: 'strata:new-key', aliases: ['strata-new-key'])]
+	#[CLI\Option(name: 'id', description: 'Machine name for the key; a suffix is added if taken.')]
+	#[
+		CLI\Usage(
+			name: 'drush strata:new-key',
+			description: 'Give a fresh install the key it needs before its first flush.',
+		),
+	]
+	#[
+		CLI\Usage(
+			name: 'drush strata:new-key --id=backup_2027',
+			description: 'Roll over to a new key, keeping the old one readable.',
+		),
+	]
+	#[
+		CLI\FieldLabels(
+			labels: [
+				'key' => 'Key Created',
+				'retired' => 'Key Retired',
+				'next' => 'Next',
+			],
+		),
+	]
+	#[CLI\Format(listDelimiter: ':', tableStyle: 'compact')]
+	public function newKey(array $options = ['id' => KeyMaker::DEFAULT_ID]): PropertyList
+	{
+		$settings = $this->configFactory->getEditable('strata.settings');
+		$previous = trim((string) $settings->get('key'));
+		$id = $this->keyMaker->create(
+			(string) (self::value($options, 'id') ?? KeyMaker::DEFAULT_ID),
+		);
+
+		$settings->set('key', $id);
+
+		if ($previous !== '' && $previous !== $id) {
+			/** @var list<string> $retired */
+			$retired = $settings->get('retired_keys') ?? [];
+			$settings->set('retired_keys', array_values(array_unique([...$retired, $previous])));
+		}
+
+		$settings->save();
+		$this->engine->reset();
+
+		$this->announce(true, sprintf('created %s and pointed strata.settings at it', $id));
+		$this->prose()->warning(
+			'The value lives in this site configuration, so a configuration export carries it.',
+		);
+
+		if ($previous !== '') {
+			$this->prose()->warning(
+				sprintf(
+					'Keep key %s configured until strata:rotate-key reports complete.',
+					$previous,
+				),
+			);
+		}
+
+		return new PropertyList([
+			'key' => $id,
+			'retired' => $previous === '' ? 'none' : $previous,
+			'next' => $previous === '' ? 'drush strata:flush' : 'drush strata:rotate-key',
 		]);
 	}
 

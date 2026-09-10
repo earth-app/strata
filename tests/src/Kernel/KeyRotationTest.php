@@ -293,6 +293,67 @@ class KeyRotationTest extends StrataKernelTestBase
 
 	#endregion
 
+	#region Making One
+
+	#[Test]
+	#[
+		TestDox(
+			'a generated key holds bytes the cipher accepts, with nothing for a human to get right',
+		),
+	]
+	#[Group('strata/crypto')]
+	public function aGeneratedKeyIsUsable(): void
+	{
+		$maker = $this->container->get('strata.key_maker');
+
+		$this->assertTrue($maker->available());
+
+		$id = $maker->create();
+		$value = (string) $this->container->get('key.repository')->getKey($id)?->getKeyValue();
+
+		$this->assertSame(KeyProviderInterface::KEY_BYTES, strlen($value));
+
+		// built exactly as Engine builds it, so this fails if the two ever disagree about the rule
+		$provider = new StaticKeyProvider($value);
+
+		$this->assertSame($value, $provider->key());
+	}
+
+	#[Test]
+	#[TestDox('a second key is a second key, since overwriting one would strand what it sealed')]
+	#[Group('strata/crypto')]
+	public function makingTwoKeysMakesTwoKeys(): void
+	{
+		$maker = $this->container->get('strata.key_maker');
+		$repository = $this->container->get('key.repository');
+
+		$first = $maker->create();
+		$second = $maker->create();
+
+		$this->assertNotSame($first, $second);
+		$this->assertNotSame(
+			(string) $repository->getKey($first)?->getKeyValue(),
+			(string) $repository->getKey($second)?->getKeyValue(),
+			'a rollover that reused the value would seal nothing new',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a generated key seals and opens a real frame end to end')]
+	#[Group('strata/crypto')]
+	public function aGeneratedKeySealsAFrame(): void
+	{
+		$id = $this->container->get('strata.key_maker')->create();
+		$value = (string) $this->container->get('key.repository')->getKey($id)?->getKeyValue();
+		$cipher = new XChaCha20Poly1305Cipher((new StaticKeyProvider($value))->key());
+
+		$sealed = $cipher->seal('the site as it was', 'frames/test');
+
+		$this->assertSame('the site as it was', $cipher->open($sealed, 'frames/test'));
+	}
+
+	#endregion
+
 	#region Fixtures
 
 	/**

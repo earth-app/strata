@@ -46,6 +46,13 @@ services:
   Drupal\strata\Capture\CaptureScope:
     alias: strata.capture_scope
 
+  strata.key_maker:
+    class: Drupal\strata\Crypto\KeyMaker
+    arguments: ['@entity_type.manager']
+
+  Drupal\strata\Crypto\KeyMaker:
+    alias: strata.key_maker
+
   strata.site:
     class: Drupal\strata\Site\SiteContext
     arguments: ['@config.factory', '@database']
@@ -89,6 +96,7 @@ services:
       - '@strata.capture_scope'
       - '@current_user'
       - '@logger.channel.strata'
+      - '@strata.health_ledger'
     tags:
       - { name: event_subscriber }
 

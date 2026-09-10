@@ -100,6 +100,7 @@ class DrushCommandTest extends StrataKernelTestBase
 			'strata:quarantine',
 			'strata:train-dict',
 			'strata:reanchor',
+			'strata:new-key',
 			'strata:rotate-key',
 			'strata:tiers',
 			'strata:export',
@@ -177,7 +178,7 @@ class DrushCommandTest extends StrataKernelTestBase
 	}
 
 	#[Test]
-	#[TestDox('the suite declares the 27 commands and nothing else')]
+	#[TestDox('the suite declares the 28 commands and nothing else')]
 	#[Group('strata/drush')]
 	public function theSuiteDeclaresExactlyTheCommandSurface(): void
 	{
