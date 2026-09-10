@@ -61,6 +61,30 @@ final class StaticKeyProvider implements KeyProviderInterface
 	}
 
 	/**
+	 * Builds a provider from whatever a key entity holds.
+	 *
+	 * A stored key is raw bytes or the hex of them, and which one it is has to be decided by looking
+	 * at it. **This is the one place that decides**, because the same ternary was written out in
+	 * `Engine::keyProviderFor()`, in `strata_key_value_requirement()` and on the storage form, and
+	 * three copies of an acceptance rule are how the form comes to accept a key the engine refuses.
+	 *
+	 * @param string $value
+	 *   The stored value.
+	 *
+	 * @return self
+	 *   A provider holding the key.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When the value is neither the right number of raw bytes nor the hex of them.
+	 */
+	public static function fromStored(#[SensitiveParameter] string $value): self
+	{
+		return strlen($value) === self::KEY_BYTES * 2 && ctype_xdigit($value)
+			? self::fromHex($value)
+			: new self($value);
+	}
+
+	/**
 	 * Builds a provider from a hex-encoded key.
 	 *
 	 * @param string $hex
