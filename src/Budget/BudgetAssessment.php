@@ -59,6 +59,33 @@ final class BudgetAssessment implements JsonSerializable
 	) {}
 
 	/**
+	 * The same reading held to a different rung.
+	 *
+	 * The measurement is unchanged; only what the site has agreed to do about it moves. Used to hold
+	 * a measured rung down to the one `budget.action` allows.
+	 *
+	 * @param string $rung
+	 *   The rung to report.
+	 *
+	 * @return self
+	 *   A new reading, since this one is readonly.
+	 */
+	public function withRung(string $rung): self
+	{
+		return $rung === $this->rung
+			? $this
+			: new self(
+				$rung,
+				$this->usedFraction,
+				$this->projectedBytes,
+				$this->projectedDollars,
+				$this->bytesCeiling,
+				$this->dollarsCeiling,
+				$this->reason,
+			);
+	}
+
+	/**
 	 * Whether the projection has passed the ceiling.
 	 *
 	 * The warn rung is under this line: it reports a month heading for the ceiling, not one that

@@ -113,6 +113,7 @@ final class StrataCommands extends DrushCommands
 				'requests-b' => 'Class B Requests, 30d',
 				'request-failures' => 'Failed Requests, 30d',
 				'transferred' => 'Transferred, 30d',
+				'budget' => 'Budget',
 				'findings' => 'Open Findings',
 			],
 		),
@@ -147,6 +148,7 @@ final class StrataCommands extends DrushCommands
 			'requests-b' => $traffic['classB'],
 			'request-failures' => $traffic['failures'],
 			'transferred' => self::bytes($traffic['bytes']),
+			'budget' => $this->budget(),
 			'findings' => count($this->ledger->open()),
 		]);
 	}
@@ -475,6 +477,27 @@ final class StrataCommands extends DrushCommands
 	{
 		try {
 			return self::yesNo($this->engine->flusher()->isDue());
+		} catch (Throwable $error) {
+			return $error->getMessage();
+		}
+	}
+
+	/**
+	 * Where the month sits against whichever ceiling is configured.
+	 *
+	 * @return string
+	 *   The rung and the fraction used, or a note that no ceiling is set.
+	 */
+	private function budget(): string
+	{
+		try {
+			$assessment = $this->engine->budgetAssessment();
+
+			if ($assessment->bytesCeiling < 1 && $assessment->dollarsCeiling <= 0.0) {
+				return 'no ceiling set';
+			}
+
+			return $assessment->summary();
 		} catch (Throwable $error) {
 			return $error->getMessage();
 		}

@@ -130,6 +130,34 @@ final class EscalationLadder
 	}
 
 	/**
+	 * The measured rung, held to the highest one the site allows.
+	 *
+	 * `budget.action` is what the operator chose to happen at the ceiling, and the thresholds above
+	 * are what the overspend measures. Without this the two disagree: a site that asked for Warn Only
+	 * has its capture stopped at 1.5x, which is the opposite of what it said. So the choice is a
+	 * ceiling on the ladder rather than a separate setting.
+	 *
+	 * @param string $measured
+	 *   The rung EscalationLadder::rungFor() returned.
+	 * @param string $allowed
+	 *   The highest rung configuration permits. A value not on the ladder allows everything, since
+	 *   refusing to act on an unreadable setting would mean ignoring a real overspend.
+	 *
+	 * @return string
+	 *   Whichever of the two is lower.
+	 */
+	public static function cap(string $measured, string $allowed): string
+	{
+		$ceiling = self::rank($allowed);
+
+		if ($ceiling === self::UNRANKED) {
+			return $measured;
+		}
+
+		return self::rank($measured) > $ceiling ? $allowed : $measured;
+	}
+
+	/**
 	 * One rung up, saturating at the top.
 	 *
 	 * Saturation rather than an exception, because escalation runs on the path where a budget has

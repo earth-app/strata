@@ -10,6 +10,8 @@ use Drupal\strata\Capture\CaptureScope;
 use Drupal\Core\State\StateInterface;
 use Drupal\strata\Anomaly\Anomaly;
 use Drupal\strata\Anomaly\AnomalyDetector;
+use Drupal\strata\Budget\BudgetAssessment;
+use Drupal\strata\Budget\EscalationLadder;
 use Drupal\strata\Capture\Reconciler;
 use Drupal\strata\Code\CodeCapture;
 use Drupal\strata\Drill\DrillReport;
@@ -17,6 +19,9 @@ use Drupal\strata\Drill\DrillRunner;
 use Drupal\strata\Engine;
 use Drupal\strata\Flush\Flusher;
 use Drupal\strata\Flush\Lease;
+use Drupal\strata\Form\SettingsFormBase;
+use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\RepairReport;
 use Drupal\strata\Telemetry\TelemetryPass;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -88,6 +93,11 @@ final class CronCapture
 	public const DICTIONARY_INTERVAL = 604_800;
 
 	/**
+	 * Finding code the budget stage raises and clears.
+	 */
+	public const BUDGET_CODE = 'budget.exceeded';
+
+	/**
 	 * State key holding when the last restore drill ran.
 	 */
 	public const DRILL_KEY = 'strata.drill.ran';
@@ -150,6 +160,8 @@ final class CronCapture
 		);
 		$this->stage('train the dictionaries', fn(): mixed => $this->trainDictionaries());
 		$this->stage('detect anomalies', fn(): mixed => $this->detectAnomalies());
+		$this->stage('assess the budget', fn(): mixed => $this->assessBudget());
+		$this->stage('repair open findings', fn(): mixed => $this->repair());
 		$this->stage('run a restore drill', fn(): mixed => $this->runDrill());
 		$this->stage('export telemetry', fn(): mixed => $this->engine->telemetryPass()->run());
 	}
@@ -167,6 +179,74 @@ final class CronCapture
 		}
 
 		return $this->engine->anomalyDetector()->run();
+	}
+
+	/**
+	 * Prices the month against the ceilings, if any are set.
+	 *
+	 * Skipped outright when neither ceiling is configured, which is the shipped state: reading the
+	 * stat table and the frame index every cron run to price a site against no ceiling is two
+	 * queries for an answer that cannot change anything.
+	 *
+	 * The reading is announced and recorded rather than enforced here. What a rung means is applied
+	 * where the work happens - `EscalationLadder::pausesRealm()` in the capture scope and
+	 * `stopsEverything()` on the flush path - and both read the finding this stage leaves behind.
+	 *
+	 * @return BudgetAssessment|null
+	 *   The reading, or NULL when no ceiling is set.
+	 */
+	private function assessBudget(): ?BudgetAssessment
+	{
+		$settings = $this->configFactory->get(SettingsFormBase::SETTINGS);
+		$bytes = (int) ($settings->get('budget.bytes_per_month') ?? 0);
+		$dollars = (float) ($settings->get('budget.dollars_per_month') ?? 0);
+
+		if ($bytes < 1 && $dollars <= 0.0) {
+			return null;
+		}
+
+		$assessment = $this->engine->budgetAssessment();
+
+		// one scope, so the row updates rather than accumulating one per rung the site passes
+		// through, and so a month that comes back under the ceiling clears exactly what it raised
+		if ($assessment->rung === EscalationLadder::NORMAL) {
+			$this->engine->ledger()->resolve(self::BUDGET_CODE, '');
+
+			return $assessment;
+		}
+
+		$this->engine
+			->ledger()
+			->record(
+				new Finding(
+					self::BUDGET_CODE,
+					$assessment->isOverBudget() ? Finding::WARN : Finding::INFO,
+					'',
+					$assessment->summary(),
+				),
+			);
+		$this->engine->notifier()->budgetBreached($assessment);
+
+		return $assessment;
+	}
+
+	/**
+	 * Runs the repair a finding's rung names, if automatic repair is on.
+	 *
+	 * This is the only unattended caller of the ladder. Every rung it can take reconstructs derived
+	 * state from data that still exists, so the worst case of running one wrongly is wasted work;
+	 * `quarantine` and `refuse` remove a restore target and are refused here by name.
+	 *
+	 * @return RepairReport|null
+	 *   What was repaired, or NULL when the stage is off.
+	 */
+	private function repair(): ?RepairReport
+	{
+		if (!$this->setting('health.auto_repair', true)) {
+			return null;
+		}
+
+		return $this->engine->repairPass()->run();
 	}
 
 	/**

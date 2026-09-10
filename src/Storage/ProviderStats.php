@@ -107,6 +107,50 @@ final class ProviderStats implements JsonSerializable
 	 */
 	private array $peaks = [];
 
+	/**
+	 * Rebuilds a window from figures already accumulated per operation.
+	 *
+	 * The inverse of ProviderStats::byOperation(), for a caller reading a window back out of the
+	 * stat table rather than watching it happen. Replaying ProviderStats::record() once per request
+	 * would be correct and costs a call per request in the window, which for a month of traffic is
+	 * millions of calls to reproduce three totals.
+	 *
+	 * Latency samples are not reproduced, because the table does not hold them. ProviderStats::p95()
+	 * on a rebuilt window therefore reports nothing, while the counts, the volumes and the failures
+	 * are exact.
+	 *
+	 * @param array<string, array{requests?: int, count?: int, bytes?: int, failures?: int, seconds?: float}> $byOperation
+	 *   Operation keyed to its figures, as ProviderStatStore::byOperation() returns them.
+	 *
+	 * @return self
+	 *   The window.
+	 *
+	 * @throws InvalidArgumentException
+	 *   When an operation is not a billed verb.
+	 */
+	public static function fromOperations(array $byOperation): self
+	{
+		$stats = new self();
+
+		foreach ($byOperation as $operation => $figures) {
+			self::assertOperation((string) $operation);
+
+			$count = (int) ($figures['requests'] ?? ($figures['count'] ?? 0));
+
+			if ($count < 1) {
+				continue;
+			}
+
+			$stats->counts[(string) $operation] = $count;
+			$stats->volumes[(string) $operation] = max(0, (int) ($figures['bytes'] ?? 0));
+			$stats->failed[(string) $operation] = max(0, (int) ($figures['failures'] ?? 0));
+			$stats->durations[(string) $operation] = max(0.0, (float) ($figures['seconds'] ?? 0.0));
+			$stats->seconds += $stats->durations[(string) $operation];
+		}
+
+		return $stats;
+	}
+
 	#region Recording
 
 	/**
