@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\strata\Engine;
+use Drupal\strata\Event\RestoreEvent;
+use Drupal\strata\Event\StrataEvents;
 use Drupal\strata\Restore\RestoreAudit;
 use Drupal\strata\Restore\SubjectStatus;
 use Drupal\user\Entity\User;
@@ -576,6 +578,37 @@ class RestoreTest extends StrataKernelTestBase
 		$this->assertSame(RestoreAudit::REFUSED, $rows[0]['outcome']);
 		$this->assertSame(0, (int) $rows[0]['restored']);
 		$this->assertStringContainsString('"refused"', (string) $rows[0]['detail']);
+	}
+
+	#[Test]
+	#[TestDox('every way of starting a restore announces its outcome')]
+	#[Group('strata/restore')]
+	public function everyRestoreEntryPointAnnounces(): void
+	{
+		// StrataEvents::RESTORE_FINISHED had no producer until 1.0.3, and the announcement then went
+		// on apply() alone while restore() and restoreAll() reach the same work by another door
+		$heard = [];
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::RESTORE_FINISHED, static function (
+				RestoreEvent $event,
+			) use (&$heard): void {
+				$heard[] = $event->result;
+			});
+
+		$target = $this->commit();
+		$restore = $this->engine()->logicalRestore();
+
+		$restore->restore($target, ['entity/user:1'], false);
+		$restore->restoreAll($target, false);
+		$restore->apply($this->engine()->preflight()->plan($target), 'all', false);
+
+		$this->assertCount(3, $heard, 'restore(), restoreAll() and apply() each announced once');
+
+		foreach ($heard as $result) {
+			$this->assertSame($target, $result->target);
+		}
 	}
 
 	#[Test]

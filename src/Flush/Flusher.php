@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata\Flush;
 
 use Drupal\strata\Cas\ObjectStore;
+use Drupal\strata\Event\Notifier;
 use Drupal\strata\Journal\FlushPolicy;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\JournalOp;
@@ -82,6 +83,11 @@ final class Flusher
 	 *   Mirrors the commit into the local index, or NULL to write only to the store. The index is a
 	 *   cache over what the bucket already holds, so a flush that cannot reach it has still
 	 *   produced a complete backup and says so.
+	 * @param Notifier|null $notifier
+	 *   Announces a sealed window, or NULL to announce nothing. Optional because a flush is correct
+	 *   without one and this class is constructed directly by several tests.
+	 * @param string $site
+	 *   The site identifier a subscriber needs to tell two sites in one bucket apart.
 	 */
 	public function __construct(
 		private readonly JournalInterface $journal,
@@ -96,6 +102,8 @@ final class Flusher
 		private readonly Lease $lease,
 		private readonly LoggerInterface $logger,
 		private readonly ?CommitIndex $index = null,
+		private readonly ?Notifier $notifier = null,
+		private readonly string $site = '',
 	) {}
 
 	/**
@@ -283,6 +291,10 @@ final class Flusher
 		);
 
 		$this->logger->info('Strata %summary', ['%summary' => $result->summary()]);
+
+		// after the ref has moved and the journal is trimmed, so a subscriber that raises cannot
+		// undo a sealed window; Notifier catches its own dispatch anyway
+		$this->notifier?->commitSealed($result, $this->site);
 
 		return $result;
 	}

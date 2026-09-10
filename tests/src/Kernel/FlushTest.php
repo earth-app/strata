@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\strata\Engine;
+use Drupal\strata\Event\CommitEvent;
+use Drupal\strata\Event\StrataEvents;
 use Drupal\strata\Flush\Lease;
+use Drupal\strata\Health\Finding;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\Realm;
 use Drupal\strata\Tree\CommitIndex;
@@ -195,6 +198,50 @@ class FlushTest extends StrataKernelTestBase
 		$this->assertStringContainsString('entity', $head->label);
 		// a kernel test saves as the anonymous user, so the commit is attributed to nobody
 		$this->assertNull($head->actor);
+	}
+
+	#[Test]
+	#[TestDox('a sealed window announces itself, so a webhook subscription can hear about it')]
+	#[Group('strata/flush')]
+	public function aSealedWindowIsAnnounced(): void
+	{
+		// StrataEvents::COMMIT_SEALED shipped with a constant, an event class, a webhook option and a
+		// notification gate, and no producer at all: nothing called Notifier::commitSealed() until
+		// 1.0.3, so every one of those accepted a configuration that could never fire
+		$heard = [];
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::COMMIT_SEALED, static function (CommitEvent $event) use (
+				&$heard,
+			): void {
+				$heard[] = $event;
+			});
+
+		$this->user('announced');
+
+		$result = $this->engine()->flusher()->flush(true);
+
+		$this->assertTrue($result->ran);
+		$this->assertCount(1, $heard, 'the flush announced the commit it sealed');
+		$this->assertSame($result->commit, $heard[0]->result->commit);
+	}
+
+	#[Test]
+	#[TestDox('a flush that sealed nothing announces nothing')]
+	#[Group('strata/flush')]
+	public function anEmptyWindowIsNotAnnounced(): void
+	{
+		$heard = 0;
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::COMMIT_SEALED, static function () use (&$heard): void {
+				$heard++;
+			});
+
+		$this->assertFalse($this->engine()->flusher()->flush(true)->ran);
+		$this->assertSame(0, $heard);
 	}
 
 	#[Test]
@@ -662,6 +709,57 @@ class FlushTest extends StrataKernelTestBase
 			$this->container->get('lock')->lockMayBeAvailable('cron'),
 			'the cron lock was released',
 		);
+	}
+
+	#[Test]
+	#[TestDox('cron repairs an open finding whose rung an unattended run may take')]
+	#[Group('strata/flush')]
+	public function cronRunsTheRepairPass(): void
+	{
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(new Finding('frame.unindexed', Finding::ERROR, 'frame:a', 'not indexed'));
+
+		$this->assertSame('reindex', $ledger->rungFor('frame.unindexed'));
+
+		$this->container->get('cron')->run();
+
+		$this->assertSame(
+			[],
+			$ledger->open(),
+			'the reindex ran and the finding it answered was cleared',
+		);
+	}
+
+	#[Test]
+	#[TestDox('cron leaves findings alone while automatic repair is switched off')]
+	#[Group('strata/flush')]
+	public function cronSkipsRepairWhenItIsOff(): void
+	{
+		$this->config('strata.settings')->set('health.auto_repair', false)->save();
+		$this->engine()->reset();
+
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(new Finding('frame.unindexed', Finding::ERROR, 'frame:a', 'not indexed'));
+
+		$this->container->get('cron')->run();
+
+		$this->assertCount(1, $ledger->open());
+	}
+
+	#[Test]
+	#[TestDox('cron never takes a rung that removes a restore target')]
+	#[Group('strata/flush')]
+	public function cronLeavesQuarantineToAPerson(): void
+	{
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(new Finding('frame.missing', Finding::CRITICAL, 'frame:a', 'gone'));
+
+		$this->assertSame('quarantine', $ledger->rungFor('frame.missing'));
+
+		$this->container->get('cron')->run();
+
+		$this->assertCount(1, $ledger->open(), 'a critical finding waits for a decision');
+		$this->assertSame('quarantine', $ledger->rungFor('frame.missing'));
 	}
 
 	#[Test]

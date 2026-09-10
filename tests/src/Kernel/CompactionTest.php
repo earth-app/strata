@@ -9,6 +9,8 @@ use Drupal\strata\Cas\Hash;
 use Drupal\strata\Cas\ObjectStore;
 use Drupal\strata\Compaction\Recompressor;
 use Drupal\strata\Engine;
+use Drupal\strata\Event\PruneEvent;
+use Drupal\strata\Event\StrataEvents;
 use Drupal\strata\Tree\BaseManifest;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
@@ -443,6 +445,57 @@ class CompactionTest extends StrataKernelTestBase
 		$this->assertTrue($receipt->isEmpty());
 		$this->assertSame('nothing to prune', $receipt->summary());
 		$this->assertNotEmpty($this->keys('packs/'), 'the bucket is untouched');
+	}
+
+	#[Test]
+	#[TestDox('a prune that refused announces itself, since a refusal is what needs a person')]
+	#[Group('strata/compaction')]
+	public function aRefusedPruneIsAnnounced(): void
+	{
+		// StrataEvents::PRUNE_APPLIED had no producer until 1.0.3, so a site subscribed to it heard
+		// nothing about the operation that destroys restore points
+		$heard = [];
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::PRUNE_APPLIED, static function (PruneEvent $event) use (
+				&$heard,
+			): void {
+				$heard[] = $event;
+			});
+
+		$this->flush('announced');
+
+		$head = $this->engine()->commitLog()->head();
+		$this->assertNotNull($head);
+		$this->engine()
+			->provider()
+			->delete([Hash::key($head->index, BaseManifest::PREFIX)]);
+
+		$receipt = $this->engine()->compactor()->prune(true);
+
+		$this->assertTrue($receipt->wasRefused());
+		$this->assertCount(1, $heard);
+		$this->assertTrue($heard[0]->receipt->wasRefused());
+	}
+
+	#[Test]
+	#[TestDox('a dry run that found nothing announces nothing')]
+	#[Group('strata/compaction')]
+	public function aQuietDryRunIsNotAnnounced(): void
+	{
+		$heard = 0;
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::PRUNE_APPLIED, static function () use (&$heard): void {
+				$heard++;
+			});
+
+		$this->flush('quiet');
+
+		$this->assertTrue($this->engine()->compactor()->prune(false)->isEmpty());
+		$this->assertSame(0, $heard, 'a dry run that removed nothing is not news');
 	}
 
 	#[Test]

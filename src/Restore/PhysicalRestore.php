@@ -8,6 +8,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\strata\Capture\PayloadCodec;
+use Drupal\strata\Event\Notifier;
 use Drupal\strata\Flush\Flusher;
 use Drupal\strata\Journal\Realm;
 use Psr\Log\LoggerInterface;
@@ -72,6 +73,8 @@ final class PhysicalRestore
 	 *   Attributes the restore to whoever ran it.
 	 * @param LoggerInterface $logger
 	 *   Records the outcome.
+	 * @param Notifier|null $notifier
+	 *   Announces the outcome, or NULL to announce nothing.
 	 */
 	public function __construct(
 		private readonly Connection $database,
@@ -81,6 +84,7 @@ final class PhysicalRestore
 		private readonly StateInterface $state,
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
+		private readonly ?Notifier $notifier = null,
 	) {}
 
 	/**
@@ -279,6 +283,42 @@ final class PhysicalRestore
 		string $strategy = 'truncate',
 		bool $apply = false,
 		bool $acceptRowLoss = false,
+	): RestoreResult {
+		$result = $this->run($table, $target, $strategy, $apply, $acceptRowLoss);
+
+		$this->notifier?->restoreFinished(
+			$result,
+			RestoreAudit::PHYSICAL,
+			Realm::TABLE->value . '/' . $table,
+			$this->actor(),
+		);
+
+		return $result;
+	}
+
+	/**
+	 * The restore itself, before anything is announced.
+	 *
+	 * @param string $table
+	 *   The logical table name.
+	 * @param string $target
+	 *   The commit to restore to.
+	 * @param string $strategy
+	 *   Which strategy writes the rows.
+	 * @param bool $apply
+	 *   FALSE to plan without writing.
+	 * @param bool $acceptRowLoss
+	 *   TRUE to proceed when the table would lose rows.
+	 *
+	 * @return RestoreResult
+	 *   What happened.
+	 */
+	private function run(
+		string $table,
+		string $target,
+		string $strategy,
+		bool $apply,
+		bool $acceptRowLoss,
 	): RestoreResult {
 		$started = microtime(true);
 		$actor = $this->actor();

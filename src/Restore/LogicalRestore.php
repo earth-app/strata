@@ -13,6 +13,7 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\strata\Capture\EntityDelta;
 use Drupal\strata\Capture\PayloadCodec;
+use Drupal\strata\Event\Notifier;
 use Drupal\strata\Flush\Flusher;
 use Drupal\strata\Journal\Realm;
 use Psr\Log\LoggerInterface;
@@ -82,6 +83,8 @@ final class LogicalRestore
 	 *   Attributes the restore to whoever ran it.
 	 * @param LoggerInterface $logger
 	 *   Records the outcome.
+	 * @param Notifier|null $notifier
+	 *   Announces the outcome, or NULL to announce nothing.
 	 */
 	public function __construct(
 		private readonly Preflight $preflight,
@@ -94,6 +97,7 @@ final class LogicalRestore
 		private readonly KeyValueFactoryInterface $keyValue,
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
+		private readonly ?Notifier $notifier = null,
 	) {}
 
 	#region Applying
@@ -185,6 +189,31 @@ final class LogicalRestore
 	 *   The result.
 	 */
 	private function run(RestorePlan $plan, string $scope, bool $apply): RestoreResult
+	{
+		$result = $this->attempt($plan, $scope, $apply);
+
+		// announced here rather than in the three public entry points above, because all three come
+		// through this method and one of them being missed is how nothing announced anything at all.
+		// refusals included: a restore that refused is what an operator most needs told
+		$this->notifier?->restoreFinished($result, RestoreAudit::LOGICAL, $scope, $this->actor());
+
+		return $result;
+	}
+
+	/**
+	 * The restore itself, before anything is announced.
+	 *
+	 * @param RestorePlan $plan
+	 *   The plan.
+	 * @param string $scope
+	 *   What the restore was scoped to.
+	 * @param bool $apply
+	 *   FALSE to record without writing.
+	 *
+	 * @return RestoreResult
+	 *   The result.
+	 */
+	private function attempt(RestorePlan $plan, string $scope, bool $apply): RestoreResult
 	{
 		$started = microtime(true);
 		$actor = $this->actor();

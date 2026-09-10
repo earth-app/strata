@@ -10,6 +10,7 @@ use Drupal\strata\Cas\Hash;
 use Drupal\strata\Cas\ObjectStore;
 use Drupal\strata\Cas\PackIndex;
 use Drupal\strata\Delta\Reanchorer;
+use Drupal\strata\Event\Notifier;
 use Drupal\strata\Flush\Lease;
 use Drupal\strata\Storage\StorageProviderInterface;
 use Drupal\strata\Tier\PlacementIndexInterface;
@@ -84,6 +85,8 @@ final class Compactor
 	 *   Where each object lives, or NULL when there is only one place it could be. Used to keep the
 	 *   recompression on the nearest tier: a cold pack was densified on its way out, and reading it
 	 *   again every pass would spend class-B requests in the bucket the tiering exists to keep quiet.
+	 * @param Notifier|null $notifier
+	 *   Announces a prune that removed something or refused, or NULL to announce nothing.
 	 */
 	public function __construct(
 		private readonly StorageProviderInterface $provider,
@@ -97,6 +100,7 @@ final class Compactor
 		private readonly ?Rollup $rollup = null,
 		private readonly ?TierMigrator $migrator = null,
 		private readonly ?PlacementIndexInterface $placement = null,
+		private readonly ?Notifier $notifier = null,
 	) {}
 
 	#region Passes
@@ -188,6 +192,28 @@ final class Compactor
 	 *   What was removed, what was held back, and why.
 	 */
 	public function prune(bool $apply = false, int $limit = 1000): PruneReceipt
+	{
+		$receipt = $this->collect($apply, $limit);
+
+		// Notifier::pruneApplied() drops a dry run that was not refused, so every exit is passed
+		// here rather than gated at each of the three returns below
+		$this->notifier?->pruneApplied($receipt);
+
+		return $receipt;
+	}
+
+	/**
+	 * The prune itself, before anything is announced.
+	 *
+	 * @param bool $apply
+	 *   FALSE to report what would be removed without removing it.
+	 * @param int $limit
+	 *   Most orphan candidates to consider.
+	 *
+	 * @return PruneReceipt
+	 *   The receipt.
+	 */
+	private function collect(bool $apply, int $limit): PruneReceipt
 	{
 		$started = microtime(true);
 
