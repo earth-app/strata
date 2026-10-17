@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata\Anomaly;
 
 use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\RepairLadder;
 use JsonSerializable;
 
 /**
@@ -65,22 +66,20 @@ final class Anomaly implements JsonSerializable
 	/**
 	 * How severe this departure is.
 	 *
-	 * A departure is a symptom and never a fault on its own, so it tops out at ERROR: a site that
-	 * doubled its traffic is not corrupt, and a detector that could raise CRITICAL would put the
-	 * repair ladder straight onto the quarantine rung for a busy Tuesday.
+	 * A departure is a symptom and never a fault on its own, so it tops out at WARN. The ledger
+	 * starts a finding at ERROR on the reindex rung, which `RepairPass` runs unattended and which
+	 * reads every pack in the bucket; a busy afternoon is no reason to spend that.
 	 *
 	 * @return int
-	 *   INFO, WARN or ERROR.
+	 *   INFO or WARN.
+	 *
+	 * @see RepairLadder::initialRung()
 	 */
 	public function severity(): int
 	{
-		$magnitude = abs($this->deviations);
-
-		return match (true) {
-			$magnitude >= AnomalyDetector::ERROR_SIGMA => Finding::ERROR,
-			$magnitude >= AnomalyDetector::WARN_SIGMA => Finding::WARN,
-			default => Finding::INFO,
-		};
+		return abs($this->deviations) >= AnomalyDetector::WARN_SIGMA
+			? Finding::WARN
+			: Finding::INFO;
 	}
 
 	/**

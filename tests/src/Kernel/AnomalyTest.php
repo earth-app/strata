@@ -11,6 +11,7 @@ use Drupal\strata\Anomaly\Series;
 use Drupal\strata\Engine;
 use Drupal\strata\Health\Finding;
 use Drupal\strata\Health\HealthLedgerInterface;
+use Drupal\strata\Health\RepairLadder;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -319,16 +320,33 @@ class AnomalyTest extends StrataKernelTestBase
 		$this->assertCount(1, $anomalies, 'only the metric with a history departed');
 		$this->assertSame('stored_bytes', $anomalies[0]->metric);
 		$this->assertSame('below', $anomalies[0]->direction());
-		$this->assertSame(Finding::ERROR, $anomalies[0]->severity());
-		$this->assertGreaterThan(AnomalyDetector::ERROR_SIGMA, abs($anomalies[0]->deviations));
+		$this->assertSame(Finding::WARN, $anomalies[0]->severity());
+		$this->assertGreaterThan(AnomalyDetector::WARN_SIGMA, abs($anomalies[0]->deviations));
 		$this->assertSame(Series::MIN_OBSERVATIONS + 2, $anomalies[0]->samples);
 
 		$findings = $this->findings(Anomaly::CODE);
 
 		$this->assertCount(1, $findings);
 		$this->assertSame('stored_bytes', $findings[0]->scope);
-		$this->assertSame(Finding::ERROR, $findings[0]->severity);
+		$this->assertSame(Finding::WARN, $findings[0]->severity);
 		$this->assertSame($anomalies[0]->describe(), $findings[0]->context);
+	}
+
+	#[Test]
+	#[TestDox('an anomaly of any size stays on the observe rung, so cron never repairs for it')]
+	#[Group('strata/anomaly')]
+	public function anAnomalyNeverEarnsARepairRung(): void
+	{
+		$this->seed('stored_bytes', 1_000_000.0, 1_000_001.0);
+
+		$this->assertNotSame([], $this->detector()->run());
+
+		$this->assertSame(RepairLadder::RUNGS[0], $this->ledger()->rungFor(Anomaly::CODE));
+		$this->assertSame(
+			0,
+			$this->engine()->repairPass()->run()->repaired,
+			'the repair pass has nothing to run for an anomaly',
+		);
 	}
 
 	#[Test]
@@ -408,7 +426,7 @@ class AnomalyTest extends StrataKernelTestBase
 		$this->assertSame('below', $anomaly->direction());
 		$this->assertSame('Compression ratio', $anomaly->label);
 		$this->assertSame('x', $anomaly->unit);
-		$this->assertGreaterThan(AnomalyDetector::ERROR_SIGMA, abs($anomaly->deviations));
+		$this->assertGreaterThan(AnomalyDetector::WARN_SIGMA, abs($anomaly->deviations));
 	}
 
 	#[Test]
@@ -467,23 +485,25 @@ class AnomalyTest extends StrataKernelTestBase
 		$baseline = $this->reading();
 		$window = [];
 
-		for ($i = 0; $i < Series::MIN_OBSERVATIONS + 2; $i++) {
+		for ($i = 0; $i < Series::MIN_OBSERVATIONS + 1; $i++) {
 			$reading = $baseline;
 			$reading['at'] = (float) $this->now();
 			$reading['stored_bytes'] = $i % 2 === 0 ? 100.0 : 101.0;
-			$reading['chain_depth'] = $i % 2 === 0 ? 1_000_000.0 : 1_000_001.0;
+			$reading['chain_depth'] = $i % 2 === 0 ? 10.0 : 11.0;
 			$window[] = $reading;
 		}
 
+		// the newest reading is scored against the nine before it, so it is planted rather than sampled
+		$window[] = [...$baseline, 'stored_bytes' => 500.0, 'chain_depth' => 1_000.0];
+
 		$this->container->get('state')->set(MetricSampler::STATE_KEY, $window);
 
-		$anomalies = $this->detector()->run();
+		$anomalies = $this->detector()->current();
 
 		$this->assertCount(2, $anomalies);
 		$this->assertSame('chain_depth', $anomalies[0]->metric);
 		$this->assertSame('stored_bytes', $anomalies[1]->metric);
 		$this->assertGreaterThan(abs($anomalies[1]->deviations), abs($anomalies[0]->deviations));
-		$this->assertCount(2, $this->findings(Anomaly::CODE));
 	}
 
 	#endregion

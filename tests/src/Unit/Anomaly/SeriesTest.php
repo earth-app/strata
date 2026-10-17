@@ -6,8 +6,10 @@ namespace Drupal\Tests\strata\Unit\Anomaly;
 
 use Drupal\strata\Anomaly\Anomaly;
 use Drupal\strata\Anomaly\AnomalyDetector;
+use Drupal\strata\Anomaly\MetricSampler;
 use Drupal\strata\Anomaly\Series;
 use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\RepairLadder;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -23,8 +25,9 @@ use PHPUnit\Framework\TestCase;
  * same size still scores high. The same arithmetic is done with the mean and the standard deviation
  * in the same test, and that pair drops the second outlier below the warning band.
  *
- * The anomaly lane covers the severity boundaries and the ceiling. A departure tops out at ERROR
- * whatever its magnitude, so an unusual number cannot put the repair ladder on the quarantine rung.
+ * The anomaly lane covers the severity boundaries and the ceiling. A departure tops out at WARN
+ * whatever its magnitude, because the ledger starts a repair at ERROR and an unusual number is no
+ * reason to reindex the store.
  */
 #[CoversClass(Series::class)]
 #[CoversClass(Anomaly::class)]
@@ -114,6 +117,121 @@ class SeriesTest extends TestCase
 
 	#endregion
 
+	#region Spread floor
+
+	/**
+	 * Hourly operation rates shaped like a measured production window.
+	 *
+	 * 127 readings from earth-app on 2026-10-17, with a median of 81.43 and a spread under 1.2 on
+	 * the standard-deviation scale.
+	 *
+	 * @return list<float>
+	 */
+	private static function steadyRate(): array
+	{
+		return [
+			...array_fill(0, 40, 80.66),
+			...array_fill(0, 47, 81.43),
+			...array_fill(0, 20, 84.59),
+			...array_fill(0, 20, 79.67),
+		];
+	}
+
+	#[Test]
+	#[TestDox('a steady rate scores a third more traffic as a large departure without a floor')]
+	#[Group('strata/anomaly')]
+	public function aSteadySeriesOverScoresWithoutAFloor(): void
+	{
+		$series = new Series(self::steadyRate());
+
+		$this->assertLessThan(1.2, $series->deviation());
+		$this->assertGreaterThan(2 * AnomalyDetector::WARN_SIGMA, $series->score(109.48));
+	}
+
+	#[Test]
+	#[TestDox('the op rate floor keeps the departures that were reported in production quiet')]
+	#[Group('strata/anomaly')]
+	public function theFloorSilencesTheMeasuredFalseAlarms(): void
+	{
+		$series = new Series(self::steadyRate());
+		$floor = MetricSampler::METRICS['op_rate']['floor'];
+
+		foreach ([104.23, 109.48, 125.8, 143.6] as $observed) {
+			$this->assertLessThan(
+				AnomalyDetector::WARN_SIGMA,
+				abs($series->score($observed, $floor)),
+				(string) $observed,
+			);
+		}
+	}
+
+	#[Test]
+	#[TestDox('the op rate floor still reports a rate that doubled and one that fell away')]
+	#[Group('strata/anomaly')]
+	public function theFloorStillReportsRealDepartures(): void
+	{
+		$series = new Series(self::steadyRate());
+		$floor = MetricSampler::METRICS['op_rate']['floor'];
+		$median = $series->median();
+
+		$this->assertGreaterThanOrEqual(
+			AnomalyDetector::WARN_SIGMA,
+			$series->score($median * 2.0, $floor),
+		);
+		$this->assertLessThanOrEqual(
+			-AnomalyDetector::WARN_SIGMA,
+			$series->score($median * 0.1, $floor),
+		);
+		$this->assertLessThanOrEqual(
+			-AnomalyDetector::WARN_SIGMA,
+			$series->score(0.0, $floor),
+			'capture that stopped',
+		);
+	}
+
+	#[Test]
+	#[TestDox('a floor below the real spread changes nothing')]
+	#[Group('strata/anomaly')]
+	public function aSmallFloorIsIgnored(): void
+	{
+		$series = new Series(self::HISTORY);
+
+		$this->assertSame($series->score(130.0), $series->score(130.0, 0.001));
+	}
+
+	#[Test]
+	#[TestDox('a floor scales a series with no spread at all instead of falling back to 1.0')]
+	#[Group('strata/anomaly')]
+	public function aFloorScalesAFlatSeries(): void
+	{
+		$series = new Series(array_fill(0, 10, 100.0));
+
+		$this->assertSame(1.0, $series->score(200.0));
+		$this->assertSame(4.0, $series->score(200.0, 0.25));
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'every sampled metric has a floor that leaves a fall of the full warning band reachable',
+		),
+	]
+	#[Group('strata/anomaly')]
+	public function everyMetricFloorLeavesAFallReachable(): void
+	{
+		foreach (MetricSampler::METRICS as $metric => $definition) {
+			// a fall is bounded by the median, so a floor above 1 / WARN_SIGMA can never report one
+			$this->assertGreaterThan(0.0, $definition['floor'], $metric);
+			$this->assertLessThanOrEqual(
+				1.0 / AnomalyDetector::WARN_SIGMA,
+				$definition['floor'],
+				$metric,
+			);
+		}
+	}
+
+	#endregion
+
 	#region Outlier resistance
 
 	#[Test]
@@ -128,8 +246,8 @@ class SeriesTest extends TestCase
 		$firstScore = $before->score($outlier);
 		$secondScore = $after->score($outlier);
 
-		$this->assertGreaterThan(AnomalyDetector::ERROR_SIGMA, $firstScore);
-		$this->assertGreaterThan(AnomalyDetector::ERROR_SIGMA, $secondScore);
+		$this->assertGreaterThan(2 * AnomalyDetector::WARN_SIGMA, $firstScore);
+		$this->assertGreaterThan(2 * AnomalyDetector::WARN_SIGMA, $secondScore);
 		$this->assertSame($before->median(), $after->median(), 'the baseline is unmoved');
 		$this->assertSame($before->deviation(), $after->deviation(), 'the spread is unmoved');
 
@@ -137,7 +255,7 @@ class SeriesTest extends TestCase
 		$firstZ = self::zScore(self::HISTORY, $outlier);
 		$secondZ = self::zScore([...self::HISTORY, $outlier], $outlier);
 
-		$this->assertGreaterThan(AnomalyDetector::ERROR_SIGMA, $firstZ);
+		$this->assertGreaterThan(2 * AnomalyDetector::WARN_SIGMA, $firstZ);
 		$this->assertLessThan(AnomalyDetector::WARN_SIGMA, $secondZ);
 		$this->assertGreaterThan($secondZ * 100, $secondScore);
 	}
@@ -298,13 +416,10 @@ class SeriesTest extends TestCase
 			'just below the warning band' => [AnomalyDetector::WARN_SIGMA - 0.1, Finding::INFO],
 			'at the warning band' => [AnomalyDetector::WARN_SIGMA, Finding::WARN],
 			'just above the warning band' => [AnomalyDetector::WARN_SIGMA + 0.1, Finding::WARN],
-			'just below the error band' => [AnomalyDetector::ERROR_SIGMA - 0.1, Finding::WARN],
-			'at the error band' => [AnomalyDetector::ERROR_SIGMA, Finding::ERROR],
-			'just above the error band' => [AnomalyDetector::ERROR_SIGMA + 0.1, Finding::ERROR],
+			'far above the warning band' => [100.0, Finding::WARN],
 			'falling to the warning band' => [-AnomalyDetector::WARN_SIGMA, Finding::WARN],
 			'falling just short of it' => [-(AnomalyDetector::WARN_SIGMA - 0.1), Finding::INFO],
-			'falling to the error band' => [-AnomalyDetector::ERROR_SIGMA, Finding::ERROR],
-			'falling far past it' => [-1000.0, Finding::ERROR],
+			'falling far past it' => [-1000.0, Finding::WARN],
 		];
 	}
 
@@ -320,15 +435,19 @@ class SeriesTest extends TestCase
 	}
 
 	#[Test]
-	#[TestDox('a departure never reaches CRITICAL however large it is')]
+	#[TestDox('a departure never reaches ERROR, where the ledger starts a reindex')]
 	#[Group('strata/anomaly')]
-	public function severityNeverReachesCritical(): void
+	public function severityNeverStartsARepair(): void
 	{
 		foreach ([100.0, 1.0e6, 1.0e15, -1.0e15, PHP_FLOAT_MAX] as $deviations) {
 			$anomaly = new Anomaly('op_rate', 'Operation rate', 1.0, 1.0, $deviations, 32);
 
-			$this->assertSame(Finding::ERROR, $anomaly->severity(), (string) $deviations);
-			$this->assertLessThan(Finding::CRITICAL, $anomaly->severity());
+			$this->assertSame(Finding::WARN, $anomaly->severity(), (string) $deviations);
+			$this->assertSame(
+				RepairLadder::RUNGS[0],
+				RepairLadder::initialRung($anomaly->toFinding()->severity),
+				'an anomaly stays on the observe rung',
+			);
 		}
 	}
 
@@ -361,7 +480,7 @@ class SeriesTest extends TestCase
 		$this->assertSame(Anomaly::CODE, $finding->code);
 		$this->assertSame('anomaly.detected', $finding->code);
 		$this->assertSame('chain_depth', $finding->scope);
-		$this->assertSame(Finding::ERROR, $finding->severity);
+		$this->assertSame(Finding::WARN, $finding->severity);
 		$this->assertSame($anomaly->describe(), $finding->context);
 	}
 
@@ -411,7 +530,7 @@ class SeriesTest extends TestCase
 				'direction' => 'above',
 				'samples' => 64,
 				'unit' => 'bytes',
-				'severity' => Finding::ERROR,
+				'severity' => Finding::WARN,
 			],
 			$anomaly->jsonSerialize(),
 		);

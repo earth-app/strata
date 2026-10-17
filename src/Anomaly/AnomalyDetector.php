@@ -18,8 +18,9 @@ use Psr\Log\LoggerInterface;
  *
  * Findings go through the same ledger as every tripwire, so an anomaly appears on the health
  * dashboard beside a missing frame and inherits the repair ladder, the circuit breaker and the
- * notification channel rather than getting a parallel set of its own. The rung stays at `observe`:
- * an unusual number is a reason to look, never a reason to repair.
+ * notification channel rather than getting a parallel set of its own. The rung stays at `observe`
+ * because an anomaly never rises above WARN, and the ledger starts a repair at ERROR: an unusual
+ * number is a reason to look, never a reason to repair.
  *
  * **Two measurements are directional and the rest are not.** A compression ratio and a
  * deduplication ratio going UP is the pipeline working better, so only a fall is reported. An
@@ -37,11 +38,6 @@ final class AnomalyDetector
 	 * Deviations from the median before a departure is worth a warning.
 	 */
 	public const WARN_SIGMA = 4.0;
-
-	/**
-	 * Deviations from the median before a departure is worth an error.
-	 */
-	public const ERROR_SIGMA = 8.0;
 
 	/**
 	 * Measurements where only a fall is a symptom.
@@ -150,7 +146,12 @@ final class AnomalyDetector
 			return null;
 		}
 
-		$deviations = $history->score($observed);
+		$definition = MetricSampler::METRICS[$metric] ?? [
+			'label' => $metric,
+			'unit' => '',
+			'floor' => 0.0,
+		];
+		$deviations = $history->score($observed, $definition['floor']);
 
 		if (abs($deviations) < $this->warnAt) {
 			return null;
@@ -158,8 +159,6 @@ final class AnomalyDetector
 		if ($deviations > 0.0 && in_array($metric, self::FALL_ONLY, true)) {
 			return null;
 		}
-
-		$definition = MetricSampler::METRICS[$metric] ?? ['label' => $metric, 'unit' => ''];
 
 		return new Anomaly(
 			$metric,

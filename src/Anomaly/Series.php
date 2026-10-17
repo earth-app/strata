@@ -116,26 +116,30 @@ final class Series
 	/**
 	 * How far a value sits from the middle, in deviations.
 	 *
-	 * A series whose observations are all identical has no deviation, so any different value is
-	 * infinitely unusual by the arithmetic. That is not useful, so the distance is expressed against
+	 * The spread is never allowed below `$floor` times the median. A series that is nearly flat has
+	 * a median absolute deviation close to zero, so a few percent of ordinary movement scores as
+	 * dozens of deviations. The floor says how much movement is too small to mean anything for this
+	 * measurement; without it the score is only as sensible as the series is noisy.
+	 *
+	 * A series with no spread at all and no floor has no scale, so the distance is expressed against
 	 * the median instead: a value double the median scores 1.0 rather than infinity.
 	 *
 	 * @param float $value
 	 *   The observation to score.
+	 * @param float $floor
+	 *   The smallest spread worth scoring against, as a fraction of the median.
 	 *
 	 * @return float
 	 *   Signed deviations from the median.
 	 */
-	public function score(float $value): float
+	public function score(float $value, float $floor = 0.0): float
 	{
-		$deviation = $this->deviation();
-
-		if ($deviation > 0.0) {
-			return ($value - $this->median()) / $deviation;
-		}
-
 		$median = $this->median();
+		$scale = max($this->deviation(), $floor * abs($median));
 
+		if ($scale > 0.0) {
+			return ($value - $median) / $scale;
+		}
 		if ($median === 0.0) {
 			return $value === 0.0 ? 0.0 : ($value > 0.0 ? 1.0 : -1.0);
 		}

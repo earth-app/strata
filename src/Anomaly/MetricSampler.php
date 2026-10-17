@@ -43,16 +43,21 @@ final class MetricSampler
 	public const WINDOW = 128;
 
 	/**
-	 * Every metric this samples, keyed to its label and unit.
+	 * Every metric this samples, keyed to its label, unit and spread floor.
 	 *
-	 * @var array<string, array{label: string, unit: string}>
+	 * The floor is the smallest spread worth scoring against, as a fraction of the median. At the
+	 * default warning band of four deviations, 0.2 means a count must move 80 percent from its
+	 * baseline before it is reported, and 0.1 means a ratio must move 40 percent, since ratios move
+	 * little and a fall of that size is real.
+	 *
+	 * @var array<string, array{label: string, unit: string, floor: float}>
 	 */
 	public const METRICS = [
-		'op_rate' => ['label' => 'Operation rate', 'unit' => 'per hour'],
-		'stored_bytes' => ['label' => 'Stored bytes', 'unit' => 'bytes'],
-		'dedup_ratio' => ['label' => 'Deduplication ratio', 'unit' => 'x'],
-		'compression_ratio' => ['label' => 'Compression ratio', 'unit' => 'x'],
-		'chain_depth' => ['label' => 'Deepest delta chain', 'unit' => 'links'],
+		'op_rate' => ['label' => 'Operation rate', 'unit' => 'per hour', 'floor' => 0.2],
+		'stored_bytes' => ['label' => 'Stored bytes', 'unit' => 'bytes', 'floor' => 0.2],
+		'dedup_ratio' => ['label' => 'Deduplication ratio', 'unit' => 'x', 'floor' => 0.1],
+		'compression_ratio' => ['label' => 'Compression ratio', 'unit' => 'x', 'floor' => 0.1],
+		'chain_depth' => ['label' => 'Deepest delta chain', 'unit' => 'links', 'floor' => 0.2],
 	];
 
 	/**
