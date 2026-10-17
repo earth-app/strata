@@ -10,11 +10,14 @@ declare(strict_types=1);
 use Drupal\Core\Database\Statement\FetchAs;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\strata\Anomaly\Anomaly;
 use Drupal\strata\Codec\CodecCatalog;
 use Drupal\strata\Codec\CodecProfile;
 use Drupal\strata\Codec\CodecRegistry;
 use Drupal\strata\Crypto\KeyProviderInterface;
 use Drupal\strata\Crypto\StaticKeyProvider;
+use Drupal\strata\Health\Finding;
+use Drupal\strata\Health\RepairLadder;
 use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 
 /**
@@ -1056,6 +1059,45 @@ function strata_update_11104(): string
 }
 
 /**
+ * Takes the anomaly findings off the reindex rung.
+ *
+ * An anomaly at ERROR started on `reindex`, and a code stays on the highest rung any of its rows
+ * has reached, so the rows already in the ledger would keep sending every new anomaly to a
+ * bucket-wide reindex after the severity cap shipped. Anomalies now stop at WARN and never repair.
+ */
+function strata_update_11105(): string
+{
+	$database = Drupal::database();
+
+	// rows on a higher rung than observe are the ones this moves, so count them before they change
+	$raised = (int) $database
+		->select('strata_health', 'h')
+		->condition('h.code', Anomaly::CODE)
+		->condition('h.rung', RepairLadder::RUNGS[0], '<>')
+		->countQuery()
+		->execute()
+		?->fetchField();
+
+	$database
+		->update('strata_health')
+		->fields(['rung' => RepairLadder::RUNGS[0]])
+		->condition('code', Anomaly::CODE)
+		->execute();
+
+	$database
+		->update('strata_health')
+		->fields(['severity' => Finding::WARN])
+		->condition('code', Anomaly::CODE)
+		->condition('severity', Finding::WARN, '>')
+		->execute();
+
+	return (string) new TranslatableMarkup(
+		'Moved @count anomaly findings back to the observe rung.',
+		['@count' => $raised],
+	);
+}
+
+/**
  * Implements hook_requirements().
  *
  * Reports what the compression and encryption layers can actually do on this host, so a site
@@ -1512,6 +1554,10 @@ function strata_uninstall(): void
 	$filesystem = Drupal::service('file_system');
 	$database = Drupal::database();
 	$logger = Drupal::logger('strata');
+
+	if ($database->schema()->tableExists('cache_strata_frames')) {
+		$database->schema()->dropTable('cache_strata_frames');
+	}
 
 	try {
 		$filesystem->prepareDirectory(

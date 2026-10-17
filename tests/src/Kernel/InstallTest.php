@@ -6,7 +6,9 @@ namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\Component\Serialization\Yaml;
 use Drupal\Core\Extension\Requirement\RequirementSeverity;
+use Drupal\strata\Anomaly\Anomaly;
 use Drupal\strata\Cas\Hash;
+use Drupal\strata\Health\Finding;
 use Drupal\strata\Hook\Help;
 use Drupal\strata\Storage\Plugin\Strata\Storage\LocalStorage;
 use Drupal\strata\Tree\Commit;
@@ -182,6 +184,68 @@ class InstallTest extends StrataKernelTestBase
 		$this->appendJournalRow('entity/node:4', PHP_INT_MAX);
 
 		$this->assertSame(1, $this->container->get('strata.journal')->pending());
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'the update moves anomaly findings to observe and caps them at WARN, leaving other codes',
+		),
+	]
+	#[Group('strata/install')]
+	public function theAnomalyUpdateOnlyTouchesAnomalies(): void
+	{
+		$ledger = $this->container->get('strata.engine')->ledger();
+		$database = $this->container->get('database');
+
+		$this->recordHealthRow(Anomaly::CODE, Finding::ERROR, 'op_rate', 'reindex');
+		$this->recordHealthRow(Anomaly::CODE, Finding::WARN, 'stored_bytes', 'observe');
+		$this->recordHealthRow('frame.unindexed', Finding::ERROR, 'frame:a', 'reindex');
+
+		$message = strata_update_11105();
+
+		$this->assertSame('observe', $ledger->rungFor(Anomaly::CODE));
+		$this->assertSame(
+			'reindex',
+			$ledger->rungFor('frame.unindexed'),
+			'another code is untouched',
+		);
+		$this->assertStringContainsString('1 anomaly', $message);
+		$this->assertSame(
+			[(string) Finding::WARN],
+			array_values(
+				array_unique(
+					$database
+						->select('strata_health', 'h')
+						->fields('h', ['severity'])
+						->condition('h.code', Anomaly::CODE)
+						->execute()
+						?->fetchCol() ?? [],
+				),
+			),
+		);
+		$this->assertSame(
+			(string) Finding::ERROR,
+			$database
+				->select('strata_health', 'h')
+				->fields('h', ['severity'])
+				->condition('h.code', 'frame.unindexed')
+				->execute()
+				?->fetchField(),
+		);
+	}
+
+	#[Test]
+	#[TestDox('the anomaly update is safe to run twice')]
+	#[Group('strata/install')]
+	public function theAnomalyUpdateIsRepeatable(): void
+	{
+		$this->recordHealthRow(Anomaly::CODE, Finding::ERROR, 'op_rate', 'reindex');
+
+		strata_update_11105();
+		$second = strata_update_11105();
+
+		$this->assertStringContainsString('0 anomaly', $second);
 	}
 
 	#[Test]
@@ -833,6 +897,26 @@ class InstallTest extends StrataKernelTestBase
 		$data['display']['page_1']['display_options']['path'] = $path;
 
 		$this->config('views.view.strata_health')->setData($data)->save();
+	}
+
+	/**
+	 * Writes a health row directly, so a rung the code no longer assigns can be planted.
+	 */
+	private function recordHealthRow(string $code, int $severity, string $scope, string $rung): void
+	{
+		$this->container
+			->get('database')
+			->insert('strata_health')
+			->fields([
+				'code' => $code,
+				'severity' => $severity,
+				'scope' => $scope,
+				'context' => 'planted',
+				'rung' => $rung,
+				'created' => time(),
+				'resolved' => null,
+			])
+			->execute();
 	}
 
 	/**
