@@ -358,6 +358,60 @@ Do not "fix" these without measuring first.
   `RepairLadder::initialRung()` sends anything at or above `ERROR` to an automatic pass, and since
   1.0.3 those passes actually run on cron. `capture.tap_disabled` is `WARN` for that reason: nothing
   unattended repairs a statement tap, and an `ERROR` would spend a bucket-wide reindex on it.
+- **An anomaly never rises above `WARN`.** `Anomaly::severity()` returned `ERROR` from 8 deviations
+  until 1.0.4, and on 1.0.3 that sent `anomaly.detected` to `reindex`, which cron then ran: on
+  earth-app 105 findings between 2026-09-11 and 2026-10-17, and the one pass logged on 2026-10-17
+  reindexed 889 packs in 204 s. A code stays on the highest rung any of its rows reached, so `strata_update_11105()` moves
+  the existing rows back to `observe`.
+- **`Series::score()` takes a spread floor, set per metric in `MetricSampler::METRICS`.** A median
+  absolute deviation is near zero for a rate a site's own cron holds steady: earth-app's hourly
+  `op_rate` had a median of 81.43 and a spread of 1.155, so 104 per hour (+28 percent) scored 19.7
+  deviations. The floor is a fraction of the median the spread cannot fall below, so counts need an
+  80 percent move to reach the warning band (floor 0.2) and ratios 40 percent (0.1). A fall is
+  bounded by the median, so a floor above `1 / WARN_SIGMA` would make a fall unreportable;
+  `SeriesTest` asserts every floor stays under it. The defaults came from one site's window and
+  have not been measured on another.
+- **`CaptureScope::coversTable()` excludes `cache_*` and `cachetags`.** Both the statement tap and
+  the reconciler ask it, so one rule keeps cache bins out of the journal and out of the watermark
+  pass. Every row in a bin rebuilds on demand. earth-app serves its bins from Redis, so its journal
+  never showed the cost; a site with database bins would have paid it on every cache write.
+- **`Reconciler` fits `max_key` to its 64 character column and isolates a failed store.** The
+  highest key of a cache bin or a session table is an id up to 255 characters. On PostgreSQL the
+  insert raised, the exception left `reconcile()`, and every cron run stopped at `cache_container`,
+  the sixth table, so nothing after it was ever reconciled on earth-app. A key over the limit is
+  stored as `#` and a hash prefix, which is enough because it is only compared for equality.
+  SQLite accepts the long value, so `aLongHighestKeyFitsTheColumn()` asserts the stored length
+  rather than waiting for an exception.
+- **`DatabaseJournal::append()` cuts a label to 255 characters.** An entity label is
+  `Type bundle "title" verb`, and a core node title is up to 255 characters on its own, so the row
+  overflowed on PostgreSQL and strict MySQL and the operation was dropped with one log line. The
+  subject column has the same bound and is not cut, because a subject is an identity and truncating
+  it would merge two subjects.
+- **A rewrite reads its delta parent from `cache.strata_frames`, not from the bucket.** Reading a
+  frame at delta depth N costs N + 1 ranged GETs and N + 1 decodes, and a hot subject sits near the
+  cap of 32: earth-app's `strata_provider_stat` shows about 200 GETs per hourly flush on a day with no
+  reindex. Measured on a local store with six subjects rewritten each flush, GETs per flush ran
+  10, 16, 22 and on to 196 at depth 32, and with the cache they run 4 from the second rewrite on, with
+  the same bytes written. `ObjectStore::rememberParent()` keeps the newest frame of each rewritten
+  subject sealed with the store cipher and drops the one it replaced, so the bin holds one entry per
+  hot subject. Entries are content-addressed, so `recalledParent()` opens one with the frame address
+  as associated data and hashes it against that address, and `deltaSource()` still requires the index
+  to know the frame, which is what keeps a pruned parent from being named. A miss is never an error;
+  it is the old chain walk. The bin is pinned to the database backend through `default_backend` and a
+  site can move it with `$settings['cache']['bins']['strata_frames']`. `ObjectStore::write()` also
+  reads the parent only once a frame is new, so an unchanged rewrite reads nothing.
+- **Left alone after the same survey.** The ref is read three times per flush and a new commit is
+  HEADed before its PUT, which is 4 requests a flush against about 200; keyspace discovery reads
+  every key each cron and the status page issues one LIST per view, neither of which touches
+  Class B traffic.
+- **The HEADs a flush does not explain were the daily anomaly reindex.** A flush issues 4 HEADs
+  whatever its size (measured locally from 40 to 200 operations), and earth-app's
+  `strata_provider_stat` shows exactly that on 2026-10-06, a day with no reindex: 102 HEAD, 102 PUT,
+  no LIST. From 10-08 to 10-14 every day carried about 760 more HEADs, 2,300 more GETs and 5 more
+  LISTs than that, and the excess rose by roughly 20 HEADs a day, the 24 commits a day added to the
+  history a reindex walks. One reindex a day is what the nightly 01:00 UTC `op_rate` spike produced.
+  The 4 to 5 LISTs are the reindex's own, and storm days (09-22 at 3,620 HEAD, 10-17 at 3,623) are
+  several reindexes. The anomaly severity cap removes this, so expect about 100 HEADs a day.
 - **`RepairPass` clears a code's findings before running its pass and puts them back if it raises.**
   `Verifier::verify()` re-records what is still true on its way through and `Reindexer::reindex()`
   does not, so clearing afterwards deletes a symptom the pass just re-confirmed - and clearing
