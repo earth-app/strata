@@ -111,6 +111,35 @@ class ReconcilerTest extends StrataKernelTestBase
 	}
 
 	/**
+	 * Creates a table keyed by a 255 character string.
+	 *
+	 * That is what a cache bin or a session table looks like to the reconciler.
+	 */
+	private function createLongKeyTable(string $table): void
+	{
+		$this->container
+			->get('database')
+			->schema()
+			->createTable($table, [
+				'fields' => [
+					'cid' => [
+						'type' => 'varchar_ascii',
+						'length' => 255,
+						'not null' => true,
+						'default' => '',
+					],
+					'value' => [
+						'type' => 'varchar',
+						'length' => 64,
+						'not null' => true,
+						'default' => '',
+					],
+				],
+				'primary key' => ['cid'],
+			]);
+	}
+
+	/**
 	 * Writes a row straight to the database, bypassing every capture hook.
 	 */
 	private function insertWidget(string $label, int $changed = 0, ?string $payload = null): int
@@ -508,6 +537,81 @@ class ReconcilerTest extends StrataKernelTestBase
 		$this->assertFalse($report->complete);
 		$this->assertSame(1, $report->examined);
 		$this->assertStringContainsString('of the captured tables', $report->summary());
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a table whose highest key is longer than the stored column is read, kept and compared',
+		),
+	]
+	#[Group('strata/capture')]
+	public function aLongHighestKeyFitsTheColumn(): void
+	{
+		$table = 'reconciler_long_key';
+		$this->createLongKeyTable($table);
+		$key = 'route:' . str_repeat('x', 200);
+		$this->container
+			->get('database')
+			->insert($table)
+			->fields(['cid' => $key, 'value' => 'one'])
+			->execute();
+
+		$first = $this->reconciler()->reconcile([$table]);
+		$stored = $this->reconciler()->stored($table);
+
+		$this->assertTrue($first->isClean(), $first->summary());
+		$this->assertNotNull($stored);
+		$this->assertLessThanOrEqual(Reconciler::MAX_KEY_LENGTH, strlen((string) $stored->maxKey));
+
+		$second = $this->reconciler()->reconcile([$table], 100, false);
+
+		$this->assertSame(0, $second->changed, 'the same long key reads the same twice');
+
+		$this->container
+			->get('database')
+			->insert($table)
+			->fields(['cid' => 'route:' . str_repeat('z', 200), 'value' => 'two'])
+			->execute();
+		$third = $this->reconciler()->reconcile([$table], 100, false);
+
+		$this->assertSame(1, $third->changed, 'a different long key still reads as a change');
+	}
+
+	#[Test]
+	#[TestDox('a pass over every table survives a long key and reaches the tables after it')]
+	#[Group('strata/capture')]
+	public function aLongHighestKeyDoesNotStopThePass(): void
+	{
+		$table = 'reconciler_aaa_long_key';
+		$this->createLongKeyTable($table);
+		$this->container
+			->get('database')
+			->insert($table)
+			->fields(['cid' => str_repeat('k', 255), 'value' => 'one'])
+			->execute();
+
+		$tables = $this->reconciler()->tables();
+		$report = $this->reconciler()->reconcile();
+
+		$this->assertTrue($report->isClean(), $report->summary());
+		$this->assertSame(count($tables), $report->examined);
+		$this->assertNotNull($this->reconciler()->stored($tables[count($tables) - 1]));
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a cache bin is left out of the pass, since capturing it stores what rebuilds itself',
+		),
+	]
+	#[Group('strata/capture')]
+	public function cacheBinsAreNotWatched(): void
+	{
+		foreach ($this->reconciler()->tables() as $table) {
+			$this->assertStringStartsNotWith('cache_', $table);
+			$this->assertNotSame('cachetags', $table);
+		}
 	}
 
 	#[Test]

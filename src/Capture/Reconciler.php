@@ -58,6 +58,11 @@ final class Reconciler
 	public const DEFAULT_SAMPLE = 200;
 
 	/**
+	 * Longest highest-key value kept, which is the width of `strata_watermark.max_key`.
+	 */
+	public const MAX_KEY_LENGTH = 64;
+
+	/**
 	 * Column names treated as a changed timestamp, in order of preference.
 	 */
 	public const CHANGED_COLUMNS = ['changed', 'updated', 'timestamp', 'created'];
@@ -151,7 +156,14 @@ final class Reconciler
 
 			$examined++;
 			$stored = $this->stored($table);
-			$this->store($current);
+
+			try {
+				$this->store($current);
+			} catch (Throwable $error) {
+				$problems[] = sprintf('%s: %s', $table, $error->getMessage());
+
+				continue;
+			}
 
 			if ($stored === null || !$current->differsFrom($stored)) {
 				continue;
@@ -236,7 +248,7 @@ final class Reconciler
 		return new Watermark(
 			$table,
 			$count,
-			$order === null ? null : $this->highest($table, $order),
+			$order === null ? null : $this->bound($this->highest($table, $order)),
 			$highestChanged === null ? null : (int) $highestChanged,
 			$this->digest($table, $order, $columns),
 			time(),
@@ -319,6 +331,27 @@ final class Reconciler
 		$value = $query->execute()?->fetchField();
 
 		return $value === false || $value === null ? null : (string) $value;
+	}
+
+	/**
+	 * Fits a key into the stored column without losing the ability to compare it.
+	 *
+	 * A highest key is only ever compared for equality, so a long one is replaced by a digest of
+	 * itself behind a `#`. A cache id or a session id is the usual source.
+	 *
+	 * @param string|null $key
+	 *   The key, or NULL for an empty table.
+	 *
+	 * @return string|null
+	 *   The key when it fits, otherwise `#` and the first digits of its hash.
+	 */
+	private function bound(?string $key): ?string
+	{
+		if ($key === null || strlen($key) <= self::MAX_KEY_LENGTH) {
+			return $key;
+		}
+
+		return '#' . substr(Hash::of($key), 0, self::MAX_KEY_LENGTH - 1);
 	}
 
 	/**

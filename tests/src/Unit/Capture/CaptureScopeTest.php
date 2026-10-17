@@ -148,6 +148,22 @@ class CaptureScopeTest extends TestCase
 	}
 
 	#[Test]
+	#[TestDox('a core cache bin is never captured, since every row in it rebuilds on demand')]
+	#[Group('strata/capture')]
+	public function cacheBinsAreNeverCaptured(): void
+	{
+		$scope = $this->scope(['enabled' => true, 'capture' => ['table' => true]]);
+
+		foreach (['cache_render', 'cache_data', 'cache_container', 'cachetags'] as $bin) {
+			$this->assertFalse($scope->coversTable($bin), $bin);
+		}
+
+		// the prefix is matched at the start, and `cache_` needs its underscore
+		$this->assertTrue($scope->coversTable('my_cache_notes'));
+		$this->assertTrue($scope->coversTable('cached_reports'));
+	}
+
+	#[Test]
 	#[TestDox('only the default connection target is captured, since a replica sees no writes')]
 	#[Group('strata/capture')]
 	public function onlyTheDefaultTargetIsCaptured(): void

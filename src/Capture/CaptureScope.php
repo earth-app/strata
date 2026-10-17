@@ -15,7 +15,8 @@ use Drupal\strata\Journal\Realm;
  * guards.
  *
  * Strata's own tables are never captured. Recording the journal in the journal, or the frame index
- * in a frame, is an unbounded feedback loop rather than a backup.
+ * in a frame, is an unbounded feedback loop rather than a backup. Cache bins are not captured
+ * either: every row in one rebuilds on demand, so capturing it stores what the site can regenerate.
  */
 final class CaptureScope
 {
@@ -23,6 +24,11 @@ final class CaptureScope
 	 * Table prefix this module owns, never captured.
 	 */
 	public const OWN_PREFIX = 'strata_';
+
+	/**
+	 * Table prefix of a core cache bin, which holds derived data and is never captured.
+	 */
+	public const CACHE_PREFIX = 'cache_';
 
 	/**
 	 * Entity types whose saves describe Drupal's own bookkeeping rather than site content.
@@ -106,11 +112,16 @@ final class CaptureScope
 	 *   The table name.
 	 *
 	 * @return bool
-	 *   TRUE when the table realm is covered and the table is not one of this module's own.
+	 *   TRUE when the table realm is covered and the table is neither one of this module's own nor
+	 *   a cache bin.
 	 */
 	public function coversTable(string $table): bool
 	{
-		if (str_starts_with($table, self::OWN_PREFIX)) {
+		if (
+			str_starts_with($table, self::OWN_PREFIX) ||
+			str_starts_with($table, self::CACHE_PREFIX) ||
+			$table === 'cachetags'
+		) {
 			return false;
 		}
 
