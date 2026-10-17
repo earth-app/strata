@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\strata\Cas;
 
+use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\strata\Codec\CodecRegistry;
 use Drupal\strata\Codec\Dictionary\DictionaryStore;
 use Drupal\strata\Delta\ChainDepthPolicy;
@@ -53,6 +54,16 @@ final class ObjectStore
 	public const PACK_PREFIX = 'packs';
 
 	/**
+	 * Cache id prefix of a remembered delta parent.
+	 */
+	public const PARENT_PREFIX = 'strata:parent:';
+
+	/**
+	 * Seconds a remembered delta parent is kept when nothing rewrites its subject.
+	 */
+	public const PARENT_TTL = 2_592_000;
+
+	/**
 	 * Encoded bytes this store has written since it was constructed.
 	 *
 	 * Monotonic rather than resettable, so a caller measuring one flush takes the difference across
@@ -90,6 +101,10 @@ final class ObjectStore
 	 *   Bounds how long a delta chain may grow, or NULL to store every frame standalone. A chain is a
 	 *   dependency chain - frame N needs frame N-1 - so without a cap a hot subject would build a
 	 *   chain thousands of links long and every read of it would walk the lot.
+	 * @param CacheBackendInterface|null $parents
+	 *   Remembers the newest frame of each rewritten subject, sealed, so the next rewrite reads its
+	 *   delta parent from here instead of walking the chain through the provider. NULL reads the
+	 *   parent from the provider every time.
 	 *
 	 * @throws InvalidArgumentException
 	 *   When a dictionary is supplied without an id.
@@ -106,6 +121,7 @@ final class ObjectStore
 		private readonly ?string $dictionaryId = null,
 		private readonly ?DictionaryStore $dictionaries = null,
 		private readonly ?ChainDepthPolicy $chainPolicy = null,
+		private readonly ?CacheBackendInterface $parents = null,
 	) {
 		if ($dictionary !== null && ($dictionaryId === null || $dictionaryId === '')) {
 			throw new InvalidArgumentException(
@@ -140,7 +156,8 @@ final class ObjectStore
 	public function write(string $value, array $previous = []): array
 	{
 		$map = [];
-		$against = $this->deltaSource($value, $previous);
+		$against = null;
+		$resolved = false;
 
 		foreach ($this->framer->frames($value) as $frame) {
 			$map[] = $frame['hash'];
@@ -151,13 +168,98 @@ final class ObjectStore
 				continue;
 			}
 
+			// the parent is only read once a frame is new, so an unchanged rewrite reads nothing
+			if (!$resolved) {
+				$against = $this->deltaSource($value, $previous);
+				$resolved = true;
+			}
+
 			$this->store($frame['hash'], $frame['bytes'], $against);
 			$against = null;
 		}
 
 		$this->drain();
+		$this->rememberParent($value, $previous, $map);
 
 		return $map;
+	}
+
+	/**
+	 * Keeps a rewritten value's newest frame where the next rewrite can find it without a chain walk.
+	 *
+	 * Reading a frame at delta depth N costs N + 1 ranged reads and N + 1 decodes, and a hot subject
+	 * sits near the cap, so every rewrite of it pays that again. The previous frame's entry is dropped
+	 * because the subject now points at the new one. A value with no previous version is not kept: a
+	 * subject written once and never again would fill the cache with entries nothing reads, and the
+	 * first rewrite of it reads a depth-zero frame, which is one request.
+	 *
+	 * @param string $value
+	 *   The value that was stored.
+	 * @param list<string> $previous
+	 *   The previous version's frame map.
+	 * @param list<string> $map
+	 *   The frame map just written.
+	 */
+	private function rememberParent(string $value, array $previous, array $map): void
+	{
+		if (
+			$this->parents === null ||
+			$this->chainPolicy === null ||
+			$previous === [] ||
+			count($map) !== 1 ||
+			strlen($value) > $this->framer->size()
+		) {
+			return;
+		}
+
+		try {
+			if (count($previous) === 1 && $previous[0] !== $map[0]) {
+				$this->parents->delete(self::PARENT_PREFIX . $previous[0]);
+			}
+
+			$this->parents->set(
+				self::PARENT_PREFIX . $map[0],
+				$this->cipher->seal($value, $map[0]),
+				time() + self::PARENT_TTL,
+			);
+		} catch (Throwable) {
+			// a cache that will not take a write only costs the next rewrite its chain walk
+		}
+	}
+
+	/**
+	 * A remembered delta parent, or NULL when there is none that can be trusted.
+	 *
+	 * The entry is opened with the frame address as associated data and its bytes are hashed against
+	 * that address, so a stale, swapped or tampered entry is a miss and never a wrong parent. The
+	 * caller has already checked the index still knows the frame, which is what keeps a pruned parent
+	 * from being used.
+	 *
+	 * @param string $parent
+	 *   The parent frame's address.
+	 *
+	 * @return string|null
+	 *   The decoded parent, or NULL on a miss.
+	 */
+	private function recalledParent(string $parent): ?string
+	{
+		if ($this->parents === null) {
+			return null;
+		}
+
+		try {
+			$entry = $this->parents->get(self::PARENT_PREFIX . $parent);
+
+			if ($entry === false || !is_string($entry->data)) {
+				return null;
+			}
+
+			$plain = $this->cipher->open($entry->data, $parent);
+		} catch (Throwable) {
+			return null;
+		}
+
+		return Hash::equals(Hash::of($plain), $parent) ? $plain : null;
 	}
 
 	/**
@@ -196,7 +298,7 @@ final class ObjectStore
 		}
 
 		try {
-			$bytes = $this->frame($parent);
+			$bytes = $this->recalledParent($parent) ?? $this->frame($parent);
 		} catch (Throwable) {
 			// a parent that will not read is the verifier's problem; this value stores standalone
 			return null;

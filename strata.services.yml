@@ -187,6 +187,14 @@ services:
       - '@?key.repository'
       - '@?strata.storage_providers'
       - '@?http_client'
+      - '@?cache.strata_frames'
+
+  cache.strata_frames:
+    class: Drupal\Core\Cache\CacheBackendInterface
+    tags:
+      - { name: cache.bin, default_backend: cache.backend.database }
+    factory: ['@cache_factory', 'get']
+    arguments: [strata_frames]
 
   Drupal\strata\Engine:
     alias: strata.engine

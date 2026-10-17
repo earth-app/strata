@@ -6,6 +6,7 @@ namespace Drupal\strata;
 
 use Drupal\Component\Datetime\Time;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Core\Database\Connection;
@@ -272,6 +273,9 @@ final class Engine
 	 *   Providers contributed by submodules, or NULL to use only the built-in ones.
 	 * @param ClientInterface|null $http
 	 *   The client telemetry is exported with, or NULL to build one.
+	 * @param CacheBackendInterface|null $parents
+	 *   Where the object store remembers the frame a rewrite will be coded against, or NULL to read
+	 *   it from the provider each time.
 	 */
 	public function __construct(
 		private readonly ConfigFactoryInterface $configFactory,
@@ -295,6 +299,7 @@ final class Engine
 		private readonly ?KeyRepositoryInterface $keys = null,
 		private readonly ?StorageProviderManager $providers = null,
 		private readonly ?ClientInterface $http = null,
+		private readonly ?CacheBackendInterface $parents = null,
 	) {}
 
 	/**
@@ -952,6 +957,7 @@ final class Engine
 			$active?->id(),
 			$dictionaries,
 			$this->chainDepthPolicy(),
+			$this->parents,
 		);
 	}
 

@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\strata\Kernel;
 
+use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Cache\MemoryBackend;
 use Drupal\strata\Cas\Framer;
 use Drupal\strata\Cas\MemoryFrameIndex;
 use Drupal\strata\Cas\ObjectStore;
 use Drupal\strata\Cas\Packer;
 use Drupal\strata\Codec\CodecRegistry;
 use Drupal\strata\Codec\ZstdCodec;
+use Drupal\strata\Crypto\CipherInterface;
+use Drupal\strata\Crypto\StaticKeyProvider;
+use Drupal\strata\Crypto\XChaCha20Poly1305Cipher;
 use Drupal\strata\Delta\ChainDepthPolicy;
 use Drupal\strata\Delta\Reanchorer;
 use Drupal\strata\Engine;
@@ -92,13 +97,17 @@ class DeltaChainTest extends StrataKernelTestBase
 	/**
 	 * An object store over a shared index, with the delta cap set.
 	 */
-	private function store(MemoryFrameIndex $index, ?ChainDepthPolicy $policy): ObjectStore
-	{
+	private function store(
+		MemoryFrameIndex $index,
+		?ChainDepthPolicy $policy,
+		?CacheBackendInterface $parents = null,
+		?CipherInterface $cipher = null,
+	): ObjectStore {
 		return new ObjectStore(
 			$this->engine()->provider(),
 			$index,
 			CodecRegistry::withShippedCodecs(),
-			$this->engine()->cipher(),
+			$cipher ?? $this->engine()->cipher(),
 			new Framer(16384),
 			new Packer(65536),
 			19,
@@ -106,7 +115,37 @@ class DeltaChainTest extends StrataKernelTestBase
 			null,
 			null,
 			$policy,
+			$parents,
 		);
+	}
+
+	private function parentCache(): MemoryBackend
+	{
+		return new MemoryBackend($this->container->get('datetime.time'));
+	}
+
+	/**
+	 * Provider reads issued while a value is written against its previous version.
+	 *
+	 * @param ObjectStore $store
+	 *   The store to write through.
+	 * @param string $value
+	 *   The new version.
+	 * @param list<string> $previous
+	 *   The previous version's frame map.
+	 *
+	 * @return array{map: list<string>, reads: int}
+	 *   The new frame map and how many GETs reached the provider.
+	 */
+	private function writeCounting(ObjectStore $store, string $value, array $previous): array
+	{
+		$stats = $this->engine()->providerStats();
+		$stats->reset();
+
+		$map = $store->write($value, $previous);
+		$store->commit();
+
+		return ['map' => $map, 'reads' => (int) ($stats->byOperation()['get']['count'] ?? 0)];
 	}
 
 	private function reanchorer(MemoryFrameIndex $index, ObjectStore $store, int $cap): Reanchorer
@@ -482,6 +521,201 @@ class DeltaChainTest extends StrataKernelTestBase
 
 		$this->assertTrue($replayed->exists);
 		$this->assertNotSame([], $replayed->fields);
+	}
+
+	#endregion
+
+	#region Remembered parents
+
+	#[Test]
+	#[TestDox('a rewrite reads its delta parent from the cache instead of walking the chain')]
+	#[Group('strata/delta')]
+	public function rewriteDoesNotWalkTheChain(): void
+	{
+		$cache = $this->parentCache();
+		$withCache = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32), $cache);
+		$without = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32));
+		$cached = [];
+		$walked = [];
+		$cachedReads = [];
+		$walkedReads = [];
+
+		for ($version = 0; $version < 10; $version++) {
+			$one = $this->writeCounting($withCache, $this->blob($version), $cached);
+			$two = $this->writeCounting($without, $this->blob($version), $walked);
+			$cached = $one['map'];
+			$walked = $two['map'];
+			$cachedReads[] = $one['reads'];
+			$walkedReads[] = $two['reads'];
+		}
+
+		$this->assertSame(
+			[1, ...array_fill(0, 8, 0)],
+			array_slice($cachedReads, 1),
+			'the first rewrite reads its depth-zero parent and no later one reads the provider',
+		);
+		$this->assertSame(
+			9,
+			$walkedReads[9],
+			'the same rewrite without a cache reads once per link',
+		);
+		$this->assertSame($withCache->read($cached), $without->read($walked));
+	}
+
+	#[Test]
+	#[TestDox('a chain written through the cache reads back at every link')]
+	#[Group('strata/delta')]
+	public function cachedChainReadsBack(): void
+	{
+		$index = new MemoryFrameIndex();
+		$store = $this->store($index, new ChainDepthPolicy(32), $this->parentCache());
+		$maps = [];
+		$previous = [];
+
+		for ($version = 0; $version < 8; $version++) {
+			$maps[$version] = $store->write($this->blob($version), $previous);
+			$store->commit();
+			$previous = $maps[$version];
+		}
+
+		foreach ($maps as $version => $map) {
+			$this->assertSame($this->blob($version), $store->read($map), 'version ' . $version);
+		}
+
+		$this->assertSame(7, $index->get($maps[7][0])?->deltaDepth, 'it is still coded as a chain');
+	}
+
+	#[Test]
+	#[TestDox('the cache keeps one entry per subject, dropping the frame a rewrite replaced')]
+	#[Group('strata/delta')]
+	public function cacheHoldsTheNewestFrameOnly(): void
+	{
+		$cache = $this->parentCache();
+		$store = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32), $cache);
+
+		$first = $store->write($this->blob(0));
+		$store->commit();
+
+		$this->assertFalse(
+			$cache->get(ObjectStore::PARENT_PREFIX . $first[0]),
+			'a value written once is not remembered',
+		);
+
+		$second = $store->write($this->blob(1), $first);
+		$store->commit();
+		$third = $store->write($this->blob(2), $second);
+		$store->commit();
+
+		$this->assertFalse($cache->get(ObjectStore::PARENT_PREFIX . $first[0]));
+		$this->assertFalse($cache->get(ObjectStore::PARENT_PREFIX . $second[0]));
+		$this->assertNotFalse($cache->get(ObjectStore::PARENT_PREFIX . $third[0]));
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a cache entry that does not hash to its frame is ignored and the parent is read from the store',
+		),
+	]
+	#[Group('strata/delta')]
+	public function aWrongCacheEntryIsAMiss(): void
+	{
+		$cache = $this->parentCache();
+		$store = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32), $cache);
+		$maps = [];
+		$previous = [];
+
+		for ($version = 0; $version < 3; $version++) {
+			$maps[$version] = $store->write($this->blob($version), $previous);
+			$store->commit();
+			$previous = $maps[$version];
+		}
+
+		$cache->set(
+			ObjectStore::PARENT_PREFIX . $previous[0],
+			$this->engine()->cipher()->seal($this->blob(99), $previous[0]),
+		);
+		$tampered = $this->writeCounting($store, $this->blob(3), $previous);
+
+		$this->assertGreaterThan(0, $tampered['reads'], 'the chain was walked after all');
+		$this->assertSame($this->blob(3), $store->read($tampered['map']));
+
+		$cache->set(ObjectStore::PARENT_PREFIX . $tampered['map'][0], 'not sealed bytes');
+		$garbled = $this->writeCounting($store, $this->blob(4), $tampered['map']);
+
+		$this->assertGreaterThan(0, $garbled['reads']);
+		$this->assertSame($this->blob(4), $store->read($garbled['map']));
+	}
+
+	#[Test]
+	#[TestDox('a remembered parent the index no longer knows is not used')]
+	#[Group('strata/delta')]
+	public function aPrunedParentIsNotUsed(): void
+	{
+		$cache = $this->parentCache();
+		$store = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32), $cache);
+
+		$first = $store->write($this->blob(0));
+		$store->commit();
+		$second = $store->write($this->blob(1), $first);
+		$store->commit();
+
+		$index = new MemoryFrameIndex();
+		$fresh = $this->store($index, new ChainDepthPolicy(32), $cache);
+		$third = $fresh->write($this->blob(2), $second);
+		$fresh->commit();
+
+		$this->assertFalse(
+			$index->get($third[0])?->isDelta(),
+			'a parent the index does not hold is never named as a delta parent',
+		);
+	}
+
+	#[Test]
+	#[TestDox('what the cache holds is sealed with the store cipher, never the plain frame')]
+	#[Group('strata/delta')]
+	public function cachedFramesAreSealed(): void
+	{
+		$cipher = new XChaCha20Poly1305Cipher(StaticKeyProvider::generate()->key());
+		$cache = $this->parentCache();
+		$store = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32), $cache, $cipher);
+
+		$first = $store->write($this->blob(0));
+		$store->commit();
+		$second = $store->write($this->blob(1), $first);
+		$store->commit();
+		$entry = $cache->get(ObjectStore::PARENT_PREFIX . $second[0]);
+
+		$this->assertNotFalse($entry);
+		$this->assertIsString($entry->data);
+		$this->assertStringNotContainsString('notification about', $entry->data);
+		$this->assertSame($this->blob(1), $cipher->open($entry->data, $second[0]));
+
+		$third = $this->writeCounting($store, $this->blob(2), $second);
+
+		$this->assertSame(0, $third['reads'], 'a sealed entry is still a hit');
+		$this->assertSame($this->blob(2), $store->read($third['map']));
+	}
+
+	#[Test]
+	#[TestDox('an unchanged rewrite reads no parent, since every frame is already stored')]
+	#[Group('strata/delta')]
+	public function anUnchangedRewriteReadsNothing(): void
+	{
+		$store = $this->store(new MemoryFrameIndex(), new ChainDepthPolicy(32));
+		$maps = [];
+		$previous = [];
+
+		for ($version = 0; $version < 4; $version++) {
+			$maps[$version] = $store->write($this->blob($version), $previous);
+			$store->commit();
+			$previous = $maps[$version];
+		}
+
+		$same = $this->writeCounting($store, $this->blob(3), $previous);
+
+		$this->assertSame($previous, $same['map']);
+		$this->assertSame(0, $same['reads']);
 	}
 
 	#endregion
