@@ -28,6 +28,11 @@ final class DatabaseJournal implements JournalInterface
 	public const TABLE = 'strata_journal';
 
 	/**
+	 * Characters the label column holds.
+	 */
+	public const LABEL_LENGTH = 255;
+
+	/**
 	 * Constructs a journal.
 	 *
 	 * @param Connection $database
@@ -53,7 +58,7 @@ final class DatabaseJournal implements JournalInterface
 					'payload_hash' => $operation->payloadHash,
 					'parent_hash' => $operation->parentHash,
 					'payload_length' => $operation->payloadLength,
-					'label' => $operation->label,
+					'label' => mb_substr($operation->label, 0, self::LABEL_LENGTH),
 					'fields' => (string) json_encode($operation->fields),
 					'payload' => $payload,
 				])

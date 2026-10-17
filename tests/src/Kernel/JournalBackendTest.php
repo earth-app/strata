@@ -6,6 +6,9 @@ namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\strata\Journal\DatabaseJournal;
 use Drupal\strata\Journal\JournalFactory;
+use Drupal\strata\Journal\JournalOp;
+use Drupal\strata\Journal\Realm;
+use Drupal\strata\Journal\Verb;
 use Drupal\strata\Journal\RedisJournal;
 use Drupal\Tests\strata\Unit\Journal\FakeRedis;
 use PHPUnit\Framework\Attributes\Group;
@@ -126,6 +129,31 @@ class JournalBackendTest extends StrataKernelTestBase
 		$this->config('strata.settings')->set('journal.backend', 'kafka')->save();
 
 		$this->assertInstanceOf(DatabaseJournal::class, $this->factory()->create());
+	}
+
+	#[Test]
+	#[TestDox('a label longer than its column is kept short rather than dropping the operation')]
+	#[Group('strata/journal')]
+	public function aLongLabelFitsTheColumn(): void
+	{
+		$journal = new DatabaseJournal($this->container->get('database'));
+		$label = 'Content article "' . str_repeat("\u{e9}", 300) . '" created';
+
+		$journal->append(
+			new JournalOp(
+				0,
+				(int) round(microtime(true) * 1_000_000),
+				Realm::ENTITY,
+				'entity/node:1',
+				Verb::CREATE,
+				label: $label,
+			),
+		);
+
+		$stored = $journal->read()[0]['operation']->label;
+
+		$this->assertSame(DatabaseJournal::LABEL_LENGTH, mb_strlen($stored));
+		$this->assertStringStartsWith('Content article "', $stored);
 	}
 
 	#[Test]
