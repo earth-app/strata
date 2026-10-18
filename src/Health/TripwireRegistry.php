@@ -10,6 +10,7 @@ use Drupal\strata\Health\Tripwire\DeltaChainTooDeep;
 use Drupal\strata\Health\Tripwire\DeltaParentMissing;
 use Drupal\strata\Health\Tripwire\DictionaryMissing;
 use Drupal\strata\Health\Tripwire\FileShiftDetected;
+use Drupal\strata\Health\Tripwire\FlushStale;
 use Drupal\strata\Health\Tripwire\FrameAeadFailure;
 use Drupal\strata\Health\Tripwire\FrameHashMismatch;
 use Drupal\strata\Health\Tripwire\FrameMissing;
@@ -104,7 +105,8 @@ final class TripwireRegistry
 		return (new self())
 			->register(new WatermarkDrift())
 			->register(new UnclassifiedGrowth())
-			->register(new VendorDrift());
+			->register(new VendorDrift())
+			->register(new FlushStale());
 	}
 
 	/**
