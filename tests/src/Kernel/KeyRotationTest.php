@@ -279,6 +279,58 @@ class KeyRotationTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[
+		TestDox(
+			'a flush during a rotation checks the segment it just wrote, and one outside it does not',
+		),
+	]
+	#[Group('strata/crypto')]
+	public function aFlushChecksItsOwnSegmentWhileRotating(): void
+	{
+		$maker = $this->container->get('strata.key_maker');
+		$old = $maker->create('strata_rotation_old');
+
+		$this->config('strata.settings')
+			->set('enabled', true)
+			->set('provider', 'local')
+			->set('local_path', $this->storeRoot)
+			->set('key', $old)
+			->set('cipher.id', 'xchacha20poly1305')
+			->save();
+		$this->container->get('strata.capture_scope')->reset();
+
+		$engine = $this->container->get('strata.engine');
+		$state = $this->container->get('state');
+		$engine->reset();
+
+		$state->set('rotation.shared', ['value' => 'sealed under the first key']);
+		$state->destruct();
+		$engine->flusher()->flush(true);
+
+		$this->assertSame([], $this->ledger()->open(), 'a single key leaves nothing to report');
+
+		$new = $maker->create('strata_rotation_new');
+
+		$this->config('strata.settings')
+			->set('key', $new)
+			->set('retired_keys', [$old])
+			->save();
+		$engine->reset();
+
+		$state->set('rotation.twin', ['value' => 'sealed under the first key']);
+		$state->set('rotation.fresh', ['value' => 'sealed under the second key']);
+		$state->destruct();
+		$engine->flusher()->flush(true);
+
+		$codes = array_map(
+			static fn(object $finding): string => $finding->code,
+			$this->ledger()->open(),
+		);
+
+		$this->assertContains('key.rotated_mid_flight', $codes);
+	}
+
+	#[Test]
 	#[TestDox('a segment sealed wholly under one key records nothing')]
 	#[Group('strata/crypto')]
 	public function aWhollyOldSegmentIsNotRecorded(): void

@@ -66,6 +66,7 @@ flush:
   max_age: 15
   max_bytes: 4194304
   max_ops: 5000
+  stale_after: 86400
 frame:
   size: 16384
   pack_target: 1048576
@@ -98,6 +99,9 @@ retention:
     - window: 2592000
       keep: 0
   auto_prune: true
+compaction:
+  interval: 86400
+  budget: 16777216
 budget:
   bytes_per_month: 0
   dollars_per_month: 0
@@ -115,7 +119,7 @@ anomaly:
   enabled: true
   warn_sigma: 4.0
 drill:
-  enabled: false
+  enabled: true
   interval: 86400
   sample: 50
 telemetry:

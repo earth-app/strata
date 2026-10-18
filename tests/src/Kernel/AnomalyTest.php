@@ -450,6 +450,32 @@ class AnomalyTest extends StrataKernelTestBase
 	#region Recording
 
 	#[Test]
+	#[
+		TestDox(
+			'a metric back inside its window clears the finding it raised, and a preview does not',
+		),
+	]
+	#[Group('strata/anomaly')]
+	public function aRecoveredMetricClearsItsFinding(): void
+	{
+		$this->seed('stored_bytes', 1_000_000.0, 1_000_001.0);
+		$this->detector()->run();
+
+		$this->assertCount(1, $this->findings(Anomaly::CODE));
+
+		$stored = $this->reading()['stored_bytes'];
+
+		$this->seed('stored_bytes', $stored - 1.0, $stored + 1.0);
+		$this->detector()->run(false);
+
+		$this->assertCount(1, $this->findings(Anomaly::CODE), 'a preview leaves the ledger alone');
+
+		$this->detector()->run();
+
+		$this->assertSame([], $this->findings(Anomaly::CODE));
+	}
+
+	#[Test]
 	#[TestDox('a preview scores without writing a finding')]
 	#[Group('strata/anomaly')]
 	public function previewWritesNoFinding(): void

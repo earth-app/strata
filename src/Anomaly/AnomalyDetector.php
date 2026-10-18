@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\strata\Anomaly;
 
-use Drupal\strata\Event\Notifier;
 use Drupal\strata\Health\HealthLedgerInterface;
 use Psr\Log\LoggerInterface;
 
@@ -55,8 +54,6 @@ final class AnomalyDetector
 	 *   Where an anomaly is recorded.
 	 * @param LoggerInterface $logger
 	 *   Records what was found.
-	 * @param Notifier|null $notifier
-	 *   Announces each anomaly, or NULL to stay silent.
 	 * @param float $warnAt
 	 *   Deviations before a warning, so a site can widen or tighten the band.
 	 */
@@ -64,7 +61,6 @@ final class AnomalyDetector
 		private readonly MetricSampler $sampler,
 		private readonly HealthLedgerInterface $ledger,
 		private readonly LoggerInterface $logger,
-		private readonly ?Notifier $notifier = null,
 		private readonly float $warnAt = self::WARN_SIGMA,
 	) {}
 
@@ -84,8 +80,18 @@ final class AnomalyDetector
 		$anomalies = $this->current();
 
 		if ($record) {
+			$departed = [];
+
 			foreach ($anomalies as $anomaly) {
 				$this->report($anomaly);
+				$departed[$anomaly->metric] = true;
+			}
+
+			// observe-rung findings have no repair pass to clear them, so a metric back in range does it
+			foreach (array_keys(MetricSampler::METRICS) as $metric) {
+				if (!isset($departed[$metric])) {
+					$this->ledger->resolve(Anomaly::CODE, $metric);
+				}
 			}
 		}
 
@@ -199,7 +205,6 @@ final class AnomalyDetector
 		$finding = $anomaly->toFinding();
 
 		$this->ledger->record($finding);
-		$this->notifier?->findingRecorded($finding, $this->ledger->rungFor($finding->code));
 
 		$this->logger->notice('Strata anomaly: @detail', ['@detail' => $anomaly->describe()]);
 	}

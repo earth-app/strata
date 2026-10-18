@@ -204,7 +204,7 @@ final class CaptureSettingsForm extends SettingsFormBase
 		$form['assurance'][$this->fieldFor('drill.enabled')] = [
 			'#type' => 'checkbox',
 			'#title' => $this->t('Run Restore Drills'),
-			'#default_value' => (bool) $this->setting('drill.enabled', false),
+			'#default_value' => (bool) $this->setting('drill.enabled', true),
 			'#description' => $this->t(
 				'Proves the store reproduces the site. Costs one replay a subject.',
 			),

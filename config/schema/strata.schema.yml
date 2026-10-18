@@ -218,6 +218,9 @@ strata.settings:
         max_ops:
           type: integer
           label: 'Buffered operations before a flush'
+        stale_after:
+          type: integer
+          label: 'Seconds the oldest unsealed change may wait before a finding is raised'
     frame:
       type: mapping
       label: 'Framing and packing'
@@ -324,6 +327,16 @@ strata.settings:
         auto_prune:
           type: boolean
           label: 'Prune on cron'
+    compaction:
+      type: mapping
+      label: 'Unattended compaction'
+      mapping:
+        interval:
+          type: integer
+          label: 'Seconds between cron compaction passes, or 0 for none'
+        budget:
+          type: integer
+          label: 'Stored bytes one pass may read, or 0 for no limit'
     budget:
       type: mapping
       label: 'Spend ceiling'

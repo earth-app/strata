@@ -7,6 +7,7 @@ namespace Drupal\Tests\strata\Kernel;
 use Drupal\strata\Engine;
 use Drupal\strata\Event\RestoreEvent;
 use Drupal\strata\Event\StrataEvents;
+use Drupal\strata\Health\Finding;
 use Drupal\strata\Restore\RestoreAudit;
 use Drupal\strata\Restore\SubjectStatus;
 use Drupal\user\Entity\User;
@@ -505,6 +506,131 @@ class RestoreTest extends StrataKernelTestBase
 			User::load((int) $later->id()),
 			'a logical restore never removes content',
 		);
+	}
+
+	#[Test]
+	#[TestDox('an entity deleted after the restore point is recreated with its id and fields')]
+	#[Group('strata/restore')]
+	public function deletedEntityIsRecreated(): void
+	{
+		$user = $this->user('deleted-later');
+		$id = (int) $user->id();
+		$uuid = $user->uuid();
+		$target = $this->commit();
+
+		$user->delete();
+		$this->commit();
+
+		$this->assertNull(User::load($id));
+
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, ['entity/user:' . $id], true);
+
+		$this->assertFalse($result->wasRefused(), (string) $result->refused);
+		$this->assertSame([], $result->failed, json_encode($result->failed) ?: '');
+
+		$back = User::load($id);
+
+		$this->assertNotNull($back, 'the deleted account is back');
+		$this->assertSame('deleted-later', $back->getAccountName());
+		$this->assertSame('deleted-later@example.com', $back->getEmail());
+		$this->assertSame($uuid, $back->uuid(), 'under the uuid it had');
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'a quarantined commit is refused as a target, audited, and restorable again once released',
+		),
+	]
+	#[Group('strata/restore')]
+	public function aQuarantinedCommitIsNotARestoreTarget(): void
+	{
+		$user = $this->user('held-back');
+		$target = $this->commit();
+		$subject = 'entity/user:' . $user->id();
+
+		$user->set('name', 'held-back-changed')->save();
+		$this->commit();
+
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(
+			new Finding(
+				'commit.quarantined',
+				Finding::ERROR,
+				$target,
+				'quarantined by test: suspect',
+			),
+		);
+		$ledger->setRung('commit.quarantined', 'quarantine');
+
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, [$subject], true);
+
+		$this->assertTrue($result->wasRefused());
+		$this->assertStringContainsString('is quarantined', (string) $result->refused);
+		$this->assertSame('held-back-changed', User::load($user->id())->getAccountName());
+		$this->assertSame('refused', $this->audit()->recent()[0]['outcome']);
+
+		$ledger->setRung('commit.quarantined', 'observe');
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, [$subject], true);
+
+		$this->assertFalse($result->wasRefused(), (string) $result->refused);
+		$this->assertSame('held-back', User::load($user->id())->getAccountName());
+	}
+
+	#[Test]
+	#[TestDox('a code held at refuse stops every restore, and resolving its findings lifts it')]
+	#[Group('strata/restore')]
+	public function refuseStopsEveryRestore(): void
+	{
+		$user = $this->user('nobody-restores');
+		$target = $this->commit();
+		$subject = 'entity/user:' . $user->id();
+
+		$user->set('name', 'nobody-restores-changed')->save();
+		$this->commit();
+
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(
+			new Finding('frame.hash_mismatch', Finding::ERROR, 'frame:aa', 'wrong bytes'),
+		);
+		$ledger->setRung('frame.hash_mismatch', 'refuse');
+
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, [$subject], true);
+
+		$this->assertTrue($result->wasRefused());
+		$this->assertStringContainsString('held at refuse', (string) $result->refused);
+		$this->assertSame('nobody-restores-changed', User::load($user->id())->getAccountName());
+
+		$ledger->resolve('frame.hash_mismatch', 'frame:aa');
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, [$subject], true);
+
+		$this->assertFalse($result->wasRefused(), (string) $result->refused);
+	}
+
+	#[Test]
+	#[TestDox('an entity type that no longer exists is reported, not recreated')]
+	#[Group('strata/restore')]
+	public function missingEntityTypeIsReported(): void
+	{
+		$this->user('anchor-history');
+		$target = $this->commit();
+
+		$result = $this->engine()
+			->logicalRestore()
+			->restore($target, ['entity/no_such_type:7'], true);
+
+		$this->assertTrue($result->wasRefused() || $result->restored === []);
+		$this->assertNull(User::load(7));
 	}
 
 	#[Test]

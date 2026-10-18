@@ -14,6 +14,7 @@ use Drupal\strata\Budget\BudgetAssessment;
 use Drupal\strata\Budget\EscalationLadder;
 use Drupal\strata\Capture\Reconciler;
 use Drupal\strata\Code\CodeCapture;
+use Drupal\strata\Compaction\CompactionReport;
 use Drupal\strata\Drill\DrillReport;
 use Drupal\strata\Drill\DrillRunner;
 use Drupal\strata\Engine;
@@ -41,7 +42,8 @@ use Throwable;
  * 2. **The reconciler**, which detects tables that changed with nothing capturing them and
  *    appends the rows to close the gap - again before the flush, so those rows
  *    are sealed too.
- * 3. **The flush**, sealing whatever the window now holds.
+ * 3. **The flush**, sealing whatever the window now holds, then a reading of how long the oldest
+ *    change waited, which raises `flush.stale` when sealing keeps failing.
  * 4. **Keyspace discovery**, which writes no operations and only describes what is there, so it
  *    runs last and cannot delay anything that does.
  * 5. **Dictionary training**, on its own long interval. It reads segments back and compresses the
@@ -51,7 +53,9 @@ use Throwable;
  * 6. **Anomaly detection**, which takes one reading of the store and scores it against the site's
  *    own earlier readings. It runs after the flush so the reading includes what this cron just
  *    sealed rather than describing the state before it.
- * 7. **A restore drill**, on its own interval and off by default. It replays a sample of subjects
+ * 6a. **Compaction**, on its own interval and inside a byte budget. It is what moves objects down the
+ *    tier ladder and recompresses packs, and it prunes only while `retention.auto_prune` is on.
+ * 7. **A restore drill**, on its own interval, on by default. It replays a sample of subjects
  *    and compares them against what the site holds, which costs a replay per subject - the one
  *    stage here whose cost scales with the size of the sample rather than with what changed.
  * 8. **Telemetry export**, last, because it reports what every earlier stage did and an export that
@@ -108,6 +112,28 @@ final class CronCapture
 	public const DRILL_INTERVAL = 86_400;
 
 	/**
+	 * State key holding when the last compaction pass ran.
+	 */
+	public const COMPACTION_KEY = 'strata.compaction.ran';
+
+	/**
+	 * State key holding what the last compaction pass did, for the status page and for a test.
+	 */
+	public const COMPACTION_REPORT_KEY = 'strata.compaction.report';
+
+	/**
+	 * Seconds between compaction passes when nothing is configured.
+	 */
+	public const COMPACTION_INTERVAL = 86_400;
+
+	/**
+	 * Stored bytes one cron pass may read while recompressing, when nothing is configured.
+	 *
+	 * Level 19 runs at about 2.4 MB/s, so this is a few seconds of one request.
+	 */
+	public const COMPACTION_BUDGET = 16_777_216;
+
+	/**
 	 * Constructs the cron capture.
 	 *
 	 * @param Engine $engine
@@ -155,6 +181,10 @@ final class CronCapture
 		$this->stage('reconcile tables', fn(): mixed => $this->engine->reconciler()->reconcile());
 		$this->stage('flush', fn(): mixed => $this->engine->flusher()->flush());
 		$this->stage(
+			'check the flush lag',
+			fn(): mixed => $this->engine->flushWatch()->check($this->engine->flusher()->lag()),
+		);
+		$this->stage(
 			'discover the keyspace',
 			fn(): mixed => $this->engine->keyspaceDiscovery()->discover(),
 		);
@@ -162,6 +192,7 @@ final class CronCapture
 		$this->stage('detect anomalies', fn(): mixed => $this->detectAnomalies());
 		$this->stage('assess the budget', fn(): mixed => $this->assessBudget());
 		$this->stage('repair open findings', fn(): mixed => $this->repair());
+		$this->stage('compact the store', fn(): mixed => $this->compact());
 		$this->stage('run a restore drill', fn(): mixed => $this->runDrill());
 		$this->stage('export telemetry', fn(): mixed => $this->engine->telemetryPass()->run());
 	}
@@ -250,6 +281,53 @@ final class CronCapture
 	}
 
 	/**
+	 * Compacts the store, if a pass is due.
+	 *
+	 * Re-anchors delta chains, rolls up finished windows, recompresses packs and moves aged objects
+	 * down the tier ladder, all inside a byte budget so a cron request stays short. Nothing in that
+	 * list destroys a restore target. The prune that follows does, and runs only while
+	 * `retention.auto_prune` is on; it deletes objects no commit reaches and refuses on any doubt
+	 * about what is reachable.
+	 *
+	 * @return CompactionReport|null
+	 *   What the pass did, or NULL when it is off or not due.
+	 */
+	private function compact(): ?CompactionReport
+	{
+		$interval = (int) $this->setting('compaction.interval', self::COMPACTION_INTERVAL);
+
+		if ($interval < 1) {
+			return null;
+		}
+
+		$last = (int) $this->state->get(self::COMPACTION_KEY, 0);
+		$now = time();
+
+		if ($last > 0 && $now - $last < $interval) {
+			return null;
+		}
+
+		// recorded before the pass, so one that dies does not retry on every cron afterwards
+		$this->state->set(self::COMPACTION_KEY, $now);
+
+		$prune = (bool) $this->setting('retention.auto_prune', true);
+		$budget = (int) $this->setting('compaction.budget', self::COMPACTION_BUDGET);
+		$report = $this->engine->compactor()->compact(max(0, $budget), $prune, $prune);
+
+		$this->state->set(self::COMPACTION_REPORT_KEY, [
+			'at' => $now,
+			'packs' => $report->packs,
+			'frames' => $report->frames,
+			'saved' => $report->saved(),
+			'pruned' => $report->prune?->applied === true && !$report->prune->wasRefused(),
+			'objects' => count($report->prune->objects ?? []),
+			'problems' => count($report->problems),
+		]);
+
+		return $report;
+	}
+
+	/**
 	 * Runs a restore drill, if one is due.
 	 *
 	 * @return DrillReport|null
@@ -257,7 +335,7 @@ final class CronCapture
 	 */
 	private function runDrill(): ?DrillReport
 	{
-		if (!$this->setting('drill.enabled', false)) {
+		if (!$this->setting('drill.enabled', true)) {
 			return null;
 		}
 

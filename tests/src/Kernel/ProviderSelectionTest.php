@@ -58,6 +58,30 @@ class ProviderSelectionTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('resetting the engine after a site id change moves writes under the new prefix')]
+	#[Group('strata/storage')]
+	public function aChangedSiteIdTakesEffectOnReset(): void
+	{
+		$this->config('strata.settings')
+			->set('provider', 'local')
+			->set('local_path', $this->storeRoot)
+			->set('site_id', 'first-site')
+			->save();
+		$this->container->get('strata.capture_scope')->reset();
+		$this->engine()->reset();
+
+		$this->engine()->provider()->put('probe', 'one');
+
+		$this->config('strata.settings')->set('site_id', 'second-site')->save();
+		$this->engine()->reset();
+		$this->engine()->provider()->put('probe', 'two');
+
+		$this->assertFileExists($this->storeRoot . '/first-site/probe');
+		$this->assertFileExists($this->storeRoot . '/second-site/probe');
+		$this->assertSame('one', file_get_contents($this->storeRoot . '/first-site/probe'));
+	}
+
+	#[Test]
 	#[TestDox('the s3 provider is selected when configuration names it')]
 	#[Group('strata/storage')]
 	public function s3ProviderIsSelectedFromConfiguration(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\strata\Engine;
+use Drupal\strata\Health\Finding;
 use Drupal\strata\Journal\JournalInterface;
 use Drupal\strata\Journal\JournalOp;
 use Drupal\strata\Journal\Realm;
@@ -355,6 +356,33 @@ class PhysicalRestoreTest extends StrataKernelTestBase
 		$this->assertSame(RestoreAudit::PHYSICAL, $rows[0]['mode']);
 		$this->assertSame(RestoreAudit::REFUSED, $rows[0]['outcome']);
 		$this->assertSame('table/' . self::TABLE, $rows[0]['scope']);
+	}
+
+	#[Test]
+	#[TestDox('a quarantined commit is refused as a physical target and the table is left alone')]
+	#[Group('strata/restore')]
+	public function aQuarantinedCommitIsNotATarget(): void
+	{
+		$this->captureRow(1, 'captured');
+		$this->insert(1, 'captured');
+		$target = $this->commit();
+		$this->insert(2, 'added later');
+
+		$ledger = $this->container->get('strata.health_ledger');
+		$ledger->record(new Finding('commit.quarantined', Finding::ERROR, $target, 'suspect'));
+		$ledger->setRung('commit.quarantined', 'quarantine');
+
+		$result = $this->restore()->restore(self::TABLE, $target, 'truncate', true, true);
+
+		$this->assertTrue($result->wasRefused());
+		$this->assertStringContainsString('is quarantined', (string) $result->refused);
+		$this->assertCount(2, $this->rows(), 'nothing was removed');
+
+		$ledger->setRung('commit.quarantined', 'observe');
+		$result = $this->restore()->restore(self::TABLE, $target, 'truncate', true, true);
+
+		$this->assertFalse($result->wasRefused(), (string) $result->refused);
+		$this->assertCount(1, $this->rows());
 	}
 
 	#endregion

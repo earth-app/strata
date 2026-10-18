@@ -778,5 +778,76 @@ class FlushTest extends StrataKernelTestBase
 		$this->assertTrue($this->container->get('cron')->run(), 'cron completed');
 	}
 
+	#[Test]
+	#[
+		TestDox(
+			'cron reports a window that keeps failing to seal, once, and clears it when the lag is back under the limit',
+		),
+	]
+	#[Group('strata/flush')]
+	public function cronReportsAStaleWindowAndClearsIt(): void
+	{
+		$this->config('strata.settings')
+			->set('flush.max_ops', 1)
+			->set('flush.stale_after', 1)
+			->set('local_path', '/nonexistent-strata/store')
+			->save();
+		$this->engine()->reset();
+
+		$this->user('waiting');
+		usleep(1_100_000);
+
+		$this->container->get('cron')->run();
+		$this->container->get('cron')->run();
+
+		$this->assertSame(1, $this->staleRows(), 'two runs refresh one row');
+
+		// cron's own stages queue operations the flush leaves behind, so the limit is what moves
+		$this->config('strata.settings')
+			->set('local_path', $this->storeRoot)
+			->set('flush.stale_after', 3600)
+			->save();
+		$this->engine()->reset();
+		$this->container->get('cron')->run();
+
+		$this->assertNotEmpty($this->keys('commits/'), 'the window sealed');
+		$this->assertSame(0, $this->staleRows(), 'a lag back under the limit clears it');
+	}
+
+	#[Test]
+	#[TestDox('a limit of zero keeps the watch silent however long a window waits')]
+	#[Group('strata/flush')]
+	public function aZeroLimitSwitchesTheWatchOff(): void
+	{
+		$this->config('strata.settings')
+			->set('flush.max_ops', 1)
+			->set('flush.stale_after', 0)
+			->set('local_path', '/nonexistent-strata/store')
+			->save();
+		$this->engine()->reset();
+
+		$this->user('ignored');
+		usleep(1_100_000);
+
+		$this->container->get('cron')->run();
+
+		$this->assertSame(0, $this->staleRows());
+	}
+
+	/**
+	 * How many open stale-flush findings the ledger holds.
+	 *
+	 * @return int
+	 *   The count.
+	 */
+	private function staleRows(): int
+	{
+		$open = $this->container->get('strata.health_ledger')->open();
+
+		return count(
+			array_filter($open, static fn(Finding $f): bool => $f->code === 'flush.stale'),
+		);
+	}
+
 	#endregion
 }

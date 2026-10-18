@@ -86,6 +86,7 @@ final class StorageSettingsForm extends SettingsFormBase
 			'flush.max_age' => 'int',
 			'flush.max_bytes' => 'int',
 			'flush.max_ops' => 'int',
+			'flush.stale_after' => 'int',
 			'frame.size' => 'int',
 		];
 	}
@@ -584,6 +585,16 @@ final class StorageSettingsForm extends SettingsFormBase
 			'#min' => 1,
 			'#default_value' => (int) $this->setting('flush.max_ops', 5000),
 			'#description' => $this->t('Seals early when this many changes have been captured.'),
+		];
+
+		$form['flush']['flush__stale_after'] = [
+			'#type' => 'number',
+			'#title' => $this->t('Stale After'),
+			'#min' => 0,
+			'#default_value' => (int) $this->setting('flush.stale_after', 86400),
+			'#description' => $this->t(
+				'Raises a finding when a change has waited this many seconds. 0 turns it off.',
+			),
 		];
 
 		$form['flush']['frame__size'] = [

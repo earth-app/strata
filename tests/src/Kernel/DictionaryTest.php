@@ -401,6 +401,43 @@ class DictionaryTest extends StrataKernelTestBase
 	}
 
 	#[Test]
+	#[TestDox('a dictionary that left the store does not stop the object store from being built')]
+	#[Group('strata/codec')]
+	public function lostActiveDictionaryDoesNotBlockTheStore(): void
+	{
+		$this->requireZstd();
+
+		$this->pass()->trainRealm(Realm::ENTITY->value, $this->samples());
+		$this->engine()->reset();
+
+		$this->assertSame('entity:1', $this->engine()->activeDictionary()?->id());
+
+		$this->engine()->provider()->delete($this->keys('dicts/'));
+
+		$this->engine()->reset();
+
+		$store = $this->engine()->objectStore();
+
+		$this->assertNull(
+			$store->dictionaryId(),
+			'new frames are written without the lost dictionary',
+		);
+		$this->assertNotNull(
+			$this->engine()->verifier(),
+			'so the verifier that must report it can be built',
+		);
+	}
+
+	/**
+	 * @return list<string>
+	 *   Object keys under a prefix.
+	 */
+	private function keys(string $prefix): array
+	{
+		return $this->engine()->provider()->list($prefix, null, 1000)->keys();
+	}
+
+	#[Test]
 	#[TestDox('a flush after training records the dictionary on the frames it writes')]
 	#[Group('strata/codec')]
 	public function flushRecordsTheDictionary(): void

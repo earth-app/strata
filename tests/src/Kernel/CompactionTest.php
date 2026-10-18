@@ -11,6 +11,7 @@ use Drupal\strata\Compaction\Recompressor;
 use Drupal\strata\Engine;
 use Drupal\strata\Event\PruneEvent;
 use Drupal\strata\Event\StrataEvents;
+use Drupal\strata\Hook\CronCapture;
 use Drupal\strata\Tree\BaseManifest;
 use Drupal\user\Entity\User;
 use PHPUnit\Framework\Attributes\Group;
@@ -392,6 +393,72 @@ class CompactionTest extends StrataKernelTestBase
 		$this->assertGreaterThanOrEqual(0, $report->saved());
 		$this->assertGreaterThanOrEqual(1.0, $report->gain());
 		$this->assertStringContainsString('recompressed', $report->summary());
+	}
+
+	#[Test]
+	#[TestDox('cron compacts on its own interval, once, and not at all when the interval is zero')]
+	#[Group('strata/compaction')]
+	public function cronCompactsOnAnInterval(): void
+	{
+		$state = $this->container->get('state');
+		$this->flush('cron-one');
+
+		$this->config('strata.settings')->set('compaction.interval', 0)->save();
+		$this->engine()->reset();
+		$this->container->get('cron')->run();
+
+		$this->assertNull($state->get(CronCapture::COMPACTION_REPORT_KEY), 'zero is off');
+
+		$this->config('strata.settings')->set('compaction.interval', 3600)->save();
+		$this->engine()->reset();
+		$this->container->get('cron')->run();
+
+		$first = $state->get(CronCapture::COMPACTION_REPORT_KEY);
+
+		$this->assertIsArray($first);
+		$this->assertSame(0, $first['problems']);
+
+		$state->set(CronCapture::COMPACTION_REPORT_KEY, ['at' => 0]);
+		$this->container->get('cron')->run();
+
+		$this->assertSame(
+			['at' => 0],
+			$state->get(CronCapture::COMPACTION_REPORT_KEY),
+			'not due again',
+		);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'cron prunes what nothing reaches while auto_prune is on, and leaves it while it is off',
+		),
+	]
+	#[Group('strata/compaction')]
+	public function cronPrunesOnlyWhenAsked(): void
+	{
+		$state = $this->container->get('state');
+		$this->flush('cron-prune');
+		$orphan = $this->makeOrphan();
+		$pack = Hash::key((string) $this->frames()->get($orphan)?->pack, ObjectStore::PACK_PREFIX);
+
+		$this->config('strata.settings')->set('retention.auto_prune', false)->save();
+		$this->engine()->reset();
+		$this->container->get('cron')->run();
+
+		$this->assertFalse($state->get(CronCapture::COMPACTION_REPORT_KEY)['pruned']);
+		$this->assertTrue($this->engine()->provider()->exists($pack), 'the orphan is still there');
+
+		$state->delete(CronCapture::COMPACTION_KEY);
+		$this->config('strata.settings')->set('retention.auto_prune', true)->save();
+		$this->engine()->reset();
+		$this->container->get('cron')->run();
+
+		$report = $state->get(CronCapture::COMPACTION_REPORT_KEY);
+
+		$this->assertTrue($report['pruned']);
+		$this->assertGreaterThan(0, $report['objects']);
+		$this->assertFalse($this->engine()->provider()->exists($pack), 'the orphan was removed');
 	}
 
 	#[Test]

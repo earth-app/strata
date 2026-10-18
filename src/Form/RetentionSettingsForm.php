@@ -49,6 +49,8 @@ final class RetentionSettingsForm extends SettingsFormBase
 			'retention.base_interval' => 'int',
 			'retention.base_full_every' => 'int',
 			'retention.auto_prune' => 'bool',
+			'compaction.interval' => 'int',
+			'compaction.budget' => 'int',
 			'codec.compaction_level' => 'int',
 			'budget.bytes_per_month' => 'int',
 			'budget.dollars_per_month' => 'int',
@@ -224,8 +226,24 @@ final class RetentionSettingsForm extends SettingsFormBase
 			'#title' => $this->t('Prune on Cron'),
 			'#default_value' => (bool) $this->setting('retention.auto_prune', true),
 			'#description' => $this->t(
-				'Destroys restore points permanently, and writes a receipt first.',
+				'Deletes objects no commit reaches, such as packs a recompression replaced.',
 			),
+		];
+
+		$form['ladder'][$this->fieldFor('compaction.interval')] = [
+			'#type' => 'number',
+			'#title' => $this->t('Compact Every, Seconds'),
+			'#min' => 0,
+			'#default_value' => (int) $this->setting('compaction.interval', 86_400),
+			'#description' => $this->t('Zero stops cron compacting. Tier moves wait for it.'),
+		];
+
+		$form['ladder'][$this->fieldFor('compaction.budget')] = [
+			'#type' => 'number',
+			'#title' => $this->t('Compaction Budget, Bytes'),
+			'#min' => 0,
+			'#default_value' => (int) $this->setting('compaction.budget', 16_777_216),
+			'#description' => $this->t('Most stored bytes one pass reads. Zero means no limit.'),
 		];
 
 		$form['ladder'][$this->fieldFor('codec.compaction_level')] = [

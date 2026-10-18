@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Drupal\Tests\strata\Kernel;
 
 use Drupal\strata\Engine;
+use Drupal\strata\Event\HealthEvent;
+use Drupal\strata\Event\StrataEvents;
 use Drupal\strata\Health\Finding;
 use Drupal\strata\Health\RepairLadder;
 use Drupal\strata\Restore\SubjectStatus;
@@ -516,6 +518,55 @@ class MeltdownTest extends StrataKernelTestBase
 		);
 
 		$this->assertCount(1, $rows);
+	}
+
+	#endregion
+
+	#region Announcing
+
+	#[Test]
+	#[TestDox('the ledger announces a code once while it stays open, and again when it gets worse')]
+	#[Group('strata/meltdown')]
+	public function theLedgerAnnouncesACodeOnce(): void
+	{
+		$heard = [];
+
+		$this->container
+			->get('event_dispatcher')
+			->addListener(StrataEvents::HEALTH_FINDING, static function (HealthEvent $event) use (
+				&$heard,
+			): void {
+				$heard[] = $event->jsonSerialize();
+			});
+
+		$ledger = $this->container->get('strata.health_ledger');
+
+		foreach (['aa', 'bb', 'cc'] as $frame) {
+			$ledger->record(
+				new Finding('frame.missing', Finding::ERROR, 'frame:' . $frame, 'gone'),
+			);
+		}
+
+		$this->assertCount(1, $heard, 'three scopes under one code are one announcement');
+
+		$ledger->record(new Finding('frame.missing', Finding::ERROR, 'frame:aa', 'still gone'));
+
+		$this->assertCount(1, $heard, 'the same symptom seen again says nothing');
+
+		$ledger->record(new Finding('frame.missing', Finding::CRITICAL, 'frame:aa', 'worse'));
+
+		$this->assertCount(2, $heard, 'a finding that gets worse is heard again');
+
+		$ledger->record(new Finding('delta.parent_missing', Finding::ERROR, 'frame:dd', 'gone'));
+
+		$this->assertCount(3, $heard, 'a second code is its own announcement');
+
+		$ledger->resolve('frame.missing', 'frame:aa');
+		$ledger->resolve('frame.missing', 'frame:bb');
+		$ledger->resolve('frame.missing', 'frame:cc');
+		$ledger->record(new Finding('frame.missing', Finding::ERROR, 'frame:aa', 'back again'));
+
+		$this->assertCount(4, $heard, 'a code that closed and reopened is news');
 	}
 
 	#endregion

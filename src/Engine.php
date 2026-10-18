@@ -82,6 +82,7 @@ use Drupal\strata\File\MediaStore;
 use Drupal\strata\File\ShiftDetector;
 use Drupal\strata\File\StorageClassPolicy;
 use Drupal\strata\Flush\Flusher;
+use Drupal\strata\Flush\FlushWatch;
 use Drupal\strata\Flush\Lease;
 use Drupal\strata\Health\CircuitBreaker;
 use Drupal\strata\Health\Finding;
@@ -98,6 +99,7 @@ use Drupal\strata\Restore\Plugin\Strata\Restore\TruncateRestoreStrategy;
 use Drupal\strata\Restore\Preflight;
 use Drupal\strata\Restore\Replayer;
 use Drupal\strata\Restore\RestoreAudit;
+use Drupal\strata\Restore\RestoreHold;
 use Drupal\strata\Restore\RestoreStrategyInterface;
 use Drupal\strata\Segment\SegmentReader;
 use Drupal\strata\Site\SiteContext;
@@ -944,6 +946,22 @@ final class Engine
 	{
 		$dictionaries = $this->dictionaries();
 		$active = $this->activeDictionary();
+		$bytes = null;
+		$id = $active?->id();
+
+		if ($this->store === null && $active !== null) {
+			try {
+				$bytes = $dictionaries->get($active->id());
+			} catch (Throwable $error) {
+				// a dictionary only improves compression, so one that cannot be read must not take
+				// the store down with it: the verifier reports it and new frames are written without
+				$this->logger->warning(
+					'Strata cannot read dictionary %id, so new frames are written without one: %message',
+					['%id' => $active->id(), '%message' => $error->getMessage()],
+				);
+				$id = null;
+			}
+		}
 
 		return $this->store ??= new ObjectStore(
 			$this->provider(),
@@ -953,8 +971,8 @@ final class Engine
 			new Framer((int) $this->settings()->get('frame.size')),
 			new Packer((int) $this->settings()->get('frame.pack_target')),
 			$this->level('flush_level'),
-			$active === null ? null : $dictionaries->get($active->id()),
-			$active?->id(),
+			$bytes,
+			$id,
 			$dictionaries,
 			$this->chainDepthPolicy(),
 			$this->parents,
@@ -1299,6 +1317,7 @@ final class Engine
 			$this->currentUser,
 			$this->logger,
 			$this->notifier,
+			new RestoreHold($this->ledger),
 		);
 	}
 
@@ -1393,6 +1412,7 @@ final class Engine
 			$this->currentUser,
 			$this->logger,
 			$this->notifier,
+			new RestoreHold($this->ledger),
 		);
 
 		$restore->addStrategy(new TruncateRestoreStrategy());
@@ -1781,7 +1801,6 @@ final class Engine
 			$this->metricSampler(),
 			$this->ledger,
 			$this->logger,
-			$this->notifier,
 			(float) ($this->settings()->get('anomaly.warn_sigma') ?? AnomalyDetector::WARN_SIGMA),
 		);
 	}
@@ -1916,6 +1935,21 @@ final class Engine
 	}
 
 	/**
+	 * The watch over how long captured changes wait for a flush.
+	 *
+	 * @return FlushWatch
+	 *   A watch holding the configured limit.
+	 */
+	public function flushWatch(): FlushWatch
+	{
+		return new FlushWatch(
+			TripwireRegistry::withCaptureTripwires(),
+			$this->ledger,
+			(int) ($this->settings()->get('flush.stale_after') ?? FlushWatch::DEFAULT_STALE_AFTER),
+		);
+	}
+
+	/**
 	 * The flusher.
 	 *
 	 * @return Flusher
@@ -1938,7 +1972,25 @@ final class Engine
 			$this->commitIndex,
 			$this->notifier,
 			$this->site->id(),
+			$this->rotationWatch(),
 		);
+	}
+
+	/**
+	 * The key rotation, when one is in progress and a flush should check its segments against it.
+	 *
+	 * @return KeyRotation|null
+	 *   The rotation, or NULL when there is no retired key or encryption is off.
+	 */
+	private function rotationWatch(): ?KeyRotation
+	{
+		try {
+			$rotation = $this->keyRotation();
+
+			return $rotation->isRotating() ? $rotation : null;
+		} catch (Throwable) {
+			return null;
+		}
 	}
 
 	/**
@@ -1948,6 +2000,8 @@ final class Engine
 	 */
 	public function reset(): void
 	{
+		$this->site->reset();
+		$this->providers?->refresh();
 		$this->provider = null;
 		$this->tiers = null;
 		$this->cipher = null;
