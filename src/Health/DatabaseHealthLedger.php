@@ -6,6 +6,7 @@ namespace Drupal\strata\Health;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Statement\FetchAs;
+use Drupal\strata\Event\Notifier;
 use InvalidArgumentException;
 
 /**
@@ -37,8 +38,13 @@ final class DatabaseHealthLedger implements HealthLedgerInterface
 	 *
 	 * @param Connection $database
 	 *   The database.
+	 * @param Notifier|null $notifier
+	 *   Told when a code first opens or a finding gets worse, or NULL to tell nobody.
 	 */
-	public function __construct(private readonly Connection $database) {}
+	public function __construct(
+		private readonly Connection $database,
+		private readonly ?Notifier $notifier = null,
+	) {}
 
 	#region Findings
 
@@ -72,8 +78,14 @@ final class DatabaseHealthLedger implements HealthLedgerInterface
 				->condition('id', (int) $existing['id'])
 				->execute();
 
+			if ($finding->severity > (int) $existing['severity']) {
+				$this->notifier?->findingRecorded($finding, $rung);
+			}
+
 			return;
 		}
+
+		$firstOfItsCode = !$this->isOpen($finding->code);
 
 		$this->database
 			->insert(self::TABLE)
@@ -87,6 +99,31 @@ final class DatabaseHealthLedger implements HealthLedgerInterface
 				'resolved' => null,
 			])
 			->execute();
+
+		// one announcement per code, so ten thousand missing frames are one event and not ten thousand
+		if ($firstOfItsCode) {
+			$this->notifier?->findingRecorded($finding, $rung);
+		}
+	}
+
+	/**
+	 * Whether any finding under a code is still open.
+	 *
+	 * @param string $code
+	 *   The finding code.
+	 *
+	 * @return bool
+	 *   TRUE when at least one row is unresolved.
+	 */
+	private function isOpen(string $code): bool
+	{
+		return (int) $this->database
+			->select(self::TABLE, 'h')
+			->condition('code', $code)
+			->isNull('resolved')
+			->countQuery()
+			->execute()
+			?->fetchField() > 0;
 	}
 
 	/**

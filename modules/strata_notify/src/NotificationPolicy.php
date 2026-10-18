@@ -15,7 +15,8 @@ use Drupal\strata\Health\Finding;
  * **A channel that notifies too much is a channel nobody reads**, which is worse than no channel:
  * the operator who filtered Strata's mail into a folder in week one is the operator who misses the
  * failed restore in week nine. So the defaults are deliberately narrow - failures, budget breaches,
- * drills and findings at ERROR or above - and the noisy events are off until somebody asks for them.
+ * drills and findings at WARN or above, each code announced once while it stays open - and the noisy
+ * events are off until somebody asks for them.
  *
  * A commit event is off by default for the same reason. A site flushing every fifteen seconds would
  * send 5,760 mails a day, and the one that mattered would be indistinguishable from the rest.
@@ -108,7 +109,7 @@ final class NotificationPolicy
 	{
 		$configured = $this->setting('severity');
 
-		return $configured === null ? Finding::ERROR : (int) $configured;
+		return $configured === null ? Finding::WARN : (int) $configured;
 	}
 
 	/**

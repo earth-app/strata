@@ -125,9 +125,10 @@ class NotifyTest extends StrataKernelTestBase
 
 		$policy = $this->policy();
 
-		$this->assertSame(Finding::ERROR, $policy->severityFloor());
-		$this->assertFalse($policy->wants($this->health(Finding::WARN)));
-		$this->assertTrue($policy->wants($this->health(Finding::ERROR)), 'the floor is inclusive');
+		$this->assertSame(Finding::WARN, $policy->severityFloor());
+		$this->assertFalse($policy->wants($this->health(Finding::INFO)));
+		$this->assertTrue($policy->wants($this->health(Finding::WARN)), 'the floor is inclusive');
+		$this->assertTrue($policy->wants($this->health(Finding::ERROR)));
 		$this->assertTrue($policy->wants($this->health(Finding::CRITICAL)));
 	}
 

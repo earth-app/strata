@@ -1,5 +1,5 @@
 recipients: ''
-severity: 2
+severity: 1
 events:
   restore: true
   budget: true

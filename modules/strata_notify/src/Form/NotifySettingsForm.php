@@ -65,7 +65,7 @@ final class NotifySettingsForm extends ConfigFormBase
 				Finding::ERROR => $this->t('Error and Above'),
 				Finding::CRITICAL => $this->t('Critical Only'),
 			],
-			'#default_value' => (int) ($config->get('severity') ?? Finding::ERROR),
+			'#default_value' => (int) ($config->get('severity') ?? Finding::WARN),
 			'#description' => $this->t(
 				'Findings only. A failed restore is notified whatever this says.',
 			),

@@ -148,7 +148,7 @@ services:
 
   strata.health_ledger:
     class: Drupal\strata\Health\DatabaseHealthLedger
-    arguments: ['@database']
+    arguments: ['@database', '@strata.notifier']
 
   Drupal\strata\Health\HealthLedgerInterface:
     alias: strata.health_ledger
