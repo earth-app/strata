@@ -9,6 +9,9 @@
 	<file>tests</file>
 	<file>stubs</file>
 	<file>scripts</file>
+	<file>docker</file>
+	<file>strata.api.php</file>
+	<file>strata.install</file>
 	<arg name="extensions" value="php,module,install,inc" />
 	<arg value="sp" />
 	<arg name="colors" />

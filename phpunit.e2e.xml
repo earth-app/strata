@@ -1,0 +1,27 @@
+<?xml version="1.0" ?>
+<phpunit
+	bootstrap="tests/e2e/bootstrap.php"
+	colors="true"
+	failOnRisky="true"
+	failOnWarning="true"
+	cacheDirectory=".phpunit.cache/e2e"
+	testdox="true"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.4/phpunit.xsd"
+>
+	<php>
+		<ini
+			name="memory_limit"
+			value="2G"
+		/>
+		<ini
+			name="max_execution_time"
+			value="0"
+		/>
+	</php>
+	<testsuites>
+		<testsuite name="E2E">
+			<directory>tests/src/E2E</directory>
+		</testsuite>
+	</testsuites>
+</phpunit>

@@ -1,0 +1,177 @@
+name: strata-e2e
+
+x-drupal: &drupal
+  image: strata-e2e:local
+  build:
+    context: ../..
+    dockerfile: docker/e2e/Dockerfile
+  volumes:
+    - ../..:/strata
+  working_dir: /strata
+  mem_limit: 2g
+  cpus: 2
+  environment: &drupal-env
+    STRATA_E2E_S3_ENDPOINT: http://seaweedfs:8333
+    STRATA_E2E_S3_BUCKET: strata-e2e
+    STRATA_E2E_S3_REPLICA: strata-e2e-replica
+    STRATA_E2E_S3_KEY: strata
+    STRATA_E2E_S3_SECRET: stratatest
+    STRATA_E2E_R2_ENDPOINT: http://e2e.r2.cloudflarestorage.com:8333
+    STRATA_E2E_AZURE_URL: http://azurite:10000/devstoreaccount1
+    STRATA_E2E_AZURE_ACCOUNT: devstoreaccount1
+    STRATA_E2E_AZURE_CONTAINER: strata-e2e
+    STRATA_E2E_AZURE_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+    STRATA_E2E_GCS_URL: http://gcs:4443
+    STRATA_E2E_GCS_BUCKET: strata-e2e
+    STRATA_E2E_B2_URL: http://b2:8080
+    STRATA_E2E_B2_KEY_ID: fake-key-id
+    STRATA_E2E_B2_KEY: fake-application-key
+    STRATA_E2E_B2_BUCKET_NAME: strata-b2
+    STRATA_E2E_B2_BUCKET_ID: bucket0000000001
+    STRATA_E2E_REDIS_HOST: redis
+    STRATA_E2E_PROVIDERS: ${STRATA_E2E_PROVIDERS:-local,s3,r2,azure,gcs,b2}
+    E2E_UPDATE_BASELINE: ${E2E_UPDATE_BASELINE:-}
+  depends_on: &drupal-deps
+    seaweedfs:
+      condition: service_healthy
+    azurite:
+      condition: service_healthy
+    gcs:
+      condition: service_healthy
+    b2:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  drupal-mariadb:
+    <<: *drupal
+    profiles: [mariadb]
+    environment:
+      <<: *drupal-env
+      E2E_DB: mariadb
+    depends_on:
+      <<: *drupal-deps
+      mariadb:
+        condition: service_healthy
+
+  drupal-postgres:
+    <<: *drupal
+    profiles: [postgres]
+    environment:
+      <<: *drupal-env
+      E2E_DB: postgres
+    depends_on:
+      <<: *drupal-deps
+      postgres:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11.8.3@sha256:ae6119716edac6998ae85508431b3d2e666530ddf4e94c61a10710caec9b0f71
+    profiles: [mariadb]
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      MARIADB_ROOT_PASSWORD: strata
+      MARIADB_DATABASE: strata
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+
+  postgres:
+    image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+    profiles: [postgres]
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      POSTGRES_PASSWORD: strata
+      POSTGRES_DB: strata
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'postgres']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes:
+      - ../postgres-init:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    image: redis:8.0-alpine
+    mem_limit: 256m
+    cpus: 1
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -s3.port=8333
+      - -volume.max=30
+      - -master.volumeSizeLimitMB=128
+    mem_limit: 1g
+    cpus: 2
+    volumes:
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 8333']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    networks:
+      default:
+        aliases:
+          - e2e.r2.cloudflarestorage.com
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0@sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37
+    command: ['azurite-blob', '--blobHost', '0.0.0.0', '--skipApiVersionCheck']
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '10000']
+      interval: 2s
+      timeout: 2s
+      retries: 40
+
+  gcs:
+    image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
+    command: ['-scheme', 'http', '-host', '0.0.0.0', '-port', '4443', '-public-host', 'gcs:4443']
+    mem_limit: 256m
+    cpus: 1
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '4443']
+      interval: 2s
+      timeout: 2s
+      retries: 40
+
+  b2:
+    image: strata-e2e:local
+    build:
+      context: ../..
+      dockerfile: docker/e2e/Dockerfile
+    entrypoint: ['php', '-S', '0.0.0.0:8080', '/fake-b2/server.php']
+    working_dir: /fake-b2
+    mem_limit: 256m
+    cpus: 1
+    environment:
+      B2_DATA: /data
+      PHP_CLI_SERVER_WORKERS: '4'
+    volumes:
+      - ./fake-b2:/fake-b2:ro
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'php', '-r', 'exit(@fsockopen("127.0.0.1", 8080) ? 0 : 1);']
+      interval: 2s
+      timeout: 2s
+      retries: 40

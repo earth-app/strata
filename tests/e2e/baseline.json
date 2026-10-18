@@ -1,0 +1,374 @@
+{
+	"azure": {
+		"bucket_bytes": {
+			"value": 23525,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.064,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4305.5,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930221,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115355,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	},
+	"b2": {
+		"bucket_bytes": {
+			"value": 23368,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.0674,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4292.625,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930230,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115308,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	},
+	"gcs": {
+		"bucket_bytes": {
+			"value": 23371,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.0675,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4293.375,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930230,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115306,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	},
+	"local": {
+		"bucket_bytes": {
+			"value": 23427,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.0679,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4298.125,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930191,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115296,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	},
+	"r2": {
+		"bucket_bytes": {
+			"value": 23312,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.0667,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4291,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930200,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115314,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	},
+	"s3": {
+		"bucket_bytes": {
+			"value": 23364,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"bucket_objects": {
+			"value": 28,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"commits": {
+			"value": 13,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"compression_ratio": {
+			"value": 8.0691,
+			"unit": "x",
+			"tolerance": 0.15
+		},
+		"deepest_chain": {
+			"value": 4,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"frames": {
+			"value": 150,
+			"unit": "count",
+			"tolerance": 0.1
+		},
+		"get_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"head_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"put_bytes_per_flush": {
+			"value": 4293.5,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"put_per_flush": {
+			"value": 4,
+			"unit": "requests",
+			"tolerance": 0.1
+		},
+		"raw_bytes": {
+			"value": 930200,
+			"unit": "bytes",
+			"tolerance": 0.15
+		},
+		"stored_bytes": {
+			"value": 115279,
+			"unit": "bytes",
+			"tolerance": 0.15
+		}
+	}
+}

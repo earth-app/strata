@@ -1,0 +1,9 @@
+.git
+.phpunit.cache
+.remember
+node_modules
+vendor
+coverage
+build
+docs
+*.log

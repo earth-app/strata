@@ -1,0 +1,52 @@
+name: Container Suites
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  container-suites:
+    name: End-to-End Testing (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [postgres, mariadb]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the Container Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/e2e/Dockerfile
+          load: true
+          tags: strata-e2e:local
+          cache-from: type=gha,scope=strata-e2e
+          cache-to: type=gha,mode=max,scope=strata-e2e
+
+      - name: Run the Suite
+        run: docker/e2e/lane.sh ${{ matrix.db }}
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ matrix.db }}
+          path: build/e2e
+          if-no-files-found: ignore

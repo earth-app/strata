@@ -1,0 +1,9 @@
+{
+	"identities": [
+		{
+			"name": "strata",
+			"credentials": [{ "accessKey": "strata", "secretKey": "stratatest" }],
+			"actions": ["Admin", "Read", "Write", "List", "Tagging"]
+		}
+	]
+}
