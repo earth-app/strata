@@ -7,7 +7,7 @@ SITE_NAME="Drupal $PROJECT_NAME Test"
 SRC_PATH="$(realpath .)"
 COMPOSE_FILE="$SRC_PATH/docker/compose.yml"
 
-# minio, from docker/compose.yml
+# seaweedfs, from docker/compose.yml
 S3_ENDPOINT="http://host.docker.internal:9000"
 S3_ENDPOINT_HOST="http://127.0.0.1:9000"
 S3_BUCKET="strata-backups"
@@ -38,12 +38,12 @@ Build the playground (the default when no command is given):
                [--tiers] [--fresh] [--no-codecs] [--no-ui]
 
   --provider=  which object store to run against; defaults to s3
-                 s3     minio, which is also how r2 and every s3-compatible endpoint behave
+                 s3     seaweedfs, which is also how r2 and every s3-compatible endpoint behave
                  azure  azurite, the azure blob emulator, over the native blob rest api
                  gcs    fake-gcs-server, over the native json api
                  local  the filesystem, no container at all
   --db=        database ddev runs; defaults to mariadb
-  --tiers      configure a two-bucket ladder on minio, the near one plus a replica
+  --tiers      configure a two-bucket ladder on seaweedfs, the near one plus a replica
   --fresh      delete the existing site and rebuild it from scratch
   --no-codecs  skip building ext-zstd and ext-brotli into the web container
   --no-ui      install only the engine, without strata_ui, strata_files or strata_notify
@@ -169,7 +169,7 @@ esac
 
 # which compose service backs each provider, and whether one is needed at all
 case "$PROVIDER" in
-	s3) PROVIDER_SERVICE="minio" ;;
+	s3) PROVIDER_SERVICE="seaweedfs" ;;
 	azure) PROVIDER_SERVICE="azurite" ;;
 	gcs) PROVIDER_SERVICE="gcs" ;;
 	local) PROVIDER_SERVICE="" ;;
@@ -181,7 +181,7 @@ case "$PROVIDER" in
 esac
 
 if [ "$USE_TIERS" = "1" ] && [ "$PROVIDER" != "s3" ]; then
-	echo ">>> --tiers needs --provider=s3; only minio is given more than one bucket here"
+	echo ">>> --tiers needs --provider=s3; only seaweedfs is given more than one bucket here"
 	exit 1
 fi
 
@@ -385,11 +385,11 @@ if [ -n "$PROVIDER_SERVICE" ]; then
 
 	docker compose -f "$COMPOSE_FILE" up -d --wait "$PROVIDER_SERVICE"
 
-	# minio gets its buckets from a one-shot; `up --wait` calls an exited container a failure even
-	# at exit zero, so it is run to completion instead
+	# buckets are made with a plain PUT, which seaweedfs accepts without credentials
 	if [ "$PROVIDER" = "s3" ]; then
-		docker compose -f "$COMPOSE_FILE" run --rm minio-init > /dev/null
-		echo ">>> minio ready: $S3_ENDPOINT_HOST (console http://127.0.0.1:9001, strata / stratatest)"
+		curl -sf -X PUT "$S3_ENDPOINT_HOST/$S3_BUCKET" > /dev/null
+		curl -sf -X PUT "$S3_ENDPOINT_HOST/$S3_REPLICA" > /dev/null
+		echo ">>> seaweedfs ready: $S3_ENDPOINT_HOST (strata / stratatest)"
 	fi
 
 	if [ "$PROVIDER" = "azure" ]; then
@@ -756,8 +756,7 @@ echo "Provider:    $PROVIDER"
 
 case "$PROVIDER" in
 	s3)
-		echo "MinIO API:   $S3_ENDPOINT_HOST"
-		echo "MinIO UI:    http://127.0.0.1:9001  (strata / stratatest)"
+		echo "S3 API:      $S3_ENDPOINT_HOST"
 		echo "Bucket:      $S3_BUCKET"
 		[ "$USE_TIERS" = "1" ] && echo "Replica:     $S3_REPLICA"
 		;;

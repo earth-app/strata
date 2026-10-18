@@ -192,22 +192,20 @@ jobs:
             echo "pg_trgm is present\n";
           '
 
-      - name: Start MinIO
+      - name: Start SeaweedFS
         run: |
-          docker run -d --name strata-minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=strata -e MINIO_ROOT_PASSWORD=stratatest \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
-            server /data
+          docker run -d --name strata-s3 -p 9000:8333 \
+            chrislusf/seaweedfs:latest@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d \
+            server -dir=/data -s3 -s3.port=8333 -volume.max=30 -master.volumeSizeLimitMB=128
           for attempt in $(seq 1 60); do
-            if curl -sf -o /dev/null http://127.0.0.1:9000/minio/health/live; then
-              docker exec strata-minio mc alias set local http://127.0.0.1:9000 strata stratatest
-              docker exec strata-minio mc mb --ignore-existing local/strata-backups
-              docker exec strata-minio mc mb --ignore-existing local/strata-replica
+            if curl -s -o /dev/null http://127.0.0.1:9000/; then
+              curl -sf -X PUT http://127.0.0.1:9000/strata-backups
+              curl -sf -X PUT http://127.0.0.1:9000/strata-replica
               exit 0
             fi
             sleep 1
           done
-          docker logs strata-minio
+          docker logs strata-s3
           exit 1
 
       - name: Install Composer Dependencies

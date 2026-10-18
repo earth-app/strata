@@ -17,6 +17,7 @@ use Drupal\strata\Storage\HttpTransport;
 use Drupal\strata_s3\S3Endpoint;
 use Drupal\strata_s3\S3StorageProvider;
 use Drupal\strata_s3\SigV4Signer;
+use DateTimeImmutable;
 use GuzzleHttp\Client;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -30,10 +31,10 @@ use PHPUnit\Framework\Attributes\TestDox;
  * delete passed every unit test and failed here, because DeleteObjects requires an integrity header
  * that the canned transport never asked for.
  *
- * Skipped unless a MinIO endpoint is reachable, so the suite stays green without docker. Start one
+ * Skipped unless an S3 endpoint is reachable, so the suite stays green without docker. Start one
  * with `docker compose -f docker/compose.yml up -d --wait`.
  */
-class MinioIntegrationTest extends StrataKernelTestBase
+class S3IntegrationTest extends StrataKernelTestBase
 {
 	/**
 	 * {@inheritdoc}
@@ -66,13 +67,14 @@ class MinioIntegrationTest extends StrataKernelTestBase
 
 		if (!$this->reachable()) {
 			$this->markTestSkipped(
-				'no MinIO at ' .
+				'no S3 endpoint at ' .
 					self::ENDPOINT .
 					'; start one with docker compose -f docker/compose.yml up -d --wait',
 			);
 		}
 
 		$this->prefix = '_strata/kernel-' . bin2hex(random_bytes(6));
+		$this->ensureBucket();
 	}
 
 	/**
@@ -90,6 +92,25 @@ class MinioIntegrationTest extends StrataKernelTestBase
 		}
 
 		parent::tearDown();
+	}
+
+	/**
+	 * Creates the bucket, which a conflict answer means is already there.
+	 */
+	private function ensureBucket(): void
+	{
+		$url = self::ENDPOINT . '/' . self::BUCKET;
+		$hash = hash('sha256', '');
+		$headers = (new SigV4Signer('us-east-1'))->signRequest(
+			new Credentials('strata', 'stratatest'),
+			'PUT',
+			$url,
+			['x-amz-content-sha256' => $hash],
+			new DateTimeImmutable(),
+			$hash,
+		);
+
+		(new Client(['http_errors' => false]))->request('PUT', $url, ['headers' => $headers]);
 	}
 
 	private function reachable(): bool
