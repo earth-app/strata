@@ -75,6 +75,8 @@ final class PhysicalRestore
 	 *   Records the outcome.
 	 * @param Notifier|null $notifier
 	 *   Announces the outcome, or NULL to announce nothing.
+	 * @param RestoreHold|null $hold
+	 *   Refuses a target a person has quarantined, or every restore while one is held at refuse.
 	 */
 	public function __construct(
 		private readonly Connection $database,
@@ -85,6 +87,7 @@ final class PhysicalRestore
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
 		private readonly ?Notifier $notifier = null,
+		private readonly ?RestoreHold $hold = null,
 	) {}
 
 	/**
@@ -325,7 +328,8 @@ final class PhysicalRestore
 		$plan = $this->plan($table, $target);
 		$scope = Realm::TABLE->value . '/' . $table;
 
-		$refusal = $this->refusalFor($plan, $strategy, $acceptRowLoss);
+		$refusal =
+			$this->hold?->reason($target) ?? $this->refusalFor($plan, $strategy, $acceptRowLoss);
 
 		if ($refusal !== null) {
 			$this->audit->refuse(

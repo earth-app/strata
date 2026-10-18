@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata\Restore;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Entity\ContentEntityTypeInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Entity\FieldableEntityInterface;
@@ -85,6 +86,8 @@ final class LogicalRestore
 	 *   Records the outcome.
 	 * @param Notifier|null $notifier
 	 *   Announces the outcome, or NULL to announce nothing.
+	 * @param RestoreHold|null $hold
+	 *   Refuses a target a person has quarantined, or every restore while one is held at refuse.
 	 */
 	public function __construct(
 		private readonly Preflight $preflight,
@@ -98,6 +101,7 @@ final class LogicalRestore
 		private readonly AccountProxyInterface $currentUser,
 		private readonly LoggerInterface $logger,
 		private readonly ?Notifier $notifier = null,
+		private readonly ?RestoreHold $hold = null,
 	) {}
 
 	#region Applying
@@ -217,7 +221,13 @@ final class LogicalRestore
 	{
 		$started = microtime(true);
 		$actor = $this->actor();
+		$held = $this->hold?->reason($plan->target);
 
+		if ($held !== null) {
+			$this->audit->refuse($plan, $scope, $held, RestoreAudit::LOGICAL, $actor);
+
+			return RestoreResult::refuse($plan->target, $held);
+		}
 		if ($plan->problems !== []) {
 			$reason = implode('; ', $plan->problems);
 			$this->audit->refuse($plan, $scope, $reason, RestoreAudit::LOGICAL, $actor);
@@ -543,13 +553,61 @@ final class LogicalRestore
 		}
 
 		if ($entity === null) {
-			return sprintf('%s is no longer present, so there is nothing to restore into', $name);
+			return $this->recreate($type, $id, $result->fields);
 		}
 		if (!($entity instanceof FieldableEntityInterface)) {
 			return sprintf('%s has no fields to write', $name);
 		}
 
 		return $this->save($entity, $result->fields);
+	}
+
+	/**
+	 * Brings back an entity that was deleted after the target commit.
+	 *
+	 * The id and uuid come back as they were, so anything that still points at the entity points at
+	 * it again. Revision keys do not: a revision id belongs to a revision table that no longer holds
+	 * the row, and the entity is saved as new with a revision of its own.
+	 *
+	 * @param string $type
+	 *   The entity type id.
+	 * @param string $id
+	 *   The entity id it had.
+	 * @param array<string, mixed> $fields
+	 *   What the replay reconstructed, field name keyed to its value.
+	 *
+	 * @return string|null
+	 *   NULL on success, or why it did not work.
+	 */
+	private function recreate(string $type, string $id, array $fields): ?string
+	{
+		try {
+			$storage = $this->entityTypeManager->getStorage($type);
+			$definition = $storage->getEntityType();
+
+			if (!($definition instanceof ContentEntityTypeInterface)) {
+				return sprintf('%s:%s has no fields to write', $type, $id);
+			}
+
+			$skip = array_merge(
+				self::EXCLUDED_USER_FIELDS,
+				[(string) $definition->getKey('revision')],
+				array_values($definition->getRevisionMetadataKeys()),
+			);
+			$values = [(string) $definition->getKey('id') => $id];
+
+			foreach ($fields as $field => $value) {
+				if (!in_array($field, $skip, true)) {
+					$values[$field] = $value;
+				}
+			}
+
+			$storage->create($values)->enforceIsNew()->save();
+
+			return null;
+		} catch (Throwable $error) {
+			return sprintf('%s:%s could not be recreated: %s', $type, $id, $error->getMessage());
+		}
 	}
 
 	/**
