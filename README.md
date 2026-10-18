@@ -34,7 +34,7 @@ drush strata:calibrate
   content and code history fits inside R2's free tier.
 - **Verifiable**: Scheduled drills replay the store and diff it against the live site, so you find
   out the backups work before you need them.
-- **Self-healing**: Twenty tripwires watch the store, and a repair ladder fixes what it safely can
+- **Self-healing**: Twenty-one tripwires watch the store, and a repair ladder fixes what it safely can
   without waking anyone up.
 - **Measured**: Every figure below was taken through the code that ships, and `drush strata:calibrate`
   takes them again on your own host.
@@ -185,16 +185,37 @@ history untouched.
 Every provider signs its own requests and is covered by unit tests over a mocked transport. What
 differs is how far each one has been driven against something that answers.
 
-| Provider              | Exercised against                                |
-| --------------------- | ------------------------------------------------ |
-| S3, S3-compatible, R2 | MinIO, in CI on every push                       |
-| Azure Blob Storage    | Azurite, when `STRATA_AZURE_ENDPOINT` is set     |
-| Google Cloud Storage  | fake-gcs-server, when `STRATA_GCS_BUCKET` is set |
-| Backblaze B2          | Nothing yet; B2 has no emulator                  |
+| Provider             | Exercised against                                                          |
+| -------------------- | -------------------------------------------------------------------------- |
+| S3, S3-compatible    | SeaweedFS, in the Kernel lane and the container lane                       |
+| Cloudflare R2        | SeaweedFS answering to an `r2.cloudflarestorage.com` name, region `auto`   |
+| Azure Blob Storage   | Azurite, in the container lane                                             |
+| Google Cloud Storage | fake-gcs-server, in the container lane                                     |
+| Backblaze B2         | A fake of the native B2 API written for the container lane; no real vendor |
 
-Run `drush strata:verify` after the first flush on any of them, which fetches and decodes everything
-the store holds, and read the report before trusting a schedule. On B2 that is the only evidence
-available.
+The container lane is described under [Development](#-development). A fake proves that Strata speaks
+the protocol it was written against, and says nothing about a vendor's undocumented behaviour. Run
+`drush strata:verify` after the first flush on any of them, which fetches and decodes everything the
+store holds, and read the report before trusting a schedule. On B2 and R2 that is the only evidence
+available from the real service.
+
+### What Strata Does Not Do For You
+
+Strata keeps history safe from mistakes the site makes. Five things stay with the operator, each one
+traced to a real outage in [ADVANCED_USAGE.md](ADVANCED_USAGE.md#-learn-from-the-famous-outages):
+
+1. **Keep one copy under credentials the site cannot delete with.** A replica written by the same
+   credentials that can delete the primary is one account, not two.
+2. **Alert on silence.** `flush.stale` reports a store that stops accepting writes, but a cron that
+   stops running cannot report anything. Subscribe a webhook to `strata.commit.sealed` and have the
+   receiver page when it has not heard in your recovery window.
+3. **Store the encryption key outside the database and the bucket.** The generated key lives in
+   configuration, which a database dump carries. Use a file or environment key provider for anything
+   you would not hand over with the dump.
+4. **Read the drill result.** Drills run on cron by default and prove a restore on a schedule. They
+   prove nothing until a person looks at the verdict, and a failing one is announced.
+5. **Run one writer per `site_id`.** A standby that writes while the primary does is not a case
+   Strata models.
 
 ## ⚙️ Configuration
 
@@ -380,9 +401,10 @@ ladder of buckets, nearest first, with an age threshold on each:
 | 2    | Older than 6 months | Less often          |
 | 3    | Older than 2 years  | Least often         |
 
-Every write lands in tier 0, because an object's age is zero when it is written. A cron pass moves
-objects that have aged past a threshold one tier at a time, so every intermediate state is one the
-code can describe. A tier marked as retaining below is a replica rather than a destination: the
+Every write lands in tier 0, because an object's age is zero when it is written. The daily
+compaction pass on cron moves objects that have aged past a threshold one tier at a time, so every
+intermediate state is one the code can describe. It reads at most `compaction.budget` stored bytes
+(16 MiB by default) and `compaction.interval` sets how often it runs, with zero turning it off. A tier marked as retaining below is a replica rather than a destination: the
 nearer copy stays, which is what buys a second chance at the same object.
 
 An object keeps its content address wherever it lives, so a copy in two buckets is the same object
@@ -406,10 +428,11 @@ given commit would need.
 
 A **tripwire** asserts a symptom, is O(1) or explicitly bounded, and never repairs anything.
 Detection and repair are separate so repair can be gated, rate-limited and escalated independently.
-Twenty tripwires ship, covering missing and unreadable frames, digest mismatches, authentication
+Twenty-one tripwires ship, covering missing and unreadable frames, digest mismatches, authentication
 failures, short pack reads, broken delta chains, chains past the cap, missing dictionaries,
 truncated segments, missing commit parents, unreachable anchors, a lost ref, an unreachable tier, a
-key rotated mid-flush, shifted files, vendor drift, unclassified growth and watermark drift.
+key rotated mid-flush, shifted files, vendor drift, unclassified growth, watermark drift and a flush
+that has stopped sealing.
 
 Findings go to a ledger with a bounded context column and are put on a repair ladder:
 
@@ -428,7 +451,11 @@ findings for a code are cleared before its pass rather than after, so the ledger
 sweep instead of a running total. A pass that raises moves its code one rung up; from `rebuild` that
 reaches `quarantine`, which stops the retries and hands the code to a person. Inside a single run a
 circuit breaker keyed on the finding code stops a code that has failed three times. Anything that
-removes a restore target or blocks a restore is a decision for a person.
+removes a restore target or blocks a restore is a decision for a person, and a restore reads it: a
+commit quarantined from the timeline is refused as a target, a code held at `refuse` stops every
+restore while one of its findings is open, and `drush strata:quarantine <code> --release` puts either
+back. The bytes are never touched. A finding is announced once when its code first opens and again if
+it gets worse, so ten thousand missing frames are one event.
 
 Not every fault has an automatic repair, and those are recorded rather than retried. A statement tap
 that switched itself off and a compression codec the host no longer has both land at `observe` with a
@@ -439,9 +466,10 @@ restarts a request.
 `unrestorable`. A degraded subject is skipped by default, listed in the manifest and recorded in the
 audit log. Filling one with defaults is an opt-in choice the confirm form spells out.
 
-Restore drills close the loop: on a schedule, Strata replays a sample of subjects and compares them
-against what the site holds, then publishes a pass, fail or inconclusive verdict. A drill that could
-judge nothing reports `inconclusive` rather than `pass`.
+Restore drills close the loop: on a schedule, Strata replays a sample of entities, configuration and
+state and compares them against what the site holds, then publishes a pass, fail or inconclusive
+verdict. Code, files and table rows are not sampled, because the site holds no field map to compare
+them with. A drill that could judge nothing reports `inconclusive` rather than `pass`.
 
 ## 🔐 Permissions
 
@@ -488,6 +516,12 @@ X-Strata-Signature: t=1735689600,v1=9f86d081884c7d65...
 
 A receiver must check that the timestamp is recent as well as that the digest matches. The digest
 alone lets any captured delivery be replayed indefinitely.
+
+`strata.health.finding` fires from the ledger, so every tripwire reaches a subscription and not only
+the anomaly and drill checks. With `strata_notify` enabled, findings at Warning and above are mailed
+by default, and the lowest severity mailed is set on the Notifications page. A site that installed an
+earlier release keeps the floor it was installed with, so move it with
+`drush config:set strata_notify.settings severity 1`.
 
 Spans and metrics can be exported to any OpenTelemetry collector. The metric worth alerting on is
 `strata.rpo_lag_seconds`, the age of the newest sealed commit, which is how much captured work would
@@ -574,8 +608,8 @@ change when a domain does.
 
 ### How do I know the backups actually restore?
 
-**Quick answer.** Set `drill.enabled` and let cron prove it. Nothing else actually answers the
-question.
+**Quick answer.** Let cron prove it. Drills are on by default, and nothing else actually answers
+the question.
 
 **Technical answer.** The drill stage replays a bounded sample of subjects from the store on its own
 interval and compares each against what the site holds now. A subject that reproduces exactly counts
@@ -692,15 +726,16 @@ It can run against any of the object stores, each in its own container, so the s
 sealed into a different API and compared:
 
 ```bash
-./startup.sh                       # minio, which is how r2 and every s3-compatible endpoint behaves
+./startup.sh                       # seaweedfs, which is how r2 and every s3-compatible endpoint behaves
 ./startup.sh --provider=azure      # azurite, over the native Blob REST API
 ./startup.sh --provider=gcs        # fake-gcs-server, over the native JSON API
 ./startup.sh --provider=s3 --tiers # two buckets, the near one plus a replica
 ./startup.sh --provider=local      # the filesystem, no container at all
 ```
 
-Backblaze B2 has no emulator, so there is no simulated lane for it. Point `b2.api_url` at a real
-account, or run `modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php` with credentials.
+Backblaze B2 has no vendor emulator, so `startup.sh` has no lane for it. The container lane below
+runs a fake of the native API. Point `b2.api_url` at a real account, or run
+`modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php` with credentials, for the real thing.
 
 `--db=mariadb|postgres|sqlite` picks the database, because the physical-restore strategies are
 driver-specific. `--no-ui` installs the engine alone. `--fresh` rebuilds from scratch.
@@ -722,6 +757,45 @@ That site can then be driven, measured and broken by hand:
 ./startup.sh attack                  # what each probe an attacker would try gets
 ./startup.sh scenario --scale=medium # all of it, in order
 ```
+
+### Container Lane
+
+The Kernel lane boots Drupal inside PHPUnit. The container lane installs a real site with Drush into
+an image of its own and runs PHPUnit against it, next to every storage backend, so the conditions
+are the ones a deployment has: a server database, separate processes, an object store that answers
+over a network.
+
+```bash
+bun run test:e2e:build   # build the image once
+bun run test:e2e         # PostgreSQL 17
+bun run test:e2e:mariadb # MariaDB 11.8
+```
+
+`docker/e2e/lane.sh <db> [phpunit args]` is the script both call, and it stops the services it
+started. The suite covers:
+
+- **Rollback precision.** Each restore is compared byte for byte against digests read from live
+  Drupal data: fields, deletions, configuration, state, key-value entries, table rows, restoring out
+  of order, restoring twice, restoring through Drush, and undoing a restore.
+- **Tripwires.** Faults are injected through the real store, then the finding, its severity and its
+  repair rung are asserted. Twenty-one tripwires, each with a case.
+- **Storage conditions.** A fixed workload is flushed on every provider. Request counts, bytes,
+  compression, chain depth and objects per flush are compared with
+  [tests/e2e/baseline.json](tests/e2e/baseline.json), and a drift past its tolerance fails the run.
+  Timings are written to `build/e2e/` and never fail it. `E2E_UPDATE_BASELINE=1` rewrites the
+  baseline after a change you meant to make.
+- **Backends.** SeaweedFS for S3 and the R2 profile, Azurite, fake-gcs-server, a fake B2 in
+  [docker/e2e/fake-b2/](docker/e2e/fake-b2/), Redis for the journal, and MariaDB or PostgreSQL.
+  Miniflare is not used for R2: `wrangler dev` 4.151.1 serves local R2 to a Worker as a binding and
+  through a Local Explorer REST API, and Strata signs S3 requests.
+- **Tiers and physical restore.** A replica on a second vendor is read after the nearer bucket is
+  wiped, and each physical strategy returns a table to exactly its earlier rows.
+
+CI runs it on every push in its own workflow, [e2e.yml](.github/workflows/e2e.yml), once per
+database. `STRATA_E2E_PROVIDERS` narrows the matrix, for example `local,s3`.
+
+The run needs several gigabytes of image and memory. A machine that is short of either can run the
+same script over SSH against a Docker host.
 
 Code style is tabs at four columns, 100 columns, LF. Prettier is the authority on formatting.
 

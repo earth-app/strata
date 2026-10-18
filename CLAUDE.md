@@ -46,13 +46,20 @@ bun run test:kernel
 
 The default 128M memory limit makes PHPStan OOM and report a fake "2 errors"; that is not a pass.
 
+The pre-commit hook runs phpcs on each staged file by name, which ignores the ruleset's `<file>`
+list, so a PHP file outside that list passes the gate and fails the commit. `phpcs.xml.dist` names
+`docker`, `strata.api.php` and `strata.install` for that reason; a new PHP location needs the same
+line.
+
 The Kernel suite skips the vendor integration classes, and the count depends on what is reachable.
-Measured on 2026-08-22 with MinIO, Azurite and fake-gcs all up: 12 skips, being
-`AzureIntegrationTest`, `GcsIntegrationTest` and `B2IntegrationTest` at four each. **A running
-emulator is not enough for two of them:** Azure needs `STRATA_AZURE_ENDPOINT` and `STRATA_AZURE_KEY`,
-GCS needs `STRATA_GCS_BUCKET` plus one of `STRATA_GCS_KEY_FILE` or `STRATA_GCS_TOKEN`, whereas
-`MinioIntegrationTest` probes its endpoint and so runs whenever MinIO answers. B2 has no emulator, so
-its four never run without real credentials.
+Measured on 2026-10-17 with no emulator up: 19 skips on SQLite, MariaDB and PostgreSQL alike, being
+`AzureIntegrationTest`, `GcsIntegrationTest` and `B2IntegrationTest` at four each plus the seven of
+`S3IntegrationTest`. **A running emulator is not enough for two of them:** Azure needs
+`STRATA_AZURE_ENDPOINT` and `STRATA_AZURE_KEY`, GCS needs `STRATA_GCS_BUCKET` plus one of
+`STRATA_GCS_KEY_FILE` or `STRATA_GCS_TOKEN`, whereas `S3IntegrationTest` probes its endpoint and so
+runs whenever SeaweedFS answers. The MinIO images can no longer be pulled, which is why SeaweedFS
+replaced it. B2 has no vendor emulator, so its four never run here without real credentials; the
+container lane covers B2 against a fake.
 
 `bun run test:kernel --filter <ClassName>` while iterating.
 
@@ -358,11 +365,52 @@ Do not "fix" these without measuring first.
   `RepairLadder::initialRung()` sends anything at or above `ERROR` to an automatic pass, and since
   1.0.3 those passes actually run on cron. `capture.tap_disabled` is `WARN` for that reason: nothing
   unattended repairs a statement tap, and an `ERROR` would spend a bucket-wide reindex on it.
+- **`flush.stale` is `WARN` for the same reason, which means it is not mailed by default.** It is the
+  one tripwire that reads the recovery-point lag instead of the store, so it sees a bucket that
+  refuses writes, which no other tripwire can. An `ERROR` would send it to `reindex`, and a reindex
+  against a bucket that is down only climbs the ladder. `strata_notify`'s floor defaults to `ERROR`,
+  so a site has to lower it to Warning or read the health page. Raised from `CronCapture` right after
+  the flush stage by `FlushWatch`, limit `flush.stale_after` (86400, 0 is off). A cron that has
+  stopped cannot raise it, which is what a `strata.commit.sealed` heartbeat outside the site covers.
 - **An anomaly never rises above `WARN`.** `Anomaly::severity()` returned `ERROR` from 8 deviations
   until 1.0.4, and on 1.0.3 that sent `anomaly.detected` to `reindex`, which cron then ran: on
   earth-app 105 findings between 2026-09-11 and 2026-10-17, and the one pass logged on 2026-10-17
   reindexed 889 packs in 204 s. A code stays on the highest rung any of its rows reached, so `strata_update_11105()` moves
   the existing rows back to `observe`.
+- **The ledger announces a finding, nobody else does.** `strata.health.finding` was fired only by the
+  anomaly detector and the drill runner, so the 21 tripwires never reached a mail or a webhook.
+  `DatabaseHealthLedger::record()` now calls `Notifier::findingRecorded()` when a code first opens or
+  a finding's severity rises, and not on a refresh, so a verify that finds ten thousand missing
+  frames is one event and an hourly anomaly is one mail. Both direct calls were removed, and
+  `AnomalyDetector` lost its `$notifier`. The mail floor defaults to `WARN`; a site installed before
+  1.0.4 keeps the `2` it was given.
+- **A drill samples only entity, config and state subjects.** Code, file and table payloads are not
+  field maps, so `Replayer::materialize()` reports them unreadable, and code is the largest
+  population on a real site. With drills on by default that failed every drill at `ERROR`, which
+  sends `drill.drift` to `reindex`. `DrillRunner::readsBack()` filters the population before
+  sampling and `examine()` skips the rest. Drills were off in every site that ever ran this code, so
+  it went unseen for as long as they were.
+- **A held rung is read by `RestoreHold`.** A finding at `quarantine` whose scope is a commit refuses
+  that commit as a restore target (an abbreviation of eight characters or more matches), and any
+  open finding at `refuse` refuses every restore. Both `LogicalRestore::attempt()` and
+  `PhysicalRestore::run()` ask, so the refusal is audited and announced like any other. A frame-level
+  finding is not enforced here, because the preflight already classifies the subjects that need that
+  frame as degraded. The rung is per code, so releasing `commit.quarantined` releases every
+  quarantined commit.
+- **Cron runs compaction.** Nothing called `Compactor::compact()` unattended, so tier moves, pack
+  recompression, re-anchoring and rollup never ran without a person, while the tier docs said a cron
+  pass did it. `CronCapture::compact()` runs it on `compaction.interval` (86400, 0 is off) inside
+  `compaction.budget` stored bytes (16 MiB, about 7 seconds at level 19), after the repair pass and
+  before the drill. It prunes only while `retention.auto_prune` is on, which until now nothing read.
+  What a pass did is in state `strata.compaction.report`.
+- **Retention windows delete nothing.** `LevelPolicy::cutoff()` has no caller and
+  `FrameIndexInterface::dereference()` has none outside the index, so no segment is ever retired. A
+  rollup writes the coarse segment and the fine ones stay, and a prune can only collect what no
+  commit reaches. Do not describe `retention.levels[].keep` as expiry.
+- **`AnomalyDetector::run()` resolves a metric's finding when the metric reads ordinary again.** An
+  anomaly sits on the `observe` rung, which the repair pass skips, and `resolve()` had no other
+  caller for it, so every anomaly stayed open for good and the health page never went green after a
+  site recovered. A preview (`run(false)`) neither records nor resolves.
 - **`Series::score()` takes a spread floor, set per metric in `MetricSampler::METRICS`.** A median
   absolute deviation is near zero for a rate a site's own cron holds steady: earth-app's hourly
   `op_rate` had a median of 81.43 and a spread of 1.155, so 104 per hour (+28 percent) scored 19.7
@@ -426,6 +474,49 @@ Do not "fix" these without measuring first.
   What it did break is `ExtensionTest::theRootModuleRequiresWhatItDependsOn()`, which skips a
   dependency whose project is `drupal` - so the test written to catch a missing `drupal/key` in
   composer could not see `key` at all.
+
+## Container Lane
+
+`bun run test:e2e` (PostgreSQL) and `bun run test:e2e:mariadb` run `tests/src/E2E` inside
+`strata-e2e:local`, a drush-installed Drupal next to every backend (`docker/e2e/`). It is outside the
+five-command gate above and runs in its own workflow, `.github/workflows/e2e.yml`. Anything touching
+the restore path, a tripwire, the flusher or a provider runs it before it is called done. Measured
+2026-10-17: 75 tests, 568 assertions, green on both engines.
+
+- **The baseline fails on exact metrics and records timings.** `tests/e2e/baseline.json` holds
+  requests, bytes, objects, compression and chain depth per provider with tolerances;
+  `E2E_UPDATE_BASELINE=1` rewrites it. Proven by disabling the parent cache: reads per flush went
+  from 4 to 35.25 and the run failed.
+- **A benchmark's first flush includes the anchor PUT**, so it warms up first.
+- **Each test gets its own `site_id`, truncated `strata_*` tables and default settings.** Config
+  leaks between tests otherwise (`delta.enabled` false did).
+- **The tier migrator ages objects by the time its request began**, so a test migrates in a fresh
+  process through Drush.
+- **A provider change in one process needs `Engine::reset()`**, which now also resets `SiteContext`
+  and calls `StorageProviderManager::refresh()`. Without them the second provider wrote under the
+  first one's endpoint prefix and a cross-process read looked like storage lag.
+- **Only the S3 factory implements `TierProviderFactoryInterface`.** A B2, Azure or GCS tier takes no
+  `location`; the lane and the Two Vendors recipe both rely on that.
+- **SeaweedFS replaced MinIO** in the dev compose file, `startup.sh`, the Restore job and
+  `S3IntegrationTest`, because the MinIO images can no longer be pulled. R2 is the same container
+  under the `r2.cloudflarestorage.com` name with region `auto`. Miniflare is not used: `wrangler dev`
+  4.151.1 exposes local R2 as a binding and a Local Explorer REST API, not S3, and rejects the
+  documented-experimental `experimentalS3Credentials` field (probed 2026-10-17). Recheck when a
+  release accepts it; a local S3 endpoint from Miniflare would replace the alias.
+- **A restore can recreate a deleted entity.** `LogicalRestore::recreate()` saves it as new with the
+  old id and uuid, and skips the revision key and revision metadata keys, because the revision row no
+  longer exists. Until 1.0.4 a deleted node was reported as missing.
+- **A lost dictionary does not block the store.** `Engine::objectStore()` logs it and carries on with
+  no active dictionary, so the Verifier can still say what is wrong. The `dict.missing` tripwire is
+  what reports it.
+- **`key.rotated_mid_flight` is raised by the Flusher.** It checks the segment it just wrote while a
+  rotation is open (`KeyRotation::isRotating()`), over at most `Flusher::KEY_WATCH` frames. The
+  tripwire had a unit test and no caller until the lane found it.
+- **`code.vendor_drift` samples 400 path-sorted files.** A patch outside the sample is seen only when
+  `composer.lock` moves. This is stated in the detector and in ADVANCED_USAGE.
+- **Docker on `paisley-park` keeps its root on `/mnt/ssd/docker`.** The lane runs there when the Mac is
+  short of memory: take the network lock, rsync without `--delete`, remove nothing. `lane.sh` stops
+  what it started.
 
 ## Error Handling Invariants
 

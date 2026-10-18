@@ -10,7 +10,7 @@ Every recipe below is exercised by a spec in [`tests/`](./tests/) or by a script
 [`scripts/`](./scripts/) that you can run against a throwaway site:
 
 ```bash
-./startup.sh                         # a ddev drupal 11 site at /tmp/drupal-strata with minio
+./startup.sh                         # a ddev drupal 11 site at /tmp/drupal-strata with seaweedfs
 ./startup.sh traffic --scale=medium  # traffic that looks like a site somebody uses
 ./startup.sh scenario --scale=medium # traffic, measure, rollback, meltdown, heal, attack
 ```
@@ -24,29 +24,31 @@ Most of what follows can be rehearsed locally first. `./startup.sh` builds the s
 object store you name, each in its own container, so the same traffic can be sealed into a different
 API and the results compared.
 
-| Flag               | What it gives you                                                            |
-| ------------------ | ---------------------------------------------------------------------------- |
-| `--provider=s3`    | MinIO. Also how R2, Wasabi, Ceph and every S3-compatible endpoint behave     |
-| `--provider=azure` | Azurite, over the native Blob REST API, signed with `SharedKey`              |
-| `--provider=gcs`   | fake-gcs-server, over the native JSON API                                    |
-| `--provider=local` | The filesystem, no container at all                                          |
-| `--tiers`          | Two buckets on MinIO, the near one plus a replica, for the ladder recipes    |
-| `--db=`            | `mariadb`, `postgres` or `sqlite`, since physical restore is driver-specific |
-| `--no-ui`          | The engine alone, without `strata_ui`, `strata_files` or `strata_notify`     |
-| `--no-codecs`      | Skip building `ext-zstd` and `ext-brotli` into the container                 |
-| `--fresh`          | Delete the site and rebuild it                                               |
+| Flag               | What it gives you                                                             |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `--provider=s3`    | SeaweedFS. Also how R2, Wasabi, Ceph and every S3-compatible endpoint behave  |
+| `--provider=azure` | Azurite, over the native Blob REST API, signed with `SharedKey`               |
+| `--provider=gcs`   | fake-gcs-server, over the native JSON API                                     |
+| `--provider=local` | The filesystem, no container at all                                           |
+| `--tiers`          | Two buckets on SeaweedFS, the near one plus a replica, for the ladder recipes |
+| `--db=`            | `mariadb`, `postgres` or `sqlite`, since physical restore is driver-specific  |
+| `--no-ui`          | The engine alone, without `strata_ui`, `strata_files` or `strata_notify`      |
+| `--no-codecs`      | Skip building `ext-zstd` and `ext-brotli` into the container                  |
+| `--fresh`          | Delete the site and rebuild it                                                |
 
 Every build prints the capabilities it probed from the live endpoint, which is the fastest way to see
 why a recipe behaves differently on one vendor than another:
 
 ```text
-                        minio    azurite   fake-gcs
-  batch delete          yes      no        no
-  conditional write     yes      yes       yes
-  checksums             no       yes       yes
-  largest single put    5 GiB    256 MiB   256 MiB
-  smallest part         5 MiB    4 MiB     8 MiB
+                        azurite   fake-gcs
+  batch delete          no        no
+  conditional write     yes       yes
+  checksums             yes       yes
+  largest single put    256 MiB   256 MiB
+  smallest part         4 MiB     8 MiB
 ```
+
+The S3 column prints the same way. It is the endpoint's answer, so SeaweedFS and AWS can differ.
 
 Four accounts are created on every run, one per permission level, all with the password `demo`. Log
 in as each to see what the [Permissions](README.md#-permissions) table means in the UI:
@@ -58,9 +60,36 @@ in as each to see what the [Permissions](README.md#-permissions) table means in 
 | `strata-auditor`  | Timeline, diffs, payloads, health and cost estimates. No writes |
 | `strata-viewer`   | The timeline, and nothing else                                  |
 
-Backblaze B2 has no emulator, so there is no simulated lane for it. Point `b2.api_url` at a real
+Backblaze B2 has no vendor emulator, so `startup.sh` has no lane for it. Point `b2.api_url` at a real
 account, or run [`B2IntegrationTest.php`](./modules/strata_b2/tests/src/Kernel/B2IntegrationTest.php)
 with credentials.
+
+### The Container Lane
+
+For a rehearsal that fails loudly, the [container lane](README.md#container-lane) installs a real
+site into an image and runs the suite against every backend at once:
+
+| Backend              | Stands in for                                                      |
+| -------------------- | ------------------------------------------------------------------ |
+| SeaweedFS            | S3 and S3-compatible stores                                        |
+| SeaweedFS, aliased   | R2: the `r2.cloudflarestorage.com` host name and region `auto`     |
+| Azurite              | Azure Blob Storage                                                 |
+| fake-gcs-server      | Google Cloud Storage                                               |
+| `docker/e2e/fake-b2` | The native Backblaze B2 API, which no vendor ships an emulator for |
+| Redis                | The journal stream                                                 |
+| MariaDB, PostgreSQL  | The database, one per run                                          |
+
+Miniflare is not in the list. Checked on 2026-10-17, `wrangler dev` 4.151.1 serves local R2 to a
+Worker as a binding and through a Local Explorer REST API, and neither is the S3 API Strata signs.
+Cloudflare documents an experimental `experimentalS3Credentials` option for a local S3 endpoint,
+which 4.151.1 rejects as an unexpected field. Recheck when it ships, because R2 would then need no
+stand-in.
+
+```bash
+bun run test:e2e                              # PostgreSQL
+bun run test:e2e:mariadb                      # MariaDB
+docker/e2e/lane.sh postgres --filter Tripwire # one class
+```
 
 ## 🔑 Settings and Credentials
 
@@ -68,33 +97,37 @@ Every recipe reads from `strata.settings`, which exports with the rest of your s
 Each recipe lists what it needs under **Prerequisites**. This is the catalog of what those keys are
 and where the values come from.
 
-| Key                                                | What it is                                       | Example                                 | Where it comes from                                     |
-| -------------------------------------------------- | ------------------------------------------------ | --------------------------------------- | ------------------------------------------------------- |
-| `provider`                                         | Active provider id                               | `s3`, `azure`, `gcs`, `b2`              | whichever storage submodule you enabled                 |
-| `site_id`                                          | Prefix every key sits under                      | `earth-prod`                            | defaults to a digest of the database identity           |
-| `key`                                              | `drupal/key` entity holding the encryption key   | `strata_encryption`                     | Generate a Key on the storage page, or `strata:new-key` |
-| `retired_keys`                                     | Keys still needed to open old frames             | `[strata_2025]`                         | filled by whichever of those two replaced a key         |
-| `s3.bucket` / `.region` / `.endpoint`              | S3 target                                        | `backups` / `us-east-1`                 | your bucket; endpoint only for non-AWS                  |
-| `s3.access_key_id` / `.secret_access_key`          | S3 credentials                                   | `AKIA...`                               | leave empty to use env, `~/.aws` or an EC2 role         |
-| `s3.path_style`                                    | Address the bucket in the path, not the host     | `true` for MinIO                        | required by MinIO, Ceph and Garage                      |
-| `azure.account` / `.container`                     | Azure target                                     | `earthapp` / `strata`                   | the storage account and a blob container                |
-| `azure.account_key` / `.sas_token`                 | Azure credentials                                | a base64 key, or a SAS                  | portal, Access keys or Shared access signature          |
-| `gcs.bucket`                                       | GCS target                                       | `earth-strata`                          | your bucket                                             |
-| `gcs.service_account`                              | Service-account JSON                             | `{"type":"service_account"...}`         | IAM, a key for an account with Storage Object Admin     |
-| `b2.bucket_name` / `.bucket_id`                    | B2 target                                        | `earth-cold`                            | B2, Buckets; the id is on the bucket's detail page      |
-| `b2.key_id` / `.application_key`                   | B2 credentials                                   | `0045...` / `K004...`                   | B2, Application Keys; scope it to the bucket            |
-| `azure.service_url` / `gcs.api_url` / `b2.api_url` | Address a different host than the vendor's       | `http://azurite:10000/devstoreaccount1` | set by `./startup.sh --provider=`                       |
-| `gcs.access_token`                                 | A pre-issued OAuth2 token instead of a key       | `ya29...`                               | GKE workload identity, or an emulator                   |
-| `flush.max_age` / `.max_bytes` / `.max_ops`        | Whichever fires first seals a segment            | `15` / `4194304` / `5000`               | your recovery point objective                           |
-| `journal.backend`                                  | Where operations queue before a flush            | `database` or `redis`                   | `redis` needs `strata_redis` and `ext-redis`            |
-| `capture.*`                                        | Which realms are captured                        | `true`                                  | `/admin/config/system/strata/capture`                   |
-| `capture.access_churn`                             | How `access` and `login` timestamps are recorded | `event`                                 | `event`, `full` or `off`                                |
-| `tiers`                                            | The bucket ladder                                | see recipe 3                            | `/admin/config/system/strata/tiers`                     |
-| `retention.base_interval`                          | Seconds between base anchors                     | `14400`                                 | a restore-latency dial                                  |
-| `budget.bytes_per_month` / `.dollars_per_month`    | Monthly ceilings                                 | `10737418240` / `5.00`                  | what you are willing to spend                           |
-| `drill.enabled` / `.sample`                        | Scheduled restore drills                         | `true` / `50`                           | how much to prove per run                               |
-| `merge.base_ceiling` / `.walk_limit`               | How far a merge looks                            | `10000` / `5000`                        | raise on a very long history                            |
-| `telemetry.endpoint`                               | OpenTelemetry collector                          | `http://otel:4318`                      | your collector                                          |
+| Key                                                | What it is                                        | Example                                 | Where it comes from                                     |
+| -------------------------------------------------- | ------------------------------------------------- | --------------------------------------- | ------------------------------------------------------- |
+| `provider`                                         | Active provider id                                | `s3`, `azure`, `gcs`, `b2`              | whichever storage submodule you enabled                 |
+| `site_id`                                          | Prefix every key sits under                       | `earth-prod`                            | defaults to a digest of the database identity           |
+| `key`                                              | `drupal/key` entity holding the encryption key    | `strata_encryption`                     | Generate a Key on the storage page, or `strata:new-key` |
+| `retired_keys`                                     | Keys still needed to open old frames              | `[strata_2025]`                         | filled by whichever of those two replaced a key         |
+| `s3.bucket` / `.region` / `.endpoint`              | S3 target                                         | `backups` / `us-east-1`                 | your bucket; endpoint only for non-AWS                  |
+| `s3.access_key_id` / `.secret_access_key`          | S3 credentials                                    | `AKIA...`                               | leave empty to use env, `~/.aws` or an EC2 role         |
+| `s3.path_style`                                    | Address the bucket in the path, not the host      | `true` for MinIO                        | required by MinIO, Ceph and Garage                      |
+| `azure.account` / `.container`                     | Azure target                                      | `earthapp` / `strata`                   | the storage account and a blob container                |
+| `azure.account_key` / `.sas_token`                 | Azure credentials                                 | a base64 key, or a SAS                  | portal, Access keys or Shared access signature          |
+| `gcs.bucket`                                       | GCS target                                        | `earth-strata`                          | your bucket                                             |
+| `gcs.service_account`                              | Service-account JSON                              | `{"type":"service_account"...}`         | IAM, a key for an account with Storage Object Admin     |
+| `b2.bucket_name` / `.bucket_id`                    | B2 target                                         | `earth-cold`                            | B2, Buckets; the id is on the bucket's detail page      |
+| `b2.key_id` / `.application_key`                   | B2 credentials                                    | `0045...` / `K004...`                   | B2, Application Keys; scope it to the bucket            |
+| `azure.service_url` / `gcs.api_url` / `b2.api_url` | Address a different host than the vendor's        | `http://azurite:10000/devstoreaccount1` | set by `./startup.sh --provider=`                       |
+| `gcs.access_token`                                 | A pre-issued OAuth2 token instead of a key        | `ya29...`                               | GKE workload identity, or an emulator                   |
+| `flush.max_age` / `.max_bytes` / `.max_ops`        | Whichever fires first seals a segment             | `15` / `4194304` / `5000`               | your recovery point objective                           |
+| `flush.stale_after`                                | Seconds a change may wait before `flush.stale`    | `86400`, or `0` to turn it off          | the longest gap you would accept before being told      |
+| `journal.backend`                                  | Where operations queue before a flush             | `database` or `redis`                   | `redis` needs `strata_redis` and `ext-redis`            |
+| `capture.*`                                        | Which realms are captured                         | `true`                                  | `/admin/config/system/strata/capture`                   |
+| `capture.access_churn`                             | How `access` and `login` timestamps are recorded  | `event`                                 | `event`, `full` or `off`                                |
+| `tiers`                                            | The bucket ladder                                 | see recipe 3                            | `/admin/config/system/strata/tiers`                     |
+| `retention.base_interval`                          | Seconds between base anchors                      | `14400`                                 | a restore-latency dial                                  |
+| `budget.bytes_per_month` / `.dollars_per_month`    | Monthly ceilings                                  | `10737418240` / `5.00`                  | what you are willing to spend                           |
+| `drill.enabled` / `.sample`                        | Scheduled restore drills                          | `true` / `50`                           | how much to prove per run                               |
+| `compaction.interval` / `.budget`                  | Cron compaction cadence and stored bytes per pass | `86400` / `16777216`                    | `0` stops it, which also stops tier moves               |
+| `retention.auto_prune`                             | Delete what no commit reaches after compaction    | `true`                                  | off keeps superseded packs until `strata:prune`         |
+| `strata_notify.settings:severity`                  | Lowest finding severity mailed                    | `1` Warning                             | `0` Info, `1` Warning, `2` Error, `3` Critical          |
+| `merge.base_ceiling` / `.walk_limit`               | How far a merge looks                             | `10000` / `5000`                        | raise on a very long history                            |
+| `telemetry.endpoint`                               | OpenTelemetry collector                           | `http://otel:4318`                      | your collector                                          |
 
 ## 📚 Recipe Index
 
@@ -115,6 +148,7 @@ and where the values come from.
 | [Rehearse a Whole-Site Restore](#-rehearse-a-whole-site-restore)   | `--dry-run`, physical restore         | A rehearsal that never touches production             |
 | [Large Media Libraries](#-large-media-libraries)                   | `strata_files`                        | Terabytes of media without paying for it twice        |
 | [Stay Inside a Free Tier](#-stay-inside-a-free-tier)               | `budget`, `strata:estimate`           | A hard ceiling that degrades instead of overspending  |
+| [Learn From the Famous Outages](#-learn-from-the-famous-outages)   | all of the above                      | Which incidents Strata covers, and what stays manual  |
 
 ---
 
@@ -228,8 +262,8 @@ drush strata:tiers
 drush strata:tiers --restore=HEAD~500
 ```
 
-Every write lands in tier 0, because an object's age is zero when it is written. A cron pass moves
-objects one tier at a time as they age past each threshold, so every intermediate state is one the
+Every write lands in tier 0, because an object's age is zero when it is written. The daily
+compaction pass on cron moves objects one tier at a time as they age past each threshold, so every intermediate state is one the
 code can describe. An object keeps its content address wherever it lives, so a copy in two buckets is
 the same object.
 
@@ -260,14 +294,15 @@ tiers:
     enabled: true
     levels:
         - { name: hot, provider: s3, location: earth-hot, from_age: 0 }
-        - {
-              name: archive,
-              provider: b2,
-              location: earth-archive,
-              from_age: 2592000,
-              retain_below: true
-          }
+        - { name: archive, provider: b2, from_age: 2592000, retain_below: true }
 ```
+
+Only the S3 provider can be pointed at a second bucket, so a B2, Azure or GCS tier takes no
+`location` and uses the bucket in its own settings (`b2.bucket_name`, `azure.container`,
+`gcs.bucket`). A ladder that names a location for one of them is refused when the tier is built.
+Turning tiers on for a site that already has history, and the first migration pass after it, both
+want the `strata:reindex` below first, or the ladder starts with no record of what the first bucket
+holds.
 
 ```bash
 drush en strata_s3 strata_b2 -y
@@ -275,6 +310,9 @@ drush en strata_s3 strata_b2 -y
 # check both answer before you rely on both
 drush strata:status
 drush strata:tiers
+
+# a site with history needs the placement record built once; reindex lists every tier to do it
+drush strata:reindex
 
 # read every frame back and check its digest, in every bucket
 drush strata:verify
@@ -411,8 +449,9 @@ merge commit whose second parent is the branch tip.
 
 ### Prerequisites
 
-- **Drills on**: `drill.enabled`, with `drill.sample` for how many subjects to prove per run and
-  `drill.interval` for how often.
+- **Drills on**: `drill.enabled` ships on, with `drill.sample` for how many subjects to prove per
+  run and `drill.interval` for how often. A site installed before 1.0.4 keeps the `false` it was
+  installed with, so turn it on there.
 - **Cron running.** The drill is a cron stage and has no Drush command of its own, so a site with no
   cron never runs one.
 
@@ -455,7 +494,7 @@ so run it on a schedule and use `--limit` to spread it out.
   remove a restore target.
 - **`health.auto_repair`** for the cron-driven rungs.
 
-Twenty tripwires watch the store. Each asserts a symptom, is O(1) or explicitly bounded, and never
+Twenty-one tripwires watch the store. Each asserts a symptom, is O(1) or explicitly bounded, and never
 repairs anything, so repair can be gated and rate-limited on its own.
 
 ```bash
@@ -469,8 +508,8 @@ drush strata:heal --list
 drush strata:heal --apply
 drush strata:heal frame.missing --rung=refetch
 
-# the two rungs a person has to authorise
-drush strata:quarantine <commit>
+# the two rungs a person has to authorise: hold a code, or release it with --release
+drush strata:quarantine <code>
 
 # a bucket that survived a dropped database
 drush strata:reindex
@@ -481,7 +520,10 @@ drush strata:reindex --adopt-ref   # the ref was deleted but the commits are the
 rung's pass runs once per cron run however many codes sit on it, and a code whose pass raises climbs
 one rung; from `rebuild` that reaches `quarantine`, which takes the code out of the automatic set
 until a person looks at it. A circuit breaker keyed on the finding code stops a code that has failed
-three times within a run. `quarantine` and `refuse` never run on their own, because both remove or
+three times within a run. A restore reads both: quarantining a commit from the timeline refuses it as a restore target, and a
+code held at `refuse` stops every restore while one of its findings is open. `--release` moves a
+code down a rung, which lifts the hold, and no bytes are touched either way. `quarantine` and
+`refuse` never run on their own, because both remove or
 block a restore target.
 
 Open findings for a code are resolved before its pass runs, not after. A pass that completes proves
@@ -736,3 +778,170 @@ drush strata:prune --dry-run # exactly which restore points this would destroy
 
 **Use case:** a site that must never generate a storage bill, and needs the module to enforce that
 itself.
+
+## 🧯 Learn From the Famous Outages
+
+**Uses:** everything above: [`RollbackPrecisionTest.php`](./tests/src/E2E/RollbackPrecisionTest.php),
+[`TripwireTest.php`](./tests/src/E2E/TripwireTest.php), [`TierTest.php`](./tests/src/E2E/TierTest.php)
+
+Public postmortems say what goes wrong with backups in practice. This recipe ranks the failure modes
+by how likely a Drupal site is to meet them, then says what Strata does about each one, what the
+container lane proves, and what stays with a person. The ranking is a judgment about realism for a
+site this size, not a count of incidents.
+
+Sources are the companies' own pages unless noted. Most were read through extracts, not as full
+documents, so check a figure against the page before repeating it to a client. The GitLab, Atlassian,
+OVHcloud and Capital One rows rest on extracts or secondary reporting; the AWS and both Cloudflare
+rows rest on the full postmortem.
+
+| Rank | Failure mode                          | Incident                                          | Strata                                                     |
+| ---- | ------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| 1    | A person or script deletes live data  | GitLab 2017, Atlassian 2022, AWS S3 2017          | Covered at subject level; whole-database speed is yours    |
+| 2    | A change ships to everything at once  | Cloudflare 2019, Salesforce 2019                  | Covered for configuration and code; not a deploy gate      |
+| 3    | The backup had stopped working        | GitLab 2017                                       | Partly: verify and drills catch damage, nothing sees quiet |
+| 4    | Backups reachable by the same account | Code Spaces 2014                                  | A recipe, not a guarantee; credentials are manual          |
+| 5    | Backups share the failure domain      | OVHcloud 2021 (co-location is a secondary report) | Same-bucket tiers are refused; same-region is not          |
+| 6    | A provider or site goes away          | AWS S3 2017, Cloudflare 2023                      | Covered with a second vendor                               |
+| 7    | Two writers after a failover          | GitHub 2018                                       | Not covered                                                |
+| 8    | Stored data is read by an attacker    | Capital One 2019                                  | Encryption helps only if the key is kept apart             |
+
+### 1. Deletion
+
+GitLab's postmortem says the site "was down for about 18 hours" after a removal meant for a replica
+ran on the primary. Atlassian's says 883 sites were deleted in 23 minutes and that restoring them
+took up to 14 days for some customers, because the data stores held other customers' data and each
+site had to be extracted by hand. The shared lesson is that restoring everything is the slow path.
+
+Strata restores the named subject, not the store. A deleted node comes back with its id, uuid and
+content, `--dry-run` prints the manifest and writes nothing, and a subject edited after the plan was
+made is skipped instead of overwritten. Every restore takes its own snapshot first, so a wrong
+restore is undone by restoring that snapshot. The container lane proves each of these against live
+data.
+
+```bash
+drush strata:restore 4f2a1b entity/node:42 --dry-run
+drush strata:restore 4f2a1b entity/node:42 -y
+drush strata:rollback 4f2a1b --dry-run # the whole-site manifest, before it writes
+```
+
+Manual: a whole-database physical restore is as slow as your database. Rehearse it on a copy, as in
+[Rehearse a Whole-Site Restore](#-rehearse-a-whole-site-restore), and write down how long it took.
+
+### 2. A change to everything at once
+
+Cloudflare's 2019 postmortem says the rollback plan "required running the complete WAF build twice
+taking too long", so they used a global kill switch instead. Salesforce says a database script
+granted broader access than intended, and the restore from backups succeeded on most but not all
+instances.
+
+Configuration, roles and permissions, and code are captured, so putting named configuration or a
+role back is a read and a write of those objects. The restore preflight sorts every subject into
+restorable, degraded or unrestorable, skips a degraded one and lists it. It never writes a default
+in the place of a lost value.
+
+Manual: Strata records and restores a change. It does not stop one. Keep a pre-deploy snapshot step
+in the pipeline (`drush strata:snapshot`) so the rollback point is a name rather than a search.
+
+### 3. The backup that was not working
+
+GitLab's nightly dumps had been failing, and the mail that would have said so was rejected, so
+nobody saw it. Strata narrows this gap and leaves part of it open.
+
+- **Covered:** twenty-one tripwires turn a missing, torn or altered object, or a store that has
+  stopped accepting writes, into a finding with a severity and a repair rung. The container lane
+  injects each of them through the real store. `flush.stale` is raised from cron when the oldest
+  unsealed change has waited past `flush.stale_after`, a day by default.
+- **Sampled on a schedule:** the drill runs daily by default, replays fifty entities, config
+  objects and state values, and raises `drill.drift` when the store cannot reproduce them. It does not
+  sweep the storage tripwires, which read the store only when `strata:verify` runs. A site that never
+  runs a verify learns about damage outside the sample when a restore needs it.
+- **Outside the site's reach:** a cron that no longer runs cannot report that it stopped.
+
+Manual: run `drush strata:verify` on a schedule that suits the bucket's size, since it reads every
+frame, and read a drill result once a month. For the last item, subscribe a webhook to
+`strata.commit.sealed` (see [Watch It From Outside](#-watch-it-from-outside)) and have the receiver
+page when it has not heard within your recovery window. A dead-man's switch is the only alert that
+works when the thing being watched is the thing that broke. Findings at Warning and above are mailed
+by default on a new install, so `flush.stale` and `drill.drift` reach an inbox once
+`strata_notify` has a recipient.
+
+### 4. Backups reachable by the same account
+
+Code Spaces lost its data and its offsite backups together, and the company stopped trading. The
+Register's report, which quotes the company statement, says an intruder deleted snapshots, buckets
+and machine images from the same AWS account.
+
+[Two Vendors, One History](#-two-vendors-one-history) is the structure that survives this, and the
+container lane proves the restore half: it wipes the nearer bucket and restores from the replica
+alone. What no code can do is choose the credentials.
+
+Manual, on the far bucket:
+
+- A separate vendor account with its own login and multi-factor authentication.
+- An application key that can write and read and cannot delete. Prune, gc and compaction delete
+  objects, so expect them to report errors against that tier and run them with another credential.
+  The lane has not tested a delete-less key, so try one against a dry run first.
+- Object versioning or a retention lock if the vendor offers one.
+
+### 5. Backups in the failure domain
+
+OVHcloud's page describes a fire in one data centre. Reports of customers whose backups sat in the
+same site are secondary and not confirmed against a primary source. The lesson holds either way: a
+second copy is only a second copy if it fails separately.
+
+A ladder that points two tiers at one bucket is refused when the settings are read. Strata cannot
+tell that two buckets share a region or a provider's control plane.
+
+Manual: choose a replica in a different region, and ideally a different vendor, and write the
+reason in the site's runbook.
+
+### 6. A provider goes away
+
+The AWS postmortem for 28 February 2017 says restarting S3's index and placement subsystems took
+longer than expected, and Cloudflare's 2023 control plane outage ran from 11:44 UTC on 2 November to
+04:25 UTC on 4 November because of a dependency on one facility. A store on one bucket in one region
+is that kind of dependency.
+
+Capture does not fail a save when storage is down, so the site keeps serving and the journal waits.
+With a replica on another vendor, a restore that finds the near copy unreachable reads the far one,
+and `strata:tiers --restore=<commit>` names the buckets a restore needs before it starts.
+
+Manual: decide your tolerance for a stale replica. A replica written after the nearer copy is only as
+current as the last migration pass.
+
+### 7. Two writers
+
+GitHub's 2018 incident began with a 43-second partition. A failover tool promoted a second primary,
+writes landed on both sides, and failing back was unsafe. Strata has no fencing between two sites
+writing under one `site_id`, and the container lane does not test it.
+
+Manual: give a standby its own `site_id`, or keep it read-only until you promote it. `strata:sites`
+shows what a shared bucket holds per site.
+
+### 8. Stored data read by an attacker
+
+Capital One's company statement describes data that was read, not deleted. A backup tool does not
+stop that. The part Strata can influence is the copy in the bucket: frames are sealed with
+XChaCha20-Poly1305, so a leaked bucket credential does not expose content without the key.
+
+Manual: the generated key lives in configuration, which a database dump carries. Move the `key`
+entity to the `file` or `env` provider so the bucket and the key never travel together, scope the
+bucket credential to that bucket, and rotate with
+[Rotate the Encryption Key](#-rotate-the-encryption-key) when either is in doubt.
+
+### Known Limits
+
+Things the container lane found and the code does not fix:
+
+- **Vendor drift is sampled.** `code.vendor_drift` fingerprints a fixed, path-sorted sample of
+  `vendor/`, so a patch to a file outside the sample is only seen when `composer.lock` changes.
+  After patching a dependency by hand, run `strata:snapshot` and commit the patch to your own
+  repository.
+- **Tier moves are not instant.** The migrator ages objects against the time its request began, so
+  a migration pass runs in a fresh process, which is what cron gives it.
+- **Fakes are not vendors.** The B2 fake and the R2 profile prove the protocol. Run
+  `strata:verify` against the real account after the first flush.
+- **Retention windows schedule rollups and delete nothing.** `retention.levels[].keep` decides when a
+  level folds into the next one. No pass retires the fine segments afterwards, so history is kept in
+  full and `retention.auto_prune` frees only objects no commit reaches, such as the packs a
+  recompression replaced.
