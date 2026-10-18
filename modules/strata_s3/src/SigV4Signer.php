@@ -633,19 +633,19 @@ final class SigV4Signer
 	private function hostFor(string $url): string
 	{
 		$parts = parse_url($url);
-		$host = is_array($parts) ? (string) ($parts['host'] ?? '') : '';
 
-		if ($host === '') {
+		if ($parts === false || ($parts['host'] ?? '') === '') {
 			throw new InvalidArgumentException(
 				sprintf('Cannot sign "%s" because it names no host', $url),
 			);
 		}
 
-		$scheme = strtolower((string) (is_array($parts) ? $parts['scheme'] ?? 'https' : 'https'));
-		$port = is_array($parts) ? $parts['port'] ?? null : null;
+		$host = $parts['host'];
+		$scheme = strtolower($parts['scheme'] ?? 'https');
+		$port = $parts['port'] ?? null;
 		$default = $scheme === 'http' ? 80 : 443;
 
-		return $port === null || (int) $port === $default ? $host : $host . ':' . (int) $port;
+		return $port === null || $port === $default ? $host : $host . ':' . $port;
 	}
 
 	/**
