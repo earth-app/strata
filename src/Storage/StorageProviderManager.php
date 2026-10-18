@@ -42,6 +42,13 @@ final class StorageProviderManager
 	private array $deferred = [];
 
 	/**
+	 * Ids whose provider a factory built, so `refresh()` knows which ones it can rebuild.
+	 *
+	 * @var array<string, true>
+	 */
+	private array $built = [];
+
+	/**
 	 * Factories a submodule contributed, keyed by id.
 	 *
 	 * Held alongside the deferred closure rather than swallowed by it, because a tiered store has to
@@ -186,9 +193,26 @@ final class StorageProviderManager
 			);
 		}
 
-		unset($this->deferred[$id]);
+		$this->built[$id] = true;
 
 		return $this->providers[$id] = $factory();
+	}
+
+	/**
+	 * Forgets every provider a factory built, so the next request for one reads settings again.
+	 *
+	 * A provider is built from the configuration as it was when first asked for, and it holds that
+	 * bucket, endpoint, credentials and key prefix for the life of the object. `Engine::reset()` calls
+	 * this after a settings change; without it a changed bucket took effect on the next request only.
+	 * A provider registered as an instance has no factory to rebuild it from and is kept.
+	 */
+	public function refresh(): void
+	{
+		foreach (array_keys($this->built) as $id) {
+			unset($this->providers[$id]);
+		}
+
+		$this->built = [];
 	}
 
 	/**
@@ -213,7 +237,9 @@ final class StorageProviderManager
 	 */
 	public function ids(): array
 	{
-		return [...array_keys($this->providers), ...array_keys($this->deferred)];
+		return array_values(
+			array_unique([...array_keys($this->providers), ...array_keys($this->deferred)]),
+		);
 	}
 
 	/**

@@ -195,6 +195,17 @@ final class KeyRotation
 	}
 
 	/**
+	 * Whether the key ring holds a retired key, so frames under more than one key are expected.
+	 *
+	 * @return bool
+	 *   TRUE while a rotation is in progress.
+	 */
+	public function isRotating(): bool
+	{
+		return $this->cipher->ring()->isRotating();
+	}
+
+	/**
 	 * Records a finding when one segment's frames were sealed under more than one key.
 	 *
 	 * @param string $segment

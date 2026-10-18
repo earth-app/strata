@@ -122,6 +122,40 @@ class StorageProviderManagerTest extends TestCase
 	}
 
 	#[Test]
+	#[
+		TestDox(
+			'refreshing rebuilds a factory provider from settings and keeps an instance as it is',
+		),
+	]
+	#[Group('strata/storage')]
+	public function refreshRebuildsOnlyWhatAFactoryBuilt(): void
+	{
+		$manager = new StorageProviderManager();
+		$builds = 0;
+		$instance = $this->provider('fixed');
+
+		$manager->register($instance);
+		$manager->registerFactory('demo', function () use (&$builds): StorageProviderInterface {
+			$builds++;
+
+			return $this->provider('demo');
+		});
+
+		$first = $manager->get('demo');
+
+		$this->assertSame($first, $manager->get('demo'), 'asked twice, built once');
+		$this->assertSame(1, $builds);
+		$this->assertSame(['fixed', 'demo'], $manager->ids(), 'a built provider is listed once');
+
+		$manager->refresh();
+
+		$this->assertNotSame($first, $manager->get('demo'));
+		$this->assertSame(2, $builds);
+		$this->assertSame($instance, $manager->get('fixed'));
+		$this->assertSame(['fixed', 'demo'], $manager->ids());
+	}
+
+	#[Test]
 	#[TestDox('an id nothing registered is refused rather than answered with a null provider')]
 	#[Group('strata/storage')]
 	public function anUnregisteredIdIsRefused(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\strata\Flush;
 
 use Drupal\strata\Cas\ObjectStore;
+use Drupal\strata\Crypto\KeyRotation;
 use Drupal\strata\Event\Notifier;
 use Drupal\strata\Journal\FlushPolicy;
 use Drupal\strata\Journal\JournalInterface;
@@ -54,6 +55,11 @@ use Throwable;
 final class Flusher
 {
 	/**
+	 * Most frames of one segment opened to read their keys during a rotation.
+	 */
+	public const KEY_WATCH = 32;
+
+	/**
 	 * Constructs a flusher.
 	 *
 	 * @param JournalInterface $journal
@@ -88,6 +94,9 @@ final class Flusher
 	 *   without one and this class is constructed directly by several tests.
 	 * @param string $site
 	 *   The site identifier a subscriber needs to tell two sites in one bucket apart.
+	 * @param KeyRotation|null $rotation
+	 *   Checks each new segment for frames under more than one key while a rotation is under way, or
+	 *   NULL to check nothing.
 	 */
 	public function __construct(
 		private readonly JournalInterface $journal,
@@ -104,6 +113,7 @@ final class Flusher
 		private readonly ?CommitIndex $index = null,
 		private readonly ?Notifier $notifier = null,
 		private readonly string $site = '',
+		private readonly ?KeyRotation $rotation = null,
 	) {}
 
 	/**
@@ -236,6 +246,8 @@ final class Flusher
 
 		$segmentKey = $this->segments->write($manifest);
 
+		$this->watchKeys($segmentKey, $manifest->frames());
+
 		$head = $this->commits->head($ref);
 		$touched = [];
 
@@ -297,6 +309,40 @@ final class Flusher
 		$this->notifier?->commitSealed($result, $this->site);
 
 		return $result;
+	}
+
+	/**
+	 * Records a finding when a rotation left one segment's frames under more than one key.
+	 *
+	 * Only while a rotation is in progress, because opening a frame to read its key costs a read. A
+	 * new segment mixes keys when it names frames an earlier flush already stored, which is exactly
+	 * what deduplication does, so the check has to happen at the flush that writes the segment. A
+	 * tripwire never fails a flush.
+	 *
+	 * @param string $segmentKey
+	 *   The segment just written.
+	 * @param list<string> $frames
+	 *   The frames it names.
+	 */
+	private function watchKeys(string $segmentKey, array $frames): void
+	{
+		if ($this->rotation === null) {
+			return;
+		}
+
+		try {
+			if ($this->rotation->isRotating()) {
+				$this->rotation->checkSegment(
+					$segmentKey,
+					array_slice($frames, 0, self::KEY_WATCH),
+				);
+			}
+		} catch (Throwable $error) {
+			$this->logger->warning('Strata could not check the keys of %segment: %message', [
+				'%segment' => $segmentKey,
+				'%message' => $error->getMessage(),
+			]);
+		}
 	}
 
 	/**
