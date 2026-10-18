@@ -120,22 +120,6 @@ class DrillTest extends StrataKernelTestBase
 	}
 
 	/**
-	 * Captures only the table realm, which a drill can store but cannot read back.
-	 */
-	private function captureTablesOnly(): void
-	{
-		$this->config('strata.settings')
-			->set('capture.entity', false)
-			->set('capture.state', false)
-			->set('capture.table', true)
-			->set('capture.statements', true)
-			->save();
-
-		$this->container->get('strata.capture_scope')->reset();
-		$this->engine()->reset();
-	}
-
-	/**
 	 * Seals whatever is pending.
 	 *
 	 * @return string
@@ -293,7 +277,39 @@ class DrillTest extends StrataKernelTestBase
 		[$status, $detail] = $this->drill()->examine('table/strata_journal', $commit);
 
 		$this->assertSame(DrillReport::SKIPPED, $status);
-		$this->assertSame('the subject does not exist at that commit', $detail);
+		$this->assertSame('the realm holds no value this drill can read back', $detail);
+	}
+
+	#[Test]
+	#[
+		TestDox(
+			'code in the store is never sampled, so it cannot fail a drill of what can be read back',
+		),
+	]
+	#[Group('strata/drill')]
+	public function codeIsNotDrilled(): void
+	{
+		$this->config('strata.settings')->set('capture.code', true)->save();
+		$this->container->get('strata.capture_scope')->reset();
+		$this->engine()->reset();
+
+		$this->user('beside-the-code');
+		$this->engine()->codeCapture()->capture();
+		$this->flush();
+
+		$codeSubjects = array_filter(
+			array_keys($this->subjects()->all()),
+			static fn(string $subject): bool => str_starts_with($subject, 'code/'),
+		);
+
+		$this->assertNotSame([], $codeSubjects, 'the store holds code subjects to be tempted by');
+
+		$report = $this->drill()->run(null, -1);
+
+		$this->assertSame([], $report->unreadable);
+		$this->assertSame([], $this->findings(DrillRunner::CODE));
+		$this->assertSame($report->population, $report->sampled);
+		$this->assertLessThan(count($this->subjects()->all()), $report->population);
 	}
 
 	#[Test]
@@ -578,29 +594,17 @@ class DrillTest extends StrataKernelTestBase
 	#[Group('strata/drill')]
 	public function inconclusiveDrillWarns(): void
 	{
-		// the table realm records that a table changed rather than which rows, so a drill can store it
-		// and has nothing to read back; a population made only of it is judgeable by nothing
-		$this->captureTablesOnly();
+		// every subject changed after the commit being replayed, so each is skipped and none judged
+		$this->captureStateOnly();
 
-		$this->container
-			->get('database')
-			->schema()
-			->createTable('drill_widget', [
-				'fields' => ['id' => ['type' => 'serial', 'not null' => true]],
-				'primary key' => ['id'],
-			]);
+		$state = $this->container->get('state');
+		$state->set(self::STATE_KEY, 'as captured');
+		$earlier = $this->flush();
 
-		$tap = $this->container->get('strata.statement_capture');
-		$tap->enable();
-		$this->container
-			->get('database')
-			->insert('drill_widget')
-			->fields(['id' => 1])
-			->execute();
-		$tap->commit();
+		$state->set(self::STATE_KEY, 'as the site holds it now');
+		$this->flush();
 
-		$commit = $this->flush();
-		$report = $this->drill()->run($commit);
+		$report = $this->drill()->run($earlier);
 		$findings = $this->findings(DrillRunner::CODE);
 
 		$this->assertSame(0, $report->judged(), $report->summary());

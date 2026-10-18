@@ -124,7 +124,11 @@ final class DrillRunner
 			return $this->refuse('there is no history to drill against', $started);
 		}
 
-		$population = $this->subjects->all();
+		$population = array_filter(
+			$this->subjects->all(),
+			self::readsBack(...),
+			ARRAY_FILTER_USE_KEY,
+		);
 
 		if ($population === []) {
 			return $this->refuse('no subject has been captured yet', $started, $commit);
@@ -179,6 +183,10 @@ final class DrillRunner
 	 */
 	public function examine(string $subject, string $commit, int $at = 0): array
 	{
+		if (!self::readsBack($subject)) {
+			return [DrillReport::SKIPPED, 'the realm holds no value this drill can read back'];
+		}
+
 		// a subject the site changed after the replayed commit cannot be judged either way
 		$sealed = $at > 0 ? $at : $this->sealedAt($commit);
 		$changed = $this->subjects->changedAt($subject);
@@ -264,7 +272,7 @@ final class DrillRunner
 			if (!array_key_exists($field, $live)) {
 				continue;
 			}
-			if ($this->normalize($stored) !== $this->normalize($live[$field])) {
+			if (Comparable::of($stored) !== Comparable::of($live[$field])) {
 				$differences[] = (string) $field;
 			}
 		}
@@ -284,6 +292,26 @@ final class DrillRunner
 			DrillReport::DIFFERED,
 			sprintf('%s differ', implode(', ', array_slice($differences, 0, 8))),
 		];
+	}
+
+	/**
+	 * Whether the live site holds a value a drill can compare this subject against.
+	 *
+	 * Code, files and table rows are stored as bytes or as a change marker rather than as a field
+	 * map, so replaying one reads as undecodable. On a real site code is the largest population by
+	 * far, and sampling it would fail every drill for a reason that is not a fault in the store.
+	 *
+	 * @param string $subject
+	 *   Subject path.
+	 *
+	 * @return bool
+	 *   TRUE for an entity, a config object or a state value.
+	 */
+	private static function readsBack(string $subject): bool
+	{
+		$realm = Realm::tryFrom((string) strstr($subject, '/', true));
+
+		return $realm === Realm::ENTITY || $realm === Realm::CONFIG || $realm === Realm::STATE;
 	}
 
 	/**
@@ -366,30 +394,6 @@ final class DrillRunner
 		return $value === null ? false : ['value' => $value];
 	}
 
-	/**
-	 * Reduces a value to something two sides can be compared on.
-	 *
-	 * A stored value has been through JSON, so an integer may come back as a string and an object as
-	 * an array. Comparing the serialized forms rather than the values themselves makes the drill
-	 * insensitive to that round trip and sensitive to what actually changed.
-	 *
-	 * @param mixed $value
-	 *   The value.
-	 *
-	 * @return string
-	 *   A comparable form.
-	 */
-	private function normalize(mixed $value): string
-	{
-		if (is_scalar($value) || $value === null) {
-			return (string) json_encode($value);
-		}
-
-		$encoded = json_encode($value);
-
-		return $encoded === false ? serialize($value) : $encoded;
-	}
-
 	#endregion
 
 	/**
@@ -455,7 +459,6 @@ final class DrillRunner
 		);
 
 		$this->ledger->record($finding);
-		$this->notifier?->findingRecorded($finding, $this->ledger->rungFor($finding->code));
 
 		$this->logger->error('Strata restore drill did not pass: @summary', [
 			'@summary' => $report->summary(),
